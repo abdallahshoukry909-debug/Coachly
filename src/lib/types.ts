@@ -1,4 +1,5 @@
 export type UserRole = 'coach' | 'client'
+export type SessionStatus = 'pending' | 'accepted' | 'completed' | 'cancelled'
 
 export interface Profile {
   id: string
@@ -13,16 +14,15 @@ export interface Profile {
 export interface Coach {
   id: string
   user_id: string
-  specialty: string[]
-  hourly_rate: number | null
+  category: string | null
+  price_per_session: number | null
   location: string | null
   years_experience: number | null
-  certifications: string[] | null
+  rating_avg: number
+  total_reviews: number
   is_verified: boolean
   created_at: string
   profiles?: Profile
-  average_rating?: number
-  review_count?: number
 }
 
 export interface Session {
@@ -31,7 +31,7 @@ export interface Session {
   client_id: string
   scheduled_at: string
   duration_minutes: number
-  status: 'pending' | 'confirmed' | 'completed' | 'cancelled'
+  status: SessionStatus
   notes: string | null
   price: number | null
   created_at: string
