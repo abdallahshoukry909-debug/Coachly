@@ -29,17 +29,16 @@ export async function proxy(request: NextRequest) {
 
   try {
     const { data: { user } } = await supabase.auth.getUser()
-
     const protectedPaths = ['/dashboard', '/sessions', '/profile']
     const isProtected = protectedPaths.some((p) => request.nextUrl.pathname.startsWith(p))
-
     if (!user && isProtected) {
       const url = request.nextUrl.clone()
       url.pathname = '/auth/login'
       return NextResponse.redirect(url)
     }
   } catch {
-    // If auth check fails, pass through — pages handle their own auth
+    // Auth check failed — let individual pages handle auth
+    return NextResponse.next({ request })
   }
 
   return supabaseResponse
