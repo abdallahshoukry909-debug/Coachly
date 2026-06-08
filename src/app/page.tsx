@@ -1,94 +1,117 @@
 import Link from "next/link";
 
+const CATEGORIES = [
+  { label: "Fitness", emoji: "💪" },
+  { label: "Business", emoji: "💼" },
+  { label: "Life", emoji: "🌱" },
+  { label: "Language", emoji: "🗣️" },
+  { label: "Career", emoji: "🚀" },
+  { label: "Nutrition", emoji: "🥗" },
+  { label: "Mindfulness", emoji: "🧘" },
+  { label: "Other", emoji: "✨" },
+]
+
 export default function Home() {
   return (
-    <div className="flex flex-col">
-      {/* Hero Section */}
-      <section className="bg-gradient-to-br from-green-50 to-emerald-100 py-24 px-4">
-        <div className="max-w-4xl mx-auto text-center">
-          <h1 className="text-5xl font-bold text-gray-900 mb-6">
-            Find Your <span className="text-green-600">Perfect Coach</span>
-          </h1>
-          <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">
-            Connect with expert coaches across fitness, business, life, and more.
-            Achieve your goals with personalized 1-on-1 coaching sessions.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+    <div className="flex flex-col min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white px-5 pt-12 pb-6">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-2xl font-bold text-gray-900">Coachly</span>
+          <div className="flex gap-2">
             <Link
-              href="/coaches"
-              className="bg-green-600 text-white px-8 py-4 rounded-lg text-lg font-semibold hover:bg-green-700 transition-colors shadow-md"
+              href="/auth/login"
+              className="text-sm font-medium text-gray-600 px-4 py-2 rounded-full border border-gray-200 hover:bg-gray-50 transition-colors"
             >
-              Find a Coach
+              Login
             </Link>
             <Link
               href="/auth/signup"
-              className="bg-white text-green-600 border-2 border-green-600 px-8 py-4 rounded-lg text-lg font-semibold hover:bg-green-50 transition-colors"
+              className="text-sm font-medium text-white bg-green-600 px-4 py-2 rounded-full hover:bg-green-700 transition-colors"
             >
-              Become a Coach
+              Sign Up
             </Link>
           </div>
         </div>
-      </section>
+        <p className="text-gray-500 text-sm">Find your perfect coach</p>
+      </div>
 
-      {/* Features Section */}
-      <section className="py-20 px-4 bg-white">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="text-3xl font-bold text-center text-gray-900 mb-12">
-            Why Choose Coachly?
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="text-center p-6 rounded-xl bg-green-50 border border-green-100">
-              <div className="w-14 h-14 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Expert Coaches</h3>
-              <p className="text-gray-600">
-                All coaches are vetted and verified. Browse profiles, specialties, and real client reviews.
-              </p>
-            </div>
-            <div className="text-center p-6 rounded-xl bg-green-50 border border-green-100">
-              <div className="w-14 h-14 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Easy Booking</h3>
-              <p className="text-gray-600">
-                Book sessions in seconds. Pick a time that works for you and your coach.
-              </p>
-            </div>
-            <div className="text-center p-6 rounded-xl bg-green-50 border border-green-100">
-              <div className="w-14 h-14 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                </svg>
-              </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Track Progress</h3>
-              <p className="text-gray-600">
-                Keep track of all your sessions, goals, and achievements in one place.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
+      {/* Hero Banner */}
+      <div className="mx-4 mt-4 bg-gradient-to-br from-green-500 to-emerald-600 rounded-3xl p-6 text-white">
+        <p className="text-green-100 text-sm font-medium mb-1">Get started today</p>
+        <h2 className="text-2xl font-bold mb-4 leading-tight">
+          Achieve your goals with expert 1-on-1 coaching
+        </h2>
+        <Link
+          href="/coaches"
+          className="inline-flex items-center gap-2 bg-white text-green-700 px-5 py-2.5 rounded-full font-semibold text-sm hover:bg-green-50 transition-colors"
+        >
+          Browse Coaches
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </Link>
+      </div>
 
-      {/* CTA Section */}
-      <section className="py-16 px-4 bg-green-600">
-        <div className="max-w-2xl mx-auto text-center">
-          <h2 className="text-3xl font-bold text-white mb-4">Ready to Start Your Journey?</h2>
-          <p className="text-green-100 text-lg mb-8">
-            Join thousands of people achieving their goals with expert coaching.
-          </p>
+      {/* Quick Actions */}
+      <div className="px-4 mt-6">
+        <h3 className="text-base font-semibold text-gray-900 mb-3">Quick Actions</h3>
+        <div className="grid grid-cols-2 gap-3">
           <Link
-            href="/auth/signup"
-            className="bg-white text-green-600 px-8 py-4 rounded-lg text-lg font-semibold hover:bg-green-50 transition-colors inline-block"
+            href="/coaches"
+            className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex flex-col gap-2 hover:shadow-md transition-shadow"
           >
-            Get Started Free
+            <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center text-xl">🔍</div>
+            <span className="font-semibold text-gray-900 text-sm">Find a Coach</span>
+            <span className="text-xs text-gray-500">Browse all coaches</span>
+          </Link>
+          <Link
+            href="/auth/signup?role=coach"
+            className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex flex-col gap-2 hover:shadow-md transition-shadow"
+          >
+            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-xl">🎯</div>
+            <span className="font-semibold text-gray-900 text-sm">Become a Coach</span>
+            <span className="text-xs text-gray-500">Start earning today</span>
           </Link>
         </div>
-      </section>
+      </div>
+
+      {/* Categories */}
+      <div className="px-4 mt-6">
+        <h3 className="text-base font-semibold text-gray-900 mb-3">Browse by Category</h3>
+        <div className="grid grid-cols-4 gap-3">
+          {CATEGORIES.map((cat) => (
+            <Link
+              key={cat.label}
+              href={`/coaches?category=${cat.label}`}
+              className="bg-white rounded-2xl p-3 border border-gray-100 shadow-sm flex flex-col items-center gap-1.5 hover:shadow-md transition-shadow"
+            >
+              <span className="text-2xl">{cat.emoji}</span>
+              <span className="text-[10px] font-medium text-gray-700 text-center leading-tight">{cat.label}</span>
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      {/* Why Coachly */}
+      <div className="px-4 mt-6 mb-8">
+        <h3 className="text-base font-semibold text-gray-900 mb-3">Why Coachly?</h3>
+        <div className="flex flex-col gap-3">
+          {[
+            { icon: "✅", title: "Verified Coaches", desc: "All coaches are reviewed and vetted" },
+            { icon: "⚡", title: "Easy Booking", desc: "Book a session in under a minute" },
+            { icon: "⭐", title: "Real Reviews", desc: "Honest ratings from real clients" },
+          ].map((item) => (
+            <div key={item.title} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-center gap-4">
+              <span className="text-2xl">{item.icon}</span>
+              <div>
+                <p className="font-semibold text-gray-900 text-sm">{item.title}</p>
+                <p className="text-xs text-gray-500">{item.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

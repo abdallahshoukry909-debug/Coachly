@@ -1,7 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
-import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -9,8 +9,14 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "Coachly - Find Your Perfect Coach",
-  description: "Connect with expert coaches for personal and professional growth",
+  title: "Coachly",
+  description: "Find your perfect coach",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -20,9 +26,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${geistSans.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-gray-50">
-        <Navbar />
-        <main className="flex-1">{children}</main>
+      <body className="min-h-full bg-gray-50">
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );
