@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -24,18 +23,24 @@ export default function LoginPage() {
       setError(error.message)
       setLoading(false)
     } else {
-      router.push('/dashboard')
+      router.push('/leads')
       router.refresh()
     }
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-white px-6 pt-16 pb-8">
-      <Link href="/" className="text-2xl font-bold text-green-600 mb-12">Coachly</Link>
-
-      <div className="flex-1">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome back</h1>
-        <p className="text-gray-500 mb-8">Sign in to your account</p>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-6">
+      <div className="w-full max-w-sm">
+        {/* Logo */}
+        <div className="text-center mb-10">
+          <div className="w-14 h-14 bg-green-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900">Factory Leads</h1>
+          <p className="text-sm text-gray-500 mt-1">Sign in to manage your leads</p>
+        </div>
 
         <form onSubmit={handleLogin} className="flex flex-col gap-4">
           <div>
@@ -46,7 +51,7 @@ export default function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               required
-              className="w-full border border-gray-200 rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-gray-50 focus:bg-white transition-colors"
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
             />
           </div>
 
@@ -58,7 +63,7 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               required
-              className="w-full border border-gray-200 rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-gray-50 focus:bg-white transition-colors"
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
             />
           </div>
 
@@ -71,19 +76,12 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="mt-2 w-full bg-green-600 text-white py-4 rounded-xl hover:bg-green-700 active:bg-green-800 transition-colors font-semibold disabled:opacity-50 text-base"
+            className="mt-1 w-full bg-green-600 text-white py-3.5 rounded-xl hover:bg-green-700 transition-colors font-semibold disabled:opacity-50"
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
       </div>
-
-      <p className="text-center text-sm text-gray-500">
-        Don&apos;t have an account?{' '}
-        <Link href="/auth/signup" className="text-green-600 font-semibold">
-          Sign up
-        </Link>
-      </p>
     </div>
   )
 }
