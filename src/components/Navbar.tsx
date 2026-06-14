@@ -51,6 +51,9 @@ export default function Navbar() {
             </Link>
             {!loading && user && (
               <>
+                <Link href="/leads" className="text-gray-600 hover:text-green-600 transition-colors font-medium">
+                  Leads
+                </Link>
                 <Link href="/sessions" className="text-gray-600 hover:text-green-600 transition-colors font-medium">
                   My Sessions
                 </Link>
@@ -102,6 +105,7 @@ export default function Navbar() {
             <Link href="/coaches" className="text-gray-600 hover:text-green-600 py-1" onClick={() => setMenuOpen(false)}>Find Coaches</Link>
             {!loading && user && (
               <>
+                <Link href="/leads" className="text-gray-600 hover:text-green-600 py-1" onClick={() => setMenuOpen(false)}>Leads</Link>
                 <Link href="/sessions" className="text-gray-600 hover:text-green-600 py-1" onClick={() => setMenuOpen(false)}>My Sessions</Link>
                 <Link href="/profile" className="text-gray-600 hover:text-green-600 py-1" onClick={() => setMenuOpen(false)}>Profile</Link>
                 <button onClick={handleSignOut} className="text-left text-red-600 py-1">Sign Out</button>
