@@ -7,6 +7,7 @@ import BottomNav from './BottomNav'
 import type { User } from '@supabase/supabase-js'
 
 const AUTH_PATHS = ['/auth/login', '/auth/signup', '/auth/callback']
+const STANDALONE_PATHS = ['/eps-inventory']
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -15,6 +16,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
 
   const isAuthPage = AUTH_PATHS.some((p) => pathname.startsWith(p))
+  const isStandalone = STANDALONE_PATHS.some((p) => pathname.startsWith(p))
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
@@ -45,6 +47,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
     return () => subscription.unsubscribe()
   }, [])
+
+  if (isStandalone) {
+    return <>{children}</>
+  }
 
   return (
     <>
