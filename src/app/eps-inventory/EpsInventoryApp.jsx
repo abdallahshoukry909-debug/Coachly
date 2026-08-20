@@ -36,7 +36,7 @@ const stageBg={"Injection":"#FFF3CD","Plastic Sorting":"#D1ECF1","Assembly":"#ED
 const INITIAL_COILS={"Aluminum Coils":[]};
 
 const isSilica=l=>(l.description||"").toLowerCase().includes("silica gel");
-const BLANK_LOT={lotNumber:"",plNo:"",date:"",supplier:"",description:"",qtyReceived:"",unit:"KG",qtyRemaining:"",unitCost:"",status:"In Stock",notes:"",image:null,usageLog:[],totalCoils:"",coilsUsed:0};
+const BLANK_LOT={lotNumber:"",plNo:"",date:"",supplier:"",description:"",qtyReceived:"",unit:"KG",qtyRemaining:"",unitCost:"",unitCostCurrency:"EGP",status:"In Stock",notes:"",image:null,usageLog:[],totalCoils:"",coilsUsed:0};
 function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
 function fmt(n){if(n===""||n==null||isNaN(Number(n)))return"—";return Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function fmtN(n){if(n==null||isNaN(Number(n)))return"—";const v=Number(n);return v>=1000?v.toLocaleString("en-US"):v.toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:2});}
@@ -67,7 +67,7 @@ function CheckBadge({actual,expected}){
 }
 
 const INITIAL_LOTS={
-  "Aluminum Coils":[1,2,3,4,5,6,7].map((n,i)=>({id:"al-"+n,lotNumber:"4115332662025120016",plNo:"25INC61201",date:"17-Dec-2025",supplier:"Shijiazhuang Yinhe Aluminum Products Co., Ltd",description:"Al Coil – Alloy 8011, H14 – 183×0.20 MM – Both Sides Clear Lacquered",qtyReceived:[899.00,762.40,880.60,880.90,712.00,578.10,213.40][i],unit:"KG",qtyRemaining:[0,762.40,880.60,0,0,578.10,0][i],unitCost:"",status:[0,762.40,880.60,0,0,578.10,0][i]>0?"In Stock":"Out of Stock",notes:"Package "+n+"/7",image:null,usageLog:[],totalCoils:n===4?5:"",coilsUsed:0})),
+  "Aluminum Coils":[1,2,3,4,5,6,7].map((n,i)=>({id:"al-"+n,lotNumber:"4115332662025120016",plNo:"25INC61201",date:"17-Dec-2025",supplier:"Shijiazhuang Yinhe Aluminum Products Co., Ltd",description:"Al Coil – Alloy 8011, H14 – 183×0.20 MM – Both Sides Clear Lacquered",qtyReceived:[899.00,762.40,880.60,880.90,712.00,578.10,213.40][i],unit:"KG",qtyRemaining:[0,762.40,880.60,0,0,578.10,0][i],unitCost:4.2526,unitCostCurrency:"USD",status:[0,762.40,880.60,0,0,578.10,0][i]>0?"In Stock":"Out of Stock",notes:"Package "+n+"/7",image:null,usageLog:[],totalCoils:n===4?5:"",coilsUsed:0})),
   "Aluminum Caps":[
     {id:"ac-0",lotNumber:"EPS-AL-260001",plNo:"EPS-AL-260001",date:"08-Jul-2026",supplier:"In-house production",description:"20mm Flip-Off Aluminum Caps – Coil lot 2512171 | First run",qtyReceived:73000,unit:"Pcs",qtyRemaining:73000,unitCost:"",status:"In Stock",notes:"73,000 pcs | Operator: Yasser Shoukry",image:null,usageLog:[]},
     {id:"ac-1",lotNumber:"EPS-AL-260002",plNo:"EPS-AL-260002",date:"19-Jul-2026",supplier:"In-house production",description:"20mm Flip-Off Aluminum Caps – Coil lot 2512171 | Box 4",qtyReceived:25,unit:"Bags",qtyRemaining:15,unitCost:"",status:"In Stock",notes:"124.05 KG total | Yasser Shoukry",image:null,usageLog:[],bags:markUsed(makeBags("EPS-AL-260002",25,5.00,"KG",{"B24":3.84,"B25":5.21}),10,"19-Jul-2026")},
@@ -92,16 +92,16 @@ const INITIAL_LOTS={
   "Plastic Material":[
     {id:"pm-1",lotNumber:"56647874",plNo:"",date:"",supplier:"",description:"Virgin Plastic Material",qtyReceived:0,unit:"Bags",qtyRemaining:0,unitCost:"",status:"Out of Stock",notes:"Recovered from prior data — receipt details incomplete",image:null,usageLog:[]},
     {id:"pm-2",lotNumber:"56647874",plNo:"",date:"",supplier:"",description:"Virgin Plastic Material",qtyReceived:0,unit:"Bags",qtyRemaining:0,unitCost:"",status:"Out of Stock",notes:"Recovered from prior data — receipt details incomplete",image:null,usageLog:[]},
-    {id:"pm-3",lotNumber:"56647874",plNo:"",date:"",supplier:"",description:"Virgin Plastic Material",qtyReceived:57,unit:"Bags",qtyRemaining:57,unitCost:"",status:"In Stock",notes:"Recovered from prior data — receipt details incomplete",image:null,usageLog:[]},
+    {id:"pm-3",lotNumber:"56647874",plNo:"",date:"",supplier:"",description:"Virgin Plastic Material",qtyReceived:57,unit:"Bags",qtyRemaining:57,unitCost:1725,unitCostCurrency:"EGP",status:"In Stock",notes:"Recovered from prior data — receipt details incomplete",image:null,usageLog:[]},
   ],
   "Sachets Paper":[
-    {id:"sp-1",lotNumber:"126020237",plNo:"WE26031002",date:"10-Mar-2026",supplier:"Jia Xing Lucky Moon Packaging Material Co., Ltd",description:"TNK30//PE25 1G – 50MM×1000M",qtyReceived:547,unit:"Rolls",qtyRemaining:547,unitCost:"",status:"In Stock",notes:"Pallet 1/2 | 27,000 m²",image:null,usageLog:[]},
-    {id:"sp-2",lotNumber:"126020237",plNo:"WE26031002",date:"10-Mar-2026",supplier:"Jia Xing Lucky Moon Packaging Material Co., Ltd",description:"TNK30//PE25 1G – 50MM×1000M",qtyReceived:51,unit:"Rolls",qtyRemaining:48,unitCost:"",status:"In Stock",notes:"Pallet 2/2 (partial)",image:null,usageLog:[{id:"sp-2-hist1",date:"19-Aug-2026",qtyUsed:3,reason:"Recovered usage",remainingAfter:48}]},
-    {id:"sp-3",lotNumber:"126020236",plNo:"WE26031002",date:"10-Mar-2026",supplier:"Jia Xing Lucky Moon Packaging Material Co., Ltd",description:"TNK30//PE25 0.5G – 44MM×1000M",qtyReceived:226,unit:"Rolls",qtyRemaining:185,unitCost:"",status:"In Stock",notes:"1 Pallet | 9,944 m²",image:null,usageLog:[{id:"sp-3-hist1",date:"19-Aug-2026",qtyUsed:41,reason:"Recovered usage",remainingAfter:185}]},
-    {id:"sp-4",lotNumber:"126020236",plNo:"WE26031002",date:"10-Mar-2026",supplier:"Jia Xing Lucky Moon Packaging Material Co., Ltd",description:"TNK30//PE25 10G – 90MM×1000M",qtyReceived:9,unit:"Rolls",qtyRemaining:9,unitCost:"",status:"In Stock",notes:"810 m²",image:null,usageLog:[]},
+    {id:"sp-1",lotNumber:"126020237",plNo:"WE26031002",date:"10-Mar-2026",supplier:"Jia Xing Lucky Moon Packaging Material Co., Ltd",description:"TNK30//PE25 1G – 50MM×1000M",qtyReceived:547,unit:"Rolls",qtyRemaining:547,unitCost:11.00,unitCostCurrency:"USD",status:"In Stock",notes:"Pallet 1/2 | 27,000 m²",image:null,usageLog:[]},
+    {id:"sp-2",lotNumber:"126020237",plNo:"WE26031002",date:"10-Mar-2026",supplier:"Jia Xing Lucky Moon Packaging Material Co., Ltd",description:"TNK30//PE25 1G – 50MM×1000M",qtyReceived:51,unit:"Rolls",qtyRemaining:48,unitCost:11.00,unitCostCurrency:"USD",status:"In Stock",notes:"Pallet 2/2 (partial)",image:null,usageLog:[{id:"sp-2-hist1",date:"19-Aug-2026",qtyUsed:3,reason:"Recovered usage",remainingAfter:48}]},
+    {id:"sp-3",lotNumber:"126020236",plNo:"WE26031002",date:"10-Mar-2026",supplier:"Jia Xing Lucky Moon Packaging Material Co., Ltd",description:"TNK30//PE25 0.5G – 44MM×1000M",qtyReceived:226,unit:"Rolls",qtyRemaining:185,unitCost:9.68,unitCostCurrency:"USD",status:"In Stock",notes:"1 Pallet | 9,944 m²",image:null,usageLog:[{id:"sp-3-hist1",date:"19-Aug-2026",qtyUsed:41,reason:"Recovered usage",remainingAfter:185}]},
+    {id:"sp-4",lotNumber:"126020236",plNo:"WE26031002",date:"10-Mar-2026",supplier:"Jia Xing Lucky Moon Packaging Material Co., Ltd",description:"TNK30//PE25 10G – 90MM×1000M",qtyReceived:9,unit:"Rolls",qtyRemaining:9,unitCost:19.80,unitCostCurrency:"USD",status:"In Stock",notes:"810 m²",image:null,usageLog:[]},
   ],
   "Silica Gel":[
-    {id:"sg-1",lotNumber:"YM0120260120",plNo:"YM012026012C",date:"20-Jan-2026",supplier:"Dongying Yiming New Materials Co., Ltd",description:"Silica Gel Beaded Type A – 25 KG/bag",qtyReceived:16000,unit:"KG",qtyRemaining:15350,unitCost:"",status:"In Stock",notes:"640 packages × 25 KG",image:null,usageLog:[{id:"sg-1-hist1",date:"19-Aug-2026",qtyUsed:650,reason:"Recovered usage",remainingAfter:15350}]},
+    {id:"sg-1",lotNumber:"YM0120260120",plNo:"YM012026012C",date:"20-Jan-2026",supplier:"Dongying Yiming New Materials Co., Ltd",description:"Silica Gel Beaded Type A – 25 KG/bag",qtyReceived:16000,unit:"KG",qtyRemaining:15350,unitCost:0.95,unitCostCurrency:"USD",status:"In Stock",notes:"640 packages × 25 KG",image:null,usageLog:[{id:"sg-1-hist1",date:"19-Aug-2026",qtyUsed:650,reason:"Recovered usage",remainingAfter:15350}]},
   ],
 };
 
@@ -252,7 +252,7 @@ function UseStockModal({lot,matConfig,onSave,onClose}){
 function LotModal({matName,matConfig,lot,onSave,onClose}){
   const [form,setForm]=useState(lot?Object.assign({},lot):Object.assign({},BLANK_LOT));
   const set=(k,v)=>setForm(f=>Object.assign({},f,{[k]:v}));
-  const fields=[["Lot Number","lotNumber","text"],["Packing List No.","plNo","text"],["Date Received","date","text"],["Supplier","supplier","text"],["Description","description","text"],["Qty Received","qtyReceived","number"],["Unit","unit","text"],["Qty Remaining","qtyRemaining","number"],["Unit Cost (EGP)","unitCost","number"],["Notes","notes","text"]];
+  const fields=[["Lot Number","lotNumber","text"],["Packing List No.","plNo","text"],["Date Received","date","text"],["Supplier","supplier","text"],["Description","description","text"],["Qty Received","qtyReceived","number"],["Unit","unit","text"],["Qty Remaining","qtyRemaining","number"],["Notes","notes","text"]];
   return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:560,maxHeight:"92vh",overflowY:"auto"}}>
       <div style={{background:matConfig.color,borderRadius:"16px 16px 0 0",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}>
@@ -261,6 +261,10 @@ function LotModal({matName,matConfig,lot,onSave,onClose}){
       <div style={{padding:24,display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
         {fields.map(f=>(<div key={f[1]} style={{gridColumn:["description","notes","supplier"].indexOf(f[1])>=0?"1/-1":"auto"}}>
           <Field label={f[0]} value={form[f[1]]==null?"":form[f[1]]} onChange={v=>set(f[1],v)} type={f[2]} accent={matConfig.accent}/></div>))}
+        <div><Field label="Unit Cost" value={form.unitCost==null?"":form.unitCost} onChange={v=>set("unitCost",v)} type="number" accent={matConfig.accent}/></div>
+        <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Currency</label>
+          <select value={form.unitCostCurrency||"EGP"} onChange={e=>set("unitCostCurrency",e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+            <option>EGP</option><option>USD</option></select></div>
         <div style={{gridColumn:"1/-1"}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:6,textTransform:"uppercase"}}>Status</label>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{Object.keys(STATUS_CONFIG).map(s=>(
             <button type="button" key={s} onClick={()=>set("status",s)} style={{padding:"7px 14px",borderRadius:20,border:"2px solid "+(form.status===s?STATUS_CONFIG[s].dot:"#E2E8F0"),background:form.status===s?STATUS_CONFIG[s].bg:"#fff",color:form.status===s?STATUS_CONFIG[s].text:"#666",fontWeight:700,fontSize:12,cursor:"pointer"}}>{s}</button>))}</div></div>
@@ -349,7 +353,7 @@ function LotDetail({lot,matConfig,onClose,onEdit,onUseStock,onDeleteUsage,onTogg
           <SBadge status={lot.status}/></div>
         <div style={{height:8,background:"#F0F0F0",borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:bar,borderRadius:4}}/></div></div>
       <div style={{margin:"0 20px 14px",borderRadius:12,border:"1.5px solid #EEF2F7",overflow:"hidden"}}>
-        {[["Supplier",lot.supplier],["Description",lot.description],["Notes",lot.notes],["Coils",lot.totalCoils?(lot.coilsUsed||0)+" of "+lot.totalCoils+" used":null]].filter(x=>x[1]).map((x,i)=>(
+        {[["Supplier",lot.supplier],["Description",lot.description],["Unit Cost",lot.unitCost?fmt(lot.unitCost)+" "+(lot.unitCostCurrency||"EGP")+" / "+lot.unit:null],["Est. Remaining Value",lot.unitCost?fmt(rem*Number(lot.unitCost))+" "+(lot.unitCostCurrency||"EGP"):null],["Notes",lot.notes],["Coils",lot.totalCoils?(lot.coilsUsed||0)+" of "+lot.totalCoils+" used":null]].filter(x=>x[1]).map((x,i)=>(
           <div key={i} style={{display:"flex",borderBottom:"1px solid #F5F7FA",padding:"9px 14px",gap:10}}>
             <div style={{fontSize:11,fontWeight:700,color:"#BBB",textTransform:"uppercase",minWidth:85}}>{x[0]}</div>
             <div style={{fontSize:12,color:"#2D3748",flex:1,lineHeight:1.5}}>{x[1]}</div></div>))}</div>
