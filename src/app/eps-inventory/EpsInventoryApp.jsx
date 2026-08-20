@@ -50,7 +50,13 @@ const diffPct=(a,b)=>b===0?0:Math.abs((a-b)/b*100);
 const makeBags=(bn,cnt,dq,qu,ov)=>{ov=ov||{};return Array.from({length:cnt},(_,i)=>{const n=pad(i+1,2);return{id:"B"+n,label:bn+"-B"+n,qty:ov["B"+n]!==undefined?ov["B"+n]:dq,qtyUnit:qu,used:false,usedDate:null};});};
 // Marks the first n bags of a freshly-made bag array as used (recovered historical usage — exact original bag order is unknown, so this is an approximation that keeps quantities exact).
 const markUsed=(bags,n,date)=>bags.map((b,i)=>i<n?Object.assign({},b,{used:true,usedDate:date||null}):b);
-function nextFONo(bs){const p="EPS-FO-"+pad(getYr(),2);const ns=bs.filter(b=>b.batchNo.indexOf(p)===0&&!b.isSubBatch).map(b=>parseInt(b.batchNo.slice(p.length))||0);return p+pad(ns.length?Math.max.apply(null,ns)+1:1,4);}
+function nextBatchNo(bs,code){const p="EPS-"+code+"-"+pad(getYr(),2);const ns=bs.filter(b=>b.batchNo.indexOf(p)===0&&!b.isSubBatch).map(b=>parseInt(b.batchNo.slice(p.length))||0);return p+pad(ns.length?Math.max.apply(null,ns)+1:1,4);}
+const PRODUCT_META={
+  "Flip-Off Caps 20mm":{code:"FO",variantLabel:"Cap Colour",sizes:null,lines:null},
+  "Silica Gel Capsules":{code:"SC",variantLabel:"Size",sizes:["0.3g","0.5g","1g"],lines:["Line 1","Line 2","Line 3"]},
+  "Silica Gel Sachets":{code:"SS",variantLabel:"Size",sizes:["0.5g","1g","10g"],lines:["Line 1","Line 2"]},
+};
+const PRODUCTS=Object.keys(PRODUCT_META);
 function nextOrdNo(os){const p="EPS-ORD-"+pad(getYr(),2);const ns=os.filter(o=>o.orderNo.indexOf(p)===0).map(o=>parseInt(o.orderNo.slice(p.length))||0);return p+pad(ns.length?Math.max.apply(null,ns)+1:1,4);}
 
 function CheckBadge({actual,expected}){
@@ -746,24 +752,38 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub}
 
 // ══ BATCH FORM / CARD / PRODUCTION ════════════════════════════════════════
 function BatchForm({batches,orders,onSave,onCancel}){
-  const [color,setColor]=useState(""),[client,setClient]=useState(""),[cartons,setCartons]=useState("4");
+  const [product,setProduct]=useState("Flip-Off Caps 20mm");
+  const meta=PRODUCT_META[product];
+  const [variant,setVariant]=useState(""),[line,setLine]=useState(meta.lines?meta.lines[0]:"");
+  const [client,setClient]=useState(""),[cartons,setCartons]=useState("4");
   const [bpc,setBpc]=useState("2"),[ppb,setPpb]=useState("5000"),[partial,setPartial]=useState("0");
   const [mfgDate,setMfgDate]=useState(new Date().toISOString().split("T")[0]);
+  const [expDate,setExpDate]=useState("");
   const [status,setStatus]=useState("Production"),[orderNo,setOrderNo]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
-  const preview=nextFONo(batches);
+  const preview=nextBatchNo(batches,meta.code);
   const c=Number(cartons)||0,b=Number(bpc)||0,p=Number(ppb)||0,pt=Number(partial)||0;
   const totalPcs=c*b*p+pt*p;
-  const save=()=>{if(!color.trim()){setErr("Cap color is required.");return;}if(c<1){setErr("At least 1 carton.");return;}
-    onSave({id:genId(),batchNo:preview,isSubBatch:false,parentBatchNo:null,product:"Flip-Off Caps 20mm",status:status,
-      color:color.trim(),cartons:c,bagsPerCarton:b,pcsPerBag:p,partialCartonBags:pt,totalPcs:totalPcs,
-      mfgDate:mfgDate,client:client.trim(),orderNo:orderNo||null,notes:notes.trim(),createdAt:today()});};
+  const changeProduct=v=>{const m=PRODUCT_META[v];setProduct(v);setVariant("");setLine(m.lines?m.lines[0]:"");setErr("");};
+  const save=()=>{if(!variant.trim()){setErr(meta.variantLabel+" is required.");return;}if(c<1){setErr("At least 1 carton.");return;}
+    onSave({id:genId(),batchNo:preview,isSubBatch:false,parentBatchNo:null,product:product,status:status,
+      color:variant.trim(),line:meta.lines?line:"",cartons:c,bagsPerCarton:b,pcsPerBag:p,partialCartonBags:pt,totalPcs:totalPcs,
+      mfgDate:mfgDate,expiryDate:expDate,client:client.trim(),orderNo:orderNo||null,notes:notes.trim(),createdAt:today()});};
   return(<div style={{maxWidth:700,fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:NAVY,borderRadius:"12px 12px 0 0",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-      <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>Create Flip-Off Cap Batch</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12,fontFamily:"monospace"}}>{preview}</div></div>
+      <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>Create Batch</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12,fontFamily:"monospace"}}>{preview}</div></div>
       <button type="button" onClick={onCancel} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:13}}>Cancel</button></div>
     <div style={{background:"#fff",borderRadius:"0 0 12px 12px",border:"1.5px solid #EEF2F7",borderTop:"none",padding:20}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-        <Field label="Cap Color *" value={color} onChange={v=>{setColor(v);setErr("");}} ph="e.g. Blue"/>
+        <div style={{gridColumn:"1/-1"}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Product</label>
+          <select value={product} onChange={e=>changeProduct(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+            {PRODUCTS.map(pr=><option key={pr}>{pr}</option>)}</select></div>
+        {meta.sizes?(<div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{meta.variantLabel} *</label>
+          <select value={variant} onChange={e=>{setVariant(e.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+            <option value="">— select —</option>{meta.sizes.map(s=><option key={s}>{s}</option>)}</select></div>)
+        :(<Field label={meta.variantLabel+" *"} value={variant} onChange={v=>{setVariant(v);setErr("");}} ph="e.g. Blue"/>)}
+        {meta.lines&&<div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Production Line</label>
+          <select value={line} onChange={e=>setLine(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+            {meta.lines.map(l=><option key={l}>{l}</option>)}</select></div>}
         <Field label="Client" value={client} onChange={setClient} ph="e.g. Pharco"/>
         <Field label="Cartons" value={cartons} onChange={setCartons} type="number"/>
         <Field label="Bags per Carton" value={bpc} onChange={setBpc} type="number"/>
@@ -771,6 +791,8 @@ function BatchForm({batches,orders,onSave,onCancel}){
         <Field label="Partial Final Carton (bags)" value={partial} onChange={setPartial} type="number"/>
         <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Mfg. Date</label>
           <input type="date" value={mfgDate} onChange={e=>setMfgDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+        <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{product==="Flip-Off Caps 20mm"?"Retest Date (optional)":"Expiry Date"}</label>
+          <input type="date" value={expDate} onChange={e=>setExpDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
         <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Status</label>
           <select value={status} onChange={e=>setStatus(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>{BSTATUSES.map(s=><option key={s}>{s}</option>)}</select></div>
         <div style={{gridColumn:"1/-1"}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Link to Order</label>
@@ -800,7 +822,7 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts}){
             <span style={{fontFamily:"monospace",fontWeight:700,fontSize:14,color:NAVY}}>{batch.batchNo}</span>
             <span style={{display:"inline-flex",alignItems:"center",gap:4,background:cfg.bg,color:cfg.text,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700}}>
               <span style={{width:6,height:6,borderRadius:"50%",background:cfg.dot}}/>{batch.status}</span></div>
-          <div style={{fontSize:12,color:"#666"}}>{batch.color?batch.color+" · ":""}{batch.cartons} cartons · <strong>{fmtN(batch.totalPcs)} pcs</strong>{batch.client?" · "+batch.client:""}</div>
+          <div style={{fontSize:12,color:"#666"}}>{batch.product&&batch.product!=="Flip-Off Caps 20mm"?batch.product+" · ":""}{batch.color?batch.color+" · ":""}{batch.line?batch.line+" · ":""}{batch.cartons} cartons · <strong>{fmtN(batch.totalPcs)} pcs</strong>{batch.client?" · "+batch.client:""}</div>
           {batch.orderNo&&<div style={{fontSize:11,color:"#888",marginTop:2}}>Order: <span style={{fontFamily:"monospace",color:NAVY}}>{batch.orderNo}</span></div>}
           {subs.length>0&&<div style={{marginTop:6}}>
             <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#888",marginBottom:3}}>
