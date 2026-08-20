@@ -740,8 +740,65 @@ function FinalSortingForm({sub,existing,onSave,onCancel}){
 }
 
 // ══ SHIFT MANAGER ═════════════════════════════════════════════════════════
+// Logs leftover material from a different (usually earlier) batch of the same color as a
+// shift on THIS batch, dropped in at whichever stage it's already reached — no fresh material
+// draw, since it was already consumed under the original batch.
+function CarryoverForm({parentBatch,batches,onSave,onCancel}){
+  const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch);
+  const subNo=parentBatch.batchNo+"-"+String.fromCharCode(65+mySubs.length);
+  const sourceOptions=batches.filter(b=>!b.isSubBatch&&b.batchNo!==parentBatch.batchNo);
+  const [sourceBatchNo,setSourceBatchNo]=useState(""),[type,setType]=useState("plastic");
+  const [qty,setQty]=useState(""),[cartons,setCartons]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
+  const bpc=Number(parentBatch.bagsPerCarton)||0,ppb=Number(parentBatch.pcsPerBag)||0;
+  const cartonPcs=type==="finished"?Number(cartons)||0:0;
+  const effectiveQty=cartonPcs>0?cartonPcs*bpc*ppb:Number(qty)||0;
+  const TYPES=[["plastic","Sorted plastic — ready for Assembly"],["assembled","Assembled — ready for Final Sorting"],["finished","Finished goods — fully packed, ready to ship"]];
+  const save=()=>{
+    if(!sourceBatchNo){setErr("Select which batch this carried over from.");return;}
+    if(effectiveQty<=0){setErr("Enter a quantity.");return;}
+    const base={id:genId(),batchNo:subNo,isSubBatch:true,parentBatchNo:parentBatch.batchNo,product:parentBatch.product,
+      color:parentBatch.color,client:parentBatch.client,orderNo:parentBatch.orderNo,
+      cartons:0,bagsPerCarton:0,pcsPerBag:0,partialCartonBags:0,
+      mfgDate:parentBatch.mfgDate,shift:null,operator:"",
+      isCarryover:true,carryoverFrom:sourceBatchNo,
+      notes:"Carried over from "+sourceBatchNo+(notes?" — "+notes:""),createdAt:today()};
+    let payload;
+    if(type==="plastic")payload=Object.assign({},base,{stage:"Assembly",status:"Assembly",
+      acceptedWeightKg:pcsToKg(effectiveQty,CAP_WT),acceptedPcs:effectiveQty,rejectedWeightKg:0,rejectedPcs:0,sortingDate:today(),aluminumSelections:[]});
+    else if(type==="assembled")payload=Object.assign({},base,{stage:"Final Sorting",status:"Final Sorting",
+      assembledWeightKg:pcsToKg(effectiveQty,ASM_WT),assembledPcs:effectiveQty,assemblyDate:today()});
+    else payload=Object.assign({},base,{stage:"Complete",status:"Complete",
+      assembledWeightKg:pcsToKg(effectiveQty,ASM_WT),assembledPcs:effectiveQty,assemblyDate:today(),
+      finalAcceptedKg:pcsToKg(effectiveQty,ASM_WT),finalRejectedKg:0,finalAcceptedPcs:effectiveQty,finalRejectedPcs:0,
+      finalSortDate:today(),finalSortOperator:"",goodPcs:effectiveQty,totalPcs:effectiveQty});
+    onSave(payload);
+  };
+  return(<div style={{maxWidth:640,fontFamily:"'Inter',sans-serif"}}>
+    <div style={{background:"#4A6741",borderRadius:"12px 12px 0 0",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>↩️ Log Carryover — {subNo}</div><div style={{color:"rgba(255,255,255,0.65)",fontSize:12}}>Leftover from a previous batch of this color</div></div>
+      <button type="button" onClick={onCancel} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:13}}>Cancel</button></div>
+    <div style={{background:"#fff",borderRadius:"0 0 12px 12px",border:"1.5px solid #EEF2F7",borderTop:"none",padding:20}}>
+      <div style={{marginBottom:14}}>
+        <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Carried Over From Batch</label>
+        <select value={sourceBatchNo} onChange={e=>{setSourceBatchNo(e.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+          <option value="">— select batch —</option>
+          {sourceOptions.map(b=><option key={b.id} value={b.batchNo}>{b.batchNo} · {b.color}{b.client?" · "+b.client:""}</option>)}</select></div>
+      <div style={{marginBottom:14}}>
+        <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>What Stage Is It At?</label>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {TYPES.map(t=>(<div key={t[0]} onClick={()=>{setType(t[0]);setErr("");}} style={{padding:"10px 14px",borderRadius:9,border:"2px solid "+(type===t[0]?"#4A6741":"#E2E8F0"),background:type===t[0]?"#EEF3EC":"#fff",cursor:"pointer",fontSize:13,fontWeight:type===t[0]?700:500,color:type===t[0]?"#4A6741":"#444"}}>{t[1]}</div>))}</div></div>
+      {type==="finished"?(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+        <Field label="Cartons" value={cartons} onChange={v=>{setCartons(v);setErr("");}} type="number" ph="e.g. 6" accent="#4A6741"/>
+        <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>= Pcs</label>
+          <div style={{padding:"9px 12px",background:"#F7F9FC",borderRadius:8,fontSize:13,color:"#555"}}>{bpc&&ppb?fmtN(cartonPcs*bpc*ppb):"set cartons/bags/pcs on "+parentBatch.batchNo+" first"}</div></div></div>)
+      :(<div style={{marginBottom:14}}><Field label="Quantity (Pcs) *" value={qty} onChange={v=>{setQty(v);setErr("");}} type="number" ph="e.g. 15000" accent="#4A6741"/></div>)}
+      <div style={{marginBottom:18}}><Field label="Notes (optional)" value={notes} onChange={setNotes} accent="#4A6741"/></div>
+      {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
+      <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#4A6741",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Log Carryover</button>
+    </div></div>);
+}
 function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub}){
-  const [form,setForm]=useState(null);      // {mode:"new"} | {subId, stage, editing:bool}
+  const [form,setForm]=useState(null);      // {mode:"new"} | {mode:"carryover"} | {subId, stage, editing:bool}
   const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch).sort((a,b)=>a.batchNo.localeCompare(b.batchNo));
   const totalGood=mySubs.reduce((s,b)=>s+(b.goodPcs||0),0);
   const target=parentBatch.totalPcs||0;
@@ -753,6 +810,7 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub}
   const close=()=>setForm(null);
 
   if(form&&form.mode==="new")return <InjectionForm parentBatch={parentBatch} batches={batches} data={data} onSave={(b,m)=>{onCreateSub(b,m);close();}} onCancel={close}/>;
+  if(form&&form.mode==="carryover")return <CarryoverForm parentBatch={parentBatch} batches={batches} onSave={b=>{onCreateSub(b);close();}} onCancel={close}/>;
   if(cur&&form.stage==="Injection")return <InjectionForm parentBatch={parentBatch} batches={batches} data={data} existing={cur} onSave={(b,m)=>{onUpdateSub(b,m,cur);close();}} onCancel={close}/>;
   if(cur&&form.stage==="Plastic Sorting")return <PlasticSortingForm sub={cur} existing={form.editing} onSave={u=>{onUpdateSub(u,null,cur);close();}} onCancel={close}/>;
   if(cur&&form.stage==="Assembly")return <AssemblyForm sub={cur} data={data} existing={form.editing} onSave={(u,m)=>{onUpdateSub(u,m,cur);close();}} onCancel={close}/>;
@@ -793,7 +851,8 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
               <div><span style={{fontFamily:"monospace",fontWeight:800,fontSize:14,color:NAVY}}>{sub.batchNo}</span>
                 <span style={{background:sbg,color:sc,borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700,marginLeft:8}}>{sub.stage}</span>
-                {sub.shift&&<span style={{fontSize:11,color:"#888",marginLeft:8}}>{sub.shift} · {sub.mfgDate}</span>}</div>
+                {sub.shift&&<span style={{fontSize:11,color:"#888",marginLeft:8}}>{sub.shift} · {sub.mfgDate}</span>}
+                {sub.isCarryover&&<span style={{background:"#EEF3EC",color:"#4A6741",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700,marginLeft:8}}>↩️ from {sub.carryoverFrom}</span>}</div>
               {sub.stage!=="Complete"&&<button type="button" onClick={()=>setForm({subId:sub.id,stage:sub.stage,editing:false})} style={{background:sc,color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>Enter {sub.stage} →</button>}</div>
             <div style={{display:"flex",gap:4,marginTop:8,marginBottom:8}}>
               {STAGES.slice(0,4).map((s,i)=><div key={s} style={{flex:1,height:4,borderRadius:2,background:sub.stage==="Complete"||i<idx?"#22A03A":i===idx?stageColor[s]:"#E2E8F0"}}/>)}</div>
@@ -809,7 +868,9 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub}
               {sub.goodPcs?<span style={{fontWeight:700,color:"#1A6B2A"}}>📦 {sub.goodPcs.toLocaleString()} packed</span>:null}</div>
           </div>);})}
       </div>
-      <button type="button" onClick={()=>setForm({mode:"new"})} style={{width:"100%",padding:13,background:"linear-gradient(135deg,"+NAVY+","+ACCENT+")",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer"}}>+ New Shift ({String.fromCharCode(65+mySubs.length)})</button>
+      <div style={{display:"flex",gap:8}}>
+        <button type="button" onClick={()=>setForm({mode:"new"})} style={{flex:2,padding:13,background:"linear-gradient(135deg,"+NAVY+","+ACCENT+")",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer"}}>+ New Shift ({String.fromCharCode(65+mySubs.length)})</button>
+        <button type="button" onClick={()=>setForm({mode:"carryover"})} style={{flex:1,padding:13,background:"#fff",color:"#4A6741",border:"1.5px solid #4A6741",borderRadius:10,fontWeight:800,fontSize:13,cursor:"pointer"}}>↩️ Carryover</button></div>
     </div></div>);
 }
 
