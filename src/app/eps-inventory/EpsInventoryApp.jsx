@@ -276,7 +276,7 @@ function LotModal({matName,matConfig,lot,onSave,onClose}){
 // tool didn't have between the two materials.
 function AluminumBatchForm({capsLots,coilLots,matConfig,onSave,onClose}){
   const preview=nextAlLotNo(capsLots);
-  const [coilLotId,setCoilLotId]=useState(""),[boxNo,setBoxNo]=useState("");
+  const [coilLotId,setCoilLotId]=useState(""),[coilNumber,setCoilNumber]=useState("");
   const [weightTaken,setWeightTaken]=useState(""),[qty,setQty]=useState(""),[unit,setUnit]=useState("Pcs");
   const [date,setDate]=useState(new Date().toISOString().split("T")[0]);
   const [operator,setOperator]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
@@ -289,10 +289,10 @@ function AluminumBatchForm({capsLots,coilLots,matConfig,onSave,onClose}){
     if(!qty||Number(qty)<=0){setErr("Enter the quantity produced.");return;}
     const dispDate=new Date(date+"T00:00:00").toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}).replace(/ /g,"-");
     const newLot={id:genId(),lotNumber:preview,plNo:preview,date:dispDate,supplier:"In-house production",
-      description:"20mm Flip-Off Aluminum Caps – Coil lot "+coil.lotNumber+(boxNo?" | "+boxNo:""),
+      description:"20mm Flip-Off Aluminum Caps – Coil lot "+coil.lotNumber+(coilNumber?" | Coil "+coilNumber:""),
       qtyReceived:Number(qty),unit:unit,qtyRemaining:Number(qty),unitCost:"",status:"In Stock",
       notes:(operator?"Operator: "+operator:"")+(coil.notes?" | Source: "+coil.notes:""),image:null,usageLog:[]};
-    onSave(newLot,{coilLotId:coilLotId,weightTaken:wt,boxNo:boxNo});
+    onSave(newLot,{coilLotId:coilLotId,weightTaken:wt,coilNumber:coilNumber});
   };
   return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:560,maxHeight:"92vh",overflowY:"auto"}}>
@@ -309,7 +309,7 @@ function AluminumBatchForm({capsLots,coilLots,matConfig,onSave,onClose}){
               {coilLots.filter(l=>Number(l.qtyRemaining)>0).map(l=><option key={l.id} value={l.id}>{l.notes||l.lotNumber} · {fmt(l.qtyRemaining)} KG left</option>)}</select>
             {coilLots.filter(l=>Number(l.qtyRemaining)>0).length===0&&<div style={{fontSize:11,color:"#DC3545",marginTop:5,fontWeight:600}}>⚠️ No aluminum coil lots with stock remaining.</div>}</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            <Field label="Box No." value={boxNo} onChange={setBoxNo} ph="e.g. Box 7" accent={matConfig.accent}/>
+            <Field label="Coil Number" value={coilNumber} onChange={setCoilNumber} ph="e.g. Coil 24" accent={matConfig.accent}/>
             <Field label="Weight Taken (KG) *" value={weightTaken} onChange={v=>{setWeightTaken(v);setErr("");}} type="number" ph="0.00" accent={matConfig.accent}/></div>
           {coil&&<div style={{fontSize:11,color:matConfig.color,marginTop:8}}>{fmt(availKg)} KG available on this lot right now</div>}</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
@@ -1219,7 +1219,7 @@ export default function EpsInventoryApp(){
         const rem=Math.max(0,(Number(l.qtyRemaining)||0)-consumption.weightTaken);
         const rec=Number(l.qtyReceived)||rem;
         const ns=rem<=0?"Out of Stock":rem<=rec*0.15?"Low Stock":l.status;
-        return Object.assign({},l,{qtyRemaining:rem,status:ns,usageLog:(l.usageLog||[]).concat([{id:genId(),date:today(),qtyUsed:consumption.weightTaken,reason:"Stamped into "+newLot.lotNumber+(consumption.boxNo?" ("+consumption.boxNo+")":""),remainingAfter:rem}])});
+        return Object.assign({},l,{qtyRemaining:rem,status:ns,usageLog:(l.usageLog||[]).concat([{id:genId(),date:today(),qtyUsed:consumption.weightTaken,reason:"Stamped into "+newLot.lotNumber+(consumption.coilNumber?" (Coil "+consumption.coilNumber+")":""),remainingAfter:rem}])});
       });
       return Object.assign({},d,{"Aluminum Caps":caps,"Aluminum Coils":Object.assign({},d["Aluminum Coils"],{lots:coilLots})});
     });
