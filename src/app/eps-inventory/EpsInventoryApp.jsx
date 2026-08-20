@@ -51,6 +51,7 @@ const makeBags=(bn,cnt,dq,qu,ov)=>{ov=ov||{};return Array.from({length:cnt},(_,i
 // Marks the first n bags of a freshly-made bag array as used (recovered historical usage — exact original bag order is unknown, so this is an approximation that keeps quantities exact).
 const markUsed=(bags,n,date)=>bags.map((b,i)=>i<n?Object.assign({},b,{used:true,usedDate:date||null}):b);
 function nextBatchNo(bs,code){const p="EPS-"+code+"-"+pad(getYr(),2);const ns=bs.filter(b=>b.batchNo.indexOf(p)===0&&!b.isSubBatch).map(b=>parseInt(b.batchNo.slice(p.length))||0);return p+pad(ns.length?Math.max.apply(null,ns)+1:1,4);}
+function nextAlLotNo(lots){const p="EPS-AL-"+pad(getYr(),2);const ns=lots.filter(l=>(l.lotNumber||"").indexOf(p)===0).map(l=>parseInt((l.lotNumber||"").slice(p.length))||0);return p+pad(ns.length?Math.max.apply(null,ns)+1:1,4);}
 const PRODUCT_META={
   "Flip-Off Caps 20mm":{code:"FO",variantLabel:"Cap Colour",sizes:null,lines:null},
   "Silica Gel Capsules":{code:"SC",variantLabel:"Size",sizes:["0.3g","0.5g","1g"],lines:["Line 1","Line 2","Line 3"]},
@@ -270,6 +271,62 @@ function LotModal({matName,matConfig,lot,onSave,onClose}){
         <button type="button" onClick={()=>onSave(form)} style={{padding:"10px 24px",borderRadius:8,border:"none",background:matConfig.accent,color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13}}>{lot?"Save Changes":"Add Lot"}</button></div>
     </div></div>);
 }
+// Creates a new Aluminum Caps lot (this batch's output) while deducting the coil weight
+// it was stamped from out of the matching Aluminum Coils lot — the link the old Notion
+// tool didn't have between the two materials.
+function AluminumBatchForm({capsLots,coilLots,matConfig,onSave,onClose}){
+  const preview=nextAlLotNo(capsLots);
+  const [coilLotId,setCoilLotId]=useState(""),[boxNo,setBoxNo]=useState("");
+  const [weightTaken,setWeightTaken]=useState(""),[qty,setQty]=useState(""),[unit,setUnit]=useState("Pcs");
+  const [date,setDate]=useState(new Date().toISOString().split("T")[0]);
+  const [operator,setOperator]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
+  const coil=coilLotId?coilLots.filter(l=>l.id===coilLotId)[0]:null;
+  const wt=Number(weightTaken)||0,availKg=coil?Number(coil.qtyRemaining)||0:0;
+  const save=()=>{
+    if(!coilLotId){setErr("Select which coil lot this was stamped from.");return;}
+    if(wt<=0){setErr("Enter the weight taken from the coil.");return;}
+    if(wt>availKg){setErr("Only "+fmt(availKg)+" KG remaining on that coil lot.");return;}
+    if(!qty||Number(qty)<=0){setErr("Enter the quantity produced.");return;}
+    const dispDate=new Date(date+"T00:00:00").toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}).replace(/ /g,"-");
+    const newLot={id:genId(),lotNumber:preview,plNo:preview,date:dispDate,supplier:"In-house production",
+      description:"20mm Flip-Off Aluminum Caps – Coil lot "+coil.lotNumber+(boxNo?" | "+boxNo:""),
+      qtyReceived:Number(qty),unit:unit,qtyRemaining:Number(qty),unitCost:"",status:"In Stock",
+      notes:(operator?"Operator: "+operator:"")+(coil.notes?" | Source: "+coil.notes:""),image:null,usageLog:[]};
+    onSave(newLot,{coilLotId:coilLotId,weightTaken:wt,boxNo:boxNo});
+  };
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:560,maxHeight:"92vh",overflowY:"auto"}}>
+      <div style={{background:matConfig.color,borderRadius:"16px 16px 0 0",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>New Aluminum Batch</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12,fontFamily:"monospace"}}>{preview}</div></div>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
+      <div style={{padding:24}}>
+        <div style={{background:matConfig.light,borderRadius:10,padding:14,marginBottom:16}}>
+          <div style={{fontWeight:700,fontSize:13,color:matConfig.color,marginBottom:10}}>Coil consumed</div>
+          <div style={{marginBottom:10}}>
+            <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Coil Lot</label>
+            <select value={coilLotId} onChange={e=>{setCoilLotId(e.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+              <option value="">— select coil lot —</option>
+              {coilLots.filter(l=>Number(l.qtyRemaining)>0).map(l=><option key={l.id} value={l.id}>{l.notes||l.lotNumber} · {fmt(l.qtyRemaining)} KG left</option>)}</select>
+            {coilLots.filter(l=>Number(l.qtyRemaining)>0).length===0&&<div style={{fontSize:11,color:"#DC3545",marginTop:5,fontWeight:600}}>⚠️ No aluminum coil lots with stock remaining.</div>}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Field label="Box No." value={boxNo} onChange={setBoxNo} ph="e.g. Box 7" accent={matConfig.accent}/>
+            <Field label="Weight Taken (KG) *" value={weightTaken} onChange={v=>{setWeightTaken(v);setErr("");}} type="number" ph="0.00" accent={matConfig.accent}/></div>
+          {coil&&<div style={{fontSize:11,color:matConfig.color,marginTop:8}}>{fmt(availKg)} KG available on this lot right now</div>}</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+          <Field label="Qty Produced *" value={qty} onChange={v=>{setQty(v);setErr("");}} type="number" ph="e.g. 15000" accent={matConfig.accent}/>
+          <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Unit</label>
+            <select value={unit} onChange={e=>setUnit(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+              <option>Pcs</option><option>Bags</option><option>KG</option></select></div>
+          <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date</label>
+            <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+          <Field label="Operator" value={operator} onChange={setOperator} ph="Name" accent={matConfig.accent}/></div>
+        <div style={{marginBottom:18}}><Field label="Notes" value={notes} onChange={setNotes} accent={matConfig.accent}/></div>
+        {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
+        {coil&&wt>0&&!err&&<div style={{background:"#E8F5E9",border:"1px solid #A5D6A7",borderRadius:8,padding:"9px 12px",marginBottom:14,fontSize:12,color:"#1A6B2A",fontWeight:600}}>
+          On save: <strong>{fmt(wt)} KG</strong> deducted from <strong>{coil.lotNumber}</strong> → {fmt(Math.max(0,availKg-wt))} KG left</div>}
+        <button type="button" onClick={save} style={{width:"100%",padding:13,background:matConfig.accent,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Aluminum Batch</button>
+      </div></div></div>);
+}
 function LotDetail({lot,matConfig,onClose,onEdit,onUseStock,onDeleteUsage,onToggleBag}){
   const rem=Number(lot.qtyRemaining)||0,rec=Number(lot.qtyReceived)||0;
   const pct=rec?Math.min(100,(rem/rec)*100):0;
@@ -392,9 +449,11 @@ function ActiveCoilTracker({coils,boxLots,matConfig,onStart,onMeasure,onFinish})
 }
 
 // ══ MATERIAL VIEW ═════════════════════════════════════════════════════════
-function MaterialView({matName,matConfig,lots,coils,onUpdate,onDelete,onAdd,onBack,onStartCoil,onMeasureCoil,onFinishCoil,onToggleBag}){
+function MaterialView({matName,matConfig,lots,coils,coilLots,onUpdate,onDelete,onAdd,onBack,onStartCoil,onMeasureCoil,onFinishCoil,onToggleBag,onCreateAlBatch}){
   const [editLot,setEditLot]=useState(null),[showAdd,setShowAdd]=useState(false),[detailId,setDetailId]=useState(null);
   const [useStock,setUseStock]=useState(null),[search,setSearch]=useState(""),[confirmDel,setConfirmDel]=useState(null),[coilModal,setCoilModal]=useState(null);
+  const [showAlBatch,setShowAlBatch]=useState(false);
+  const isAlCaps=matName==="Aluminum Caps";
   const filtered=lots.filter(l=>[l.lotNumber,l.plNo,l.description,l.supplier,l.status].some(v=>(v||"").toLowerCase().indexOf(search.toLowerCase())>=0));
   const totalQty=lots.reduce((s,l)=>s+(Number(l.qtyRemaining)||0),0);
   const unit=lots.length?lots[0].unit:"KG";
@@ -404,7 +463,9 @@ function MaterialView({matName,matConfig,lots,coils,onUpdate,onDelete,onAdd,onBa
       <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
         <button type="button" onClick={onBack} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13}}>← Back</button>
         <div style={{flex:1,color:"#fff",fontWeight:800,fontSize:17}}>{matConfig.emoji} {matName}</div>
-        <button type="button" onClick={()=>setShowAdd(true)} style={{background:"#fff",border:"none",color:matConfig.color,borderRadius:9,padding:"9px 16px",fontWeight:800,fontSize:13,cursor:"pointer"}}>+ Add Lot</button></div>
+        <div style={{display:"flex",gap:6}}>
+          {isAlCaps&&<button type="button" onClick={()=>setShowAlBatch(true)} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",color:"#fff",borderRadius:9,padding:"9px 16px",fontWeight:800,fontSize:13,cursor:"pointer"}}>+ New Batch</button>}
+          <button type="button" onClick={()=>setShowAdd(true)} style={{background:"#fff",border:"none",color:matConfig.color,borderRadius:9,padding:"9px 16px",fontWeight:800,fontSize:13,cursor:"pointer"}}>+ Add Lot</button></div></div>
       <div style={{background:matConfig.accent}}><div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
         {[["Lots",lots.length],["In Stock",lots.filter(l=>l.status==="In Stock").length],["Remaining",fmtN(totalQty)+" "+unit]].map((x,i)=>(
           <div key={i} style={{flex:1,padding:"8px 12px",borderRight:i<2?"1px solid rgba(255,255,255,0.15)":"none"}}>
@@ -449,6 +510,8 @@ function MaterialView({matName,matConfig,lots,coils,onUpdate,onDelete,onAdd,onBa
       onSave={form=>{if(editLot)onUpdate(Object.assign({},form,{id:editLot.id}));else onAdd(Object.assign({},form,{id:genId()}));setShowAdd(false);setEditLot(null);}}/>}
     {coilModal&&<CoilModal mode={coilModal} coil={coils.filter(c=>c.status==="active")[0]} boxLots={lots} matConfig={matConfig}
       onClose={()=>setCoilModal(null)} onSave={p=>{if(coilModal==="start")onStartCoil(p);else onMeasureCoil(p);setCoilModal(null);}}/>}
+    {showAlBatch&&<AluminumBatchForm capsLots={lots} coilLots={coilLots||[]} matConfig={matConfig}
+      onClose={()=>setShowAlBatch(false)} onSave={(newLot,consumption)=>{onCreateAlBatch(newLot,consumption);setShowAlBatch(false);}}/>}
     {confirmDel&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:"#fff",borderRadius:14,padding:26,maxWidth:300,width:"100%",textAlign:"center"}}>
         <div style={{fontSize:32,marginBottom:10}}>🗑</div><div style={{fontWeight:800,fontSize:15,marginBottom:6}}>Delete this lot?</div>
@@ -1146,6 +1209,22 @@ export default function EpsInventoryApp(){
   const updateLot=(mat,u)=>{setData(d=>Object.assign({},d,{[mat]:Object.assign({},d[mat],{lots:d[mat].lots.map(l=>l.id===u.id?u:l)})}));showToast("Saved ✓");};
   const deleteLot=(mat,id)=>{setData(d=>Object.assign({},d,{[mat]:Object.assign({},d[mat],{lots:d[mat].lots.filter(l=>l.id!==id)})}));showToast("Deleted","error");};
   const addLot=(mat,lot)=>{setData(d=>Object.assign({},d,{[mat]:Object.assign({},d[mat],{lots:d[mat].lots.concat([lot])})}));showToast("Added ✓");};
+  // Creates a new Aluminum Caps lot and deducts the coil weight it consumed from the
+  // matching Aluminum Coils lot in the same update, so the two materials stay in sync.
+  const createAlBatch=(newLot,consumption)=>{
+    setData(d=>{
+      const caps=Object.assign({},d["Aluminum Caps"],{lots:d["Aluminum Caps"].lots.concat([newLot])});
+      const coilLots=d["Aluminum Coils"].lots.map(l=>{
+        if(l.id!==consumption.coilLotId)return l;
+        const rem=Math.max(0,(Number(l.qtyRemaining)||0)-consumption.weightTaken);
+        const rec=Number(l.qtyReceived)||rem;
+        const ns=rem<=0?"Out of Stock":rem<=rec*0.15?"Low Stock":l.status;
+        return Object.assign({},l,{qtyRemaining:rem,status:ns,usageLog:(l.usageLog||[]).concat([{id:genId(),date:today(),qtyUsed:consumption.weightTaken,reason:"Stamped into "+newLot.lotNumber+(consumption.boxNo?" ("+consumption.boxNo+")":""),remainingAfter:rem}])});
+      });
+      return Object.assign({},d,{"Aluminum Caps":caps,"Aluminum Coils":Object.assign({},d["Aluminum Coils"],{lots:coilLots})});
+    });
+    showToast(newLot.lotNumber+" created ✓ · "+fmt(consumption.weightTaken)+" KG deducted from coil");
+  };
   const toggleBag=(mat,lotId,bagId)=>{setData(d=>{
     const lots=d[mat].lots.map(lot=>{if(lot.id!==lotId||!lot.bags)return lot;
       const nb=lot.bags.map(b=>b.id===bagId?Object.assign({},b,{used:!b.used,usedDate:!b.used?today():null}):b);
@@ -1224,9 +1303,10 @@ export default function EpsInventoryApp(){
   else if(section==="orders")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
     <OrdersSection batches={batches} orders={orders} onCreateOrder={createOrder} onDeleteOrder={deleteOrder}/></div>;
   else if(activeMat)content=<MaterialView matName={activeMat} matConfig={data[activeMat]} lots={data[activeMat].lots} coils={data[activeMat].coils||[]}
+    coilLots={(data["Aluminum Coils"]&&data["Aluminum Coils"].lots)||[]}
     onUpdate={l=>updateLot(activeMat,l)} onDelete={id=>deleteLot(activeMat,id)} onAdd={l=>addLot(activeMat,l)} onBack={()=>setActiveMat(null)}
     onStartCoil={p=>startCoil(activeMat,p)} onMeasureCoil={p=>measureCoil(activeMat,p)} onFinishCoil={()=>finishCoil(activeMat)}
-    onToggleBag={(lid,bid)=>toggleBag(activeMat,lid,bid)}/>;
+    onToggleBag={(lid,bid)=>toggleBag(activeMat,lid,bid)} onCreateAlBatch={createAlBatch}/>;
   else content=<Dashboard data={data} batches={batches} orders={orders} onSelect={setActiveMat} onLogout={logout} onExport={exportBackup} onImportFile={importBackup} lastSync={lastSync} onSection={s=>{setSection(s);setActiveMat(null);}}/>;
 
   const showTabs=section!=="log"&&!activeMat;
