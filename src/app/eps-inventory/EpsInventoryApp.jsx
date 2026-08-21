@@ -251,6 +251,39 @@ function UseStockModal({lot,matConfig,onSave,onClose}){
           <button type="button" onClick={save} style={{flex:2,padding:11,border:"none",borderRadius:8,background:matConfig.accent,color:"#fff",fontWeight:800,cursor:"pointer",fontSize:14}}>Deduct Stock</button></div>
       </div></div></div>);
 }
+// Sells down scrap and records what it actually sold for — separate from Use Stock, since
+// scrap leaves as a sale (with a price to remember for finance later), not production usage.
+function SellScrapModal({lot,matConfig,onSave,onClose}){
+  const [qty,setQty]=useState(""),[price,setPrice]=useState(""),[buyer,setBuyer]=useState(""),[error,setError]=useState("");
+  const remKg=Number(lot.qtyRemaining)||0,qtyNum=Number(qty)||0,priceNum=Number(price)||0;
+  const newRem=remKg-qtyNum,rate=qtyNum>0?priceNum/qtyNum:0;
+  const save=()=>{
+    if(!qty||qtyNum<=0){setError("Enter how much you sold.");return;}
+    if(qtyNum>remKg){setError("Max "+fmt(remKg)+" "+lot.unit+" available.");return;}
+    if(!price||priceNum<=0){setError("Enter the price you sold it for.");return;}
+    const ns=newRem<=0?"Out of Stock":lot.status;
+    onSave(Object.assign({},lot,{qtyRemaining:newRem,status:ns,usageLog:(lot.usageLog||[]).concat([{id:genId(),date:today(),qtyUsed:qtyNum,reason:"Sold"+(buyer?" to "+buyer:"")+" — "+fmt(priceNum)+" EGP ("+fmt(rate)+" EGP/KG)",remainingAfter:newRem}])}));
+  };
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:420,overflow:"hidden"}}>
+      <div style={{background:matConfig.color,padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>💰 Sell Scrap</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>Lot: {lot.lotNumber}</div></div>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
+      <div style={{padding:24}}>
+        <div style={{background:matConfig.light,borderRadius:10,padding:"12px 16px",marginBottom:18}}>
+          <div style={{fontSize:11,color:matConfig.color,fontWeight:700,marginBottom:4}}>Current Stock</div>
+          <span style={{fontSize:22,fontWeight:900,color:matConfig.color}}>{fmt(remKg)} {lot.unit}</span></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+          <Field label={"Qty Sold ("+lot.unit+")"} value={qty} onChange={v=>{setQty(v);setError("");}} type="number" accent={matConfig.accent}/>
+          <Field label="Sale Price (EGP)" value={price} onChange={v=>{setPrice(v);setError("");}} type="number" ph="Total, not per-KG" accent={matConfig.accent}/></div>
+        {qtyNum>0&&priceNum>0&&<div style={{fontSize:12,color:matConfig.color,marginBottom:14}}>≈ {fmt(rate)} EGP/KG</div>}
+        <div style={{marginBottom:18}}><Field label="Buyer (optional)" value={buyer} onChange={setBuyer} ph="e.g. Scrap dealer name" accent={matConfig.accent}/></div>
+        {error&&<div style={{color:"#DC3545",fontSize:11,marginBottom:14,fontWeight:600}}>{error}</div>}
+        <div style={{display:"flex",gap:10}}>
+          <button type="button" onClick={onClose} style={{flex:1,padding:11,border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",fontWeight:600,cursor:"pointer",fontSize:13}}>Cancel</button>
+          <button type="button" onClick={save} style={{flex:2,padding:11,border:"none",borderRadius:8,background:matConfig.accent,color:"#fff",fontWeight:800,cursor:"pointer",fontSize:14}}>Record Sale</button></div>
+      </div></div></div>);
+}
 function LotModal({matName,matConfig,lot,onSave,onClose}){
   const [form,setForm]=useState(lot?Object.assign({},lot):Object.assign({},BLANK_LOT));
   const set=(k,v)=>setForm(f=>Object.assign({},f,{[k]:v}));
@@ -339,7 +372,7 @@ function AluminumBatchForm({capsLots,coilLots,matConfig,onSave,onClose}){
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:matConfig.accent,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Aluminum Batch</button>
       </div></div></div>);
 }
-function LotDetail({lot,matConfig,onClose,onEdit,onUseStock,onDeleteUsage,onToggleBag}){
+function LotDetail({lot,matConfig,isScrap,onClose,onEdit,onUseStock,onSellScrap,onDeleteUsage,onToggleBag}){
   const rem=Number(lot.qtyRemaining)||0,rec=Number(lot.qtyReceived)||0;
   const pct=rec?Math.min(100,(rem/rec)*100):0;
   const bar=pct<=15?"#DC3545":pct<=40?"#F59E0B":matConfig.accent;
@@ -380,7 +413,8 @@ function LotDetail({lot,matConfig,onClose,onEdit,onUseStock,onDeleteUsage,onTogg
               :(<button type="button" onClick={()=>setConfDel(entry.id)} style={{background:"#FFF0F0",border:"none",borderRadius:6,padding:"6px 9px",cursor:"pointer",fontSize:14,color:"#DC3545"}}>🗑</button>)}
             </div></div>);})}</div></div>)}
       <div style={{padding:"12px 20px 28px",display:"flex",gap:10}}>
-        {!hasBags&&<button type="button" onClick={onUseStock} style={{flex:2,padding:14,border:"none",borderRadius:10,background:matConfig.accent,color:"#fff",fontWeight:800,cursor:"pointer",fontSize:14}}>📦 Use Stock</button>}
+        {!hasBags&&isScrap&&<button type="button" onClick={onSellScrap} style={{flex:2,padding:14,border:"none",borderRadius:10,background:matConfig.accent,color:"#fff",fontWeight:800,cursor:"pointer",fontSize:14}}>💰 Sell Scrap</button>}
+        {!hasBags&&!isScrap&&<button type="button" onClick={onUseStock} style={{flex:2,padding:14,border:"none",borderRadius:10,background:matConfig.accent,color:"#fff",fontWeight:800,cursor:"pointer",fontSize:14}}>📦 Use Stock</button>}
         <button type="button" onClick={onEdit} style={{flex:1,padding:14,border:"1.5px solid "+matConfig.accent,borderRadius:10,background:"#fff",color:matConfig.accent,fontWeight:700,cursor:"pointer",fontSize:14}}>✏️ Edit</button></div>
     </div></div>);
 }
@@ -465,8 +499,9 @@ function ActiveCoilTracker({coils,boxLots,matConfig,onStart,onMeasure,onFinish})
 function MaterialView({matName,matConfig,lots,coils,coilLots,onUpdate,onDelete,onAdd,onBack,onStartCoil,onMeasureCoil,onFinishCoil,onToggleBag,onCreateAlBatch}){
   const [editLot,setEditLot]=useState(null),[showAdd,setShowAdd]=useState(false),[detailId,setDetailId]=useState(null);
   const [useStock,setUseStock]=useState(null),[search,setSearch]=useState(""),[confirmDel,setConfirmDel]=useState(null),[coilModal,setCoilModal]=useState(null);
-  const [showAlBatch,setShowAlBatch]=useState(false);
+  const [showAlBatch,setShowAlBatch]=useState(false),[sellScrap,setSellScrap]=useState(null);
   const isAlCaps=matName==="Aluminum Caps";
+  const isScrap=matName==="Aluminum Scrap";
   const filtered=lots.filter(l=>[l.lotNumber,l.plNo,l.description,l.supplier,l.status].some(v=>(v||"").toLowerCase().indexOf(search.toLowerCase())>=0));
   const totalQty=lots.reduce((s,l)=>s+(Number(l.qtyRemaining)||0),0);
   const unit=lots.length?lots[0].unit:"KG";
@@ -515,10 +550,12 @@ function MaterialView({matName,matConfig,lots,coils,coilLots,onUpdate,onDelete,o
               {hasBags&&<div style={{marginTop:7,fontSize:10,color:matConfig.accent,fontWeight:700}}>🔘 {usedBags}/{lot.bags.length} bags used</div>}
             </div></div>);})}
       </div></div>
-    {detail&&<LotDetail lot={detail} matConfig={matConfig} onClose={()=>setDetailId(null)}
+    {detail&&<LotDetail lot={detail} matConfig={matConfig} isScrap={isScrap} onClose={()=>setDetailId(null)}
       onEdit={()=>{setEditLot(detail);setDetailId(null);}} onUseStock={()=>{setUseStock(detail);setDetailId(null);}}
+      onSellScrap={()=>{setSellScrap(detail);setDetailId(null);}}
       onDeleteUsage={u=>onUpdate(u)} onToggleBag={bid=>onToggleBag(detail.id,bid)}/>}
     {useStock&&<UseStockModal lot={useStock} matConfig={matConfig} onClose={()=>setUseStock(null)} onSave={u=>{onUpdate(u);setUseStock(null);}}/>}
+    {sellScrap&&<SellScrapModal lot={sellScrap} matConfig={matConfig} onClose={()=>setSellScrap(null)} onSave={u=>{onUpdate(u);setSellScrap(null);}}/>}
     {(showAdd||editLot)&&<LotModal matName={matName} matConfig={matConfig} lot={editLot} onClose={()=>{setShowAdd(false);setEditLot(null);}}
       onSave={form=>{if(editLot)onUpdate(Object.assign({},form,{id:editLot.id}));else onAdd(Object.assign({},form,{id:genId()}));setShowAdd(false);setEditLot(null);}}/>}
     {coilModal&&<CoilModal mode={coilModal} coil={coils.filter(c=>c.status==="active")[0]} boxLots={lots} matConfig={matConfig}
@@ -1300,7 +1337,7 @@ export default function EpsInventoryApp(){
       const scrapKg=Number(consumption.scrapKg)||0;
       if(scrapKg>0){
         let pool=scrapLots.filter(l=>l.id==="scrap-pool")[0];
-        if(!pool){pool={id:"scrap-pool",lotNumber:"SCRAP-POOL",plNo:"",date:today(),supplier:"In-house (byproduct)",description:"Aluminum scrap collected from coil stamping",qtyReceived:0,unit:"KG",qtyRemaining:0,unitCost:"",unitCostCurrency:"EGP",status:"In Stock",notes:"Running total — sell down via Use Stock",image:null,usageLog:[]};}
+        if(!pool){pool={id:"scrap-pool",lotNumber:"SCRAP-POOL",plNo:"",date:today(),supplier:"In-house (byproduct)",description:"Aluminum scrap collected from coil stamping",qtyReceived:0,unit:"KG",qtyRemaining:0,unitCost:"",unitCostCurrency:"EGP",status:"In Stock",notes:"Running total — sell down via Sell Scrap",image:null,usageLog:[]};}
         const newTotal=(Number(pool.qtyRemaining)||0)+scrapKg;
         const updatedPool=Object.assign({},pool,{qtyReceived:(Number(pool.qtyReceived)||0)+scrapKg,qtyRemaining:newTotal,status:"In Stock",
           usageLog:(pool.usageLog||[]).concat([{id:genId(),date:today(),qtyUsed:-scrapKg,reason:"From "+newLot.lotNumber+" ("+fmt(consumption.weightTaken)+" KG coil used)",remainingAfter:newTotal}])});
