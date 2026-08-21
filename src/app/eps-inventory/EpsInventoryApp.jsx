@@ -90,7 +90,14 @@ const INITIAL_LOTS={
     {id:"ac-17",lotNumber:"EPS-AL-260018",plNo:"EPS-AL-260018",date:"13-Aug-2026",supplier:"In-house production",description:"20mm Flip-Off Aluminum Caps – Coil lot 2512171",qtyReceived:19,unit:"Bags",qtyRemaining:13,unitCost:"",status:"In Stock",notes:"283,800 pcs | Coil 9",image:null,usageLog:[],bags:markUsed(makeBags("EPS-AL-260018",19,15000,"Pcs",{"B19":13800}),6,"13-Aug-2026")},
     {id:"ac-18",lotNumber:"EPS-AL-260019",plNo:"EPS-AL-260019",date:"17-Aug-2026",supplier:"In-house production",description:"20mm Flip-Off Aluminum Caps – Coil lot 2512171",qtyReceived:19,unit:"Bags",qtyRemaining:0,unitCost:"",status:"Out of Stock",notes:"288,600 pcs",image:null,usageLog:[],bags:markUsed(makeBags("EPS-AL-260019",19,15000,"Pcs",{"B19":18600}),19,"17-Aug-2026")},
   ],
-  "Aluminum Scrap":[],
+  "Aluminum Scrap":[
+    {id:"scrap-pool",lotNumber:"SCRAP-POOL",plNo:"",date:"21-Aug-2026",supplier:"In-house (byproduct)",description:"Aluminum scrap collected from coil stamping",qtyReceived:741.26,unit:"KG",qtyRemaining:741.26,unitCost:"",unitCostCurrency:"EGP",status:"In Stock",notes:"Backfilled — coils used before scrap tracking existed. Running total — sell down via Sell Scrap",image:null,usageLog:[
+      {id:"scrap-hist-al1",date:"21-Aug-2026",qtyUsed:-246.33,reason:"Coil al-1 (899.00 KG used) — backfilled, pre-tracking",remainingAfter:246.33},
+      {id:"scrap-hist-al4",date:"21-Aug-2026",qtyUsed:-241.37,reason:"Coil al-4 (880.90 KG used) — backfilled, pre-tracking",remainingAfter:487.70},
+      {id:"scrap-hist-al5",date:"21-Aug-2026",qtyUsed:-195.09,reason:"Coil al-5 (712.00 KG used) — backfilled, pre-tracking",remainingAfter:682.79},
+      {id:"scrap-hist-al7",date:"21-Aug-2026",qtyUsed:-58.47,reason:"Coil al-7 (213.40 KG used) — backfilled, pre-tracking",remainingAfter:741.26},
+    ]},
+  ],
   "Plastic Material":[
     {id:"pm-1",lotNumber:"56647874",plNo:"",date:"",supplier:"",description:"Virgin Plastic Material",qtyReceived:0,unit:"Bags",qtyRemaining:0,unitCost:"",status:"Out of Stock",notes:"Recovered from prior data — receipt details incomplete",image:null,usageLog:[]},
     {id:"pm-2",lotNumber:"56647874",plNo:"",date:"",supplier:"",description:"Virgin Plastic Material",qtyReceived:0,unit:"Bags",qtyRemaining:0,unitCost:"",status:"Out of Stock",notes:"Recovered from prior data — receipt details incomplete",image:null,usageLog:[]},
