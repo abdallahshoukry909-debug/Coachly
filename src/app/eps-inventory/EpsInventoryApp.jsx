@@ -590,8 +590,9 @@ function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
   const [weightBefore,setWeightBefore]=useState(e.weightBeforeSorting||""),[notes,setNotes]=useState(e.notes||""),[err,setErr]=useState("");
   const plasticLots=((data&&data["Plastic Material"]&&data["Plastic Material"].lots)||[]).filter(l=>l.status!=="Out of Stock"||l.id===e.plasticLotId);
   const selPlastic=plasticLotId?plasticLots.filter(l=>l.id===plasticLotId)[0]:null;
+  const capWt=parentBatch.capWt||CAP_WT,asmWt=parentBatch.asmWt||ASM_WT;
   const inj=Number(injections)||0,vBags=Number(virginBags)||0,vKg=vBags*PLASTIC_BAG_KG,rKg=Number(regrindKg)||0,wBef=Number(weightBefore)||0;
-  const thPcs=inj*PCS_INJ,thKg=pcsToKg(thPcs,CAP_WT),totalPlastic=vKg+rKg;
+  const thPcs=inj*PCS_INJ,thKg=pcsToKg(thPcs,capWt),totalPlastic=vKg+rKg;
   const regrindPct=totalPlastic>0?(rKg/totalPlastic*100):0;
   const availBags=selPlastic?Number(selPlastic.qtyRemaining):0;
   const save=()=>{
@@ -602,7 +603,7 @@ function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
     if(!wBef){setErr("Enter weight before sorting.");return;}
     const payload=Object.assign({},e,{id:e.id||genId(),batchNo:subNo,isSubBatch:true,parentBatchNo:parentBatch.batchNo,product:parentBatch.product,
       status:e.stage&&e.stage!=="Injection"?e.status:"Plastic Sorting",stage:e.stage&&e.stage!=="Injection"?e.stage:"Plastic Sorting",
-      color:parentBatch.color,client:parentBatch.client,orderNo:parentBatch.orderNo,
+      color:parentBatch.color,client:parentBatch.client,orderNo:parentBatch.orderNo,capWt:capWt,asmWt:asmWt,
       cartons:e.cartons||0,bagsPerCarton:e.bagsPerCarton||0,pcsPerBag:e.pcsPerBag||0,partialCartonBags:0,totalPcs:e.totalPcs||0,
       mfgDate:date,shift:shift,operator:operator,injections:inj,theoreticalPcs:thPcs,theoreticalKg:thKg,
       plasticLotId:plasticLotId||null,plasticLotNo:selPlastic?selPlastic.lotNumber:null,
@@ -627,7 +628,7 @@ function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
         <div style={{fontWeight:700,fontSize:13,color:"#856404",marginBottom:10}}>💉 Injection Output</div>
         <Field label="No. of Injections (× 64 cavities)" value={injections} onChange={v=>{setInjections(v);setErr("");}} type="number" ph="e.g. 200" accent="#856404"/>
         {inj>0&&<div style={{marginTop:8,background:"#fff",borderRadius:8,padding:"10px 12px",fontSize:12,display:"flex",gap:20,flexWrap:"wrap"}}>
-          <div>Theoretical: <strong>{thPcs.toLocaleString()} pcs</strong></div><div>Expected: <strong>{thKg.toFixed(2)} KG</strong></div></div>}</div>
+          <div>Theoretical: <strong>{thPcs.toLocaleString()} pcs</strong></div><div>Expected: <strong>{thKg.toFixed(2)} KG</strong></div><div style={{color:"#888"}}>@ {capWt} g/cap</div></div>}</div>
       <div style={{background:"#F5EDFF",borderRadius:10,padding:14,marginBottom:14}}>
         <div style={{fontWeight:700,fontSize:13,color:"#4A1A6E",marginBottom:10}}>🧴 Plastic Material Consumed</div>
         <div style={{marginBottom:10}}>
@@ -648,7 +649,7 @@ function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
         <div style={{fontWeight:700,fontSize:13,color:NAVY,marginBottom:10}}>⚖️ Weigh Output (before sorting)</div>
         <Field label="Actual Weight (KG)" value={weightBefore} onChange={v=>{setWeightBefore(v);setErr("");}} type="number" ph="0.00" accent={ACCENT}/>
         {wBef>0&&thKg>0&&<div style={{marginTop:8,background:"#fff",borderRadius:8,padding:"10px 12px",fontSize:12}}>
-          <div style={{marginBottom:4}}>≈ <strong>{kgToPcs(wBef,CAP_WT).toLocaleString()} pcs</strong> vs {thPcs.toLocaleString()} theoretical<CheckBadge actual={wBef} expected={thKg}/></div>
+          <div style={{marginBottom:4}}>≈ <strong>{kgToPcs(wBef,capWt).toLocaleString()} pcs</strong> vs {thPcs.toLocaleString()} theoretical<CheckBadge actual={wBef} expected={thKg}/></div>
           {totalPlastic>0&&<div style={{borderTop:"1px solid #E2E8F0",paddingTop:5,color:"#555"}}>
             Loss at injection: <strong style={{color:(totalPlastic-wBef)>totalPlastic*0.05?"#DC3545":"#1A6B2A"}}>{(totalPlastic-wBef).toFixed(2)} KG</strong> (purge, sprue, spillage)</div>}</div>}</div>
       <div style={{marginBottom:14}}><Field label="Notes (optional)" value={notes} onChange={setNotes} accent="#856404"/></div>
@@ -660,8 +661,9 @@ function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
 }
 function PlasticSortingForm({sub,existing,onSave,onCancel}){
   const [accKg,setAccKg]=useState(sub.acceptedWeightKg||""),[rejKg,setRejKg]=useState(sub.rejectedWeightKg||""),[date,setDate]=useState(sub.sortingDate||today()),[err,setErr]=useState("");
+  const capWt=sub.capWt||CAP_WT;
   const acc=Number(accKg)||0,rej=Number(rejKg)||0,total=acc+rej,prev=sub.weightBeforeSorting||0;
-  const accPcs=kgToPcs(acc,CAP_WT),rejPcs=kgToPcs(rej,CAP_WT);
+  const accPcs=kgToPcs(acc,capWt),rejPcs=kgToPcs(rej,capWt);
   const save=()=>{if(acc<=0){setErr("Enter accepted weight.");return;}
     onSave(Object.assign({},sub,{stage:sub.stage==="Plastic Sorting"?"Assembly":sub.stage,status:sub.stage==="Plastic Sorting"?"Assembly":sub.status,
       acceptedWeightKg:acc,rejectedWeightKg:rej,acceptedPcs:accPcs,rejectedPcs:rejPcs,sortingDate:date}));};
@@ -672,7 +674,7 @@ function PlasticSortingForm({sub,existing,onSave,onCancel}){
     <div style={{background:"#fff",borderRadius:"0 0 12px 12px",border:"1.5px solid #EEF2F7",borderTop:"none",padding:20}}>
       <div style={{background:"#D1ECF1",borderRadius:10,padding:12,marginBottom:14,fontSize:12,color:"#0C5460"}}>
         <div style={{fontWeight:700,marginBottom:4}}>From Injection:</div>
-        <div>Pre-sort weight: <strong>{prev.toFixed(2)} KG</strong> ≈ {kgToPcs(prev,CAP_WT).toLocaleString()} pcs</div>
+        <div>Pre-sort weight: <strong>{prev.toFixed(2)} KG</strong> ≈ {kgToPcs(prev,capWt).toLocaleString()} pcs</div>
         <div>{sub.injections} injections × 64 = <strong>{(sub.theoreticalPcs||0).toLocaleString()} pcs theoretical</strong></div></div>
       <div style={{marginBottom:12}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Sorting Date</label>
         <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
@@ -700,7 +702,8 @@ function AssemblyForm({sub,data,existing,onSave,onCancel}){
   const bagPcs=(lot,ids)=>lot.bags.filter(b=>ids.indexOf(b.id)>=0).reduce((s,b)=>s+(b.qtyUnit==="Pcs"?b.qty:kgToPcs(b.qty,0.405)),0);
   const alPcsIn=sels.reduce((s,x)=>s+(x.pcs||0),0);
   const accPcs=sub.acceptedPcs||0;
-  const asm=Number(asmKg)||0,asmPcs=kgToPcs(asm,ASM_WT);
+  const asmWt=sub.asmWt||ASM_WT;
+  const asm=Number(asmKg)||0,asmPcs=kgToPcs(asm,asmWt);
   const addSel=()=>{
     if(!pickLotId||!pickBags.length){setErr("Pick a lot and at least one bag.");return;}
     const pcs=bagPcs(pickLot,pickBags);
@@ -748,7 +751,7 @@ function AssemblyForm({sub,data,existing,onSave,onCancel}){
         <div style={{fontSize:12,marginBottom:10}}>
           <div style={{color:"#888",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>Assembled Output</div>
           <div style={{fontWeight:900,fontSize:20,color:"#4A1A6E"}}>{asmPcs.toLocaleString()} pcs</div>
-          <div style={{color:"#888"}}>{asm.toFixed(2)} KG ÷ 0.96 g/cap</div></div>
+          <div style={{color:"#888"}}>{asm.toFixed(2)} KG ÷ {asmWt} g/cap</div></div>
         <div style={{borderTop:"1px solid #E2E8F0",paddingTop:10,fontSize:12,display:"flex",flexDirection:"column",gap:5}}>
           <div style={{display:"flex",justifyContent:"space-between"}}><span>🧴 Plastic in {accPcs.toLocaleString()} → out {asmPcs.toLocaleString()}</span>
             <span style={{fontWeight:700,color:Math.abs(accPcs-asmPcs)>accPcs*0.05?"#DC3545":"#1A6B2A"}}>{(accPcs-asmPcs).toLocaleString()} lost<CheckBadge actual={asmPcs} expected={accPcs}/></span></div>
@@ -762,7 +765,8 @@ function FinalSortingForm({sub,existing,onSave,onCancel}){
   const [accKg,setAccKg]=useState(sub.finalAcceptedKg||""),[rejKg,setRejKg]=useState(sub.finalRejectedKg||"");
   const [date,setDate]=useState(sub.finalSortDate||today()),[operator,setOperator]=useState(sub.finalSortOperator||""),[err,setErr]=useState("");
   const acc=Number(accKg)||0,rej=Number(rejKg)||0;
-  const accPcs=kgToPcs(acc,ASM_WT),rejPcs=kgToPcs(rej,ASM_WT);
+  const asmWt=sub.asmWt||ASM_WT;
+  const accPcs=kgToPcs(acc,asmWt),rejPcs=kgToPcs(rej,asmWt);
   const asmIn=sub.assembledPcs||0;
   const save=()=>{if(acc<=0){setErr("Enter accepted weight.");return;}
     onSave(Object.assign({},sub,{stage:"Complete",status:"Complete",finalSortDate:date,finalSortOperator:operator,
@@ -807,6 +811,7 @@ function CarryoverForm({parentBatch,batches,onSave,onCancel}){
   const [sourceBatchNo,setSourceBatchNo]=useState(""),[type,setType]=useState("plastic");
   const [qty,setQty]=useState(""),[cartons,setCartons]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
   const bpc=Number(parentBatch.bagsPerCarton)||0,ppb=Number(parentBatch.pcsPerBag)||0;
+  const capWt=parentBatch.capWt||CAP_WT,asmWt=parentBatch.asmWt||ASM_WT;
   const cartonPcs=type==="finished"?Number(cartons)||0:0;
   const effectiveQty=cartonPcs>0?cartonPcs*bpc*ppb:Number(qty)||0;
   const TYPES=[["plastic","Sorted plastic — ready for Assembly"],["assembled","Assembled — ready for Final Sorting"],["finished","Finished goods — fully packed, ready to ship"]];
@@ -817,16 +822,16 @@ function CarryoverForm({parentBatch,batches,onSave,onCancel}){
       color:parentBatch.color,client:parentBatch.client,orderNo:parentBatch.orderNo,
       cartons:0,bagsPerCarton:0,pcsPerBag:0,partialCartonBags:0,
       mfgDate:parentBatch.mfgDate,shift:null,operator:"",
-      isCarryover:true,carryoverFrom:sourceBatchNo,
+      isCarryover:true,carryoverFrom:sourceBatchNo,capWt:capWt,asmWt:asmWt,
       notes:"Carried over from "+sourceBatchNo+(notes?" — "+notes:""),createdAt:today()};
     let payload;
     if(type==="plastic")payload=Object.assign({},base,{stage:"Assembly",status:"Assembly",
-      acceptedWeightKg:pcsToKg(effectiveQty,CAP_WT),acceptedPcs:effectiveQty,rejectedWeightKg:0,rejectedPcs:0,sortingDate:today(),aluminumSelections:[]});
+      acceptedWeightKg:pcsToKg(effectiveQty,capWt),acceptedPcs:effectiveQty,rejectedWeightKg:0,rejectedPcs:0,sortingDate:today(),aluminumSelections:[]});
     else if(type==="assembled")payload=Object.assign({},base,{stage:"Final Sorting",status:"Final Sorting",
-      assembledWeightKg:pcsToKg(effectiveQty,ASM_WT),assembledPcs:effectiveQty,assemblyDate:today()});
+      assembledWeightKg:pcsToKg(effectiveQty,asmWt),assembledPcs:effectiveQty,assemblyDate:today()});
     else payload=Object.assign({},base,{stage:"Complete",status:"Complete",
-      assembledWeightKg:pcsToKg(effectiveQty,ASM_WT),assembledPcs:effectiveQty,assemblyDate:today(),
-      finalAcceptedKg:pcsToKg(effectiveQty,ASM_WT),finalRejectedKg:0,finalAcceptedPcs:effectiveQty,finalRejectedPcs:0,
+      assembledWeightKg:pcsToKg(effectiveQty,asmWt),assembledPcs:effectiveQty,assemblyDate:today(),
+      finalAcceptedKg:pcsToKg(effectiveQty,asmWt),finalRejectedKg:0,finalAcceptedPcs:effectiveQty,finalRejectedPcs:0,
       finalSortDate:today(),finalSortOperator:"",goodPcs:effectiveQty,totalPcs:effectiveQty});
     onSave(payload);
   };
@@ -941,6 +946,8 @@ function BatchForm({batches,orders,onSave,onCancel}){
   const [mfgDate,setMfgDate]=useState(new Date().toISOString().split("T")[0]);
   const [expDate,setExpDate]=useState("");
   const [status,setStatus]=useState("Production"),[orderNo,setOrderNo]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
+  const [capWt,setCapWt]=useState(String(CAP_WT)),[asmWt,setAsmWt]=useState(String(ASM_WT));
+  const isFO=product==="Flip-Off Caps 20mm";
   const preview=nextBatchNo(batches,meta.code);
   const c=Number(cartons)||0,b=Number(bpc)||0,p=Number(ppb)||0,pt=Number(partial)||0;
   const totalPcs=c*b*p+pt*p;
@@ -948,7 +955,8 @@ function BatchForm({batches,orders,onSave,onCancel}){
   const save=()=>{if(!variant.trim()){setErr(meta.variantLabel+" is required.");return;}if(c<1){setErr("At least 1 carton.");return;}
     onSave({id:genId(),batchNo:preview,isSubBatch:false,parentBatchNo:null,product:product,status:status,
       color:variant.trim(),line:meta.lines?line:"",cartons:c,bagsPerCarton:b,pcsPerBag:p,partialCartonBags:pt,totalPcs:totalPcs,
-      mfgDate:mfgDate,expiryDate:expDate,client:client.trim(),orderNo:orderNo||null,notes:notes.trim(),createdAt:today()});};
+      mfgDate:mfgDate,expiryDate:expDate,client:client.trim(),orderNo:orderNo||null,notes:notes.trim(),createdAt:today(),
+      capWt:isFO?(Number(capWt)||CAP_WT):null,asmWt:isFO?(Number(asmWt)||ASM_WT):null});};
   return(<div style={{maxWidth:700,fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:NAVY,borderRadius:"12px 12px 0 0",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
       <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>Create Batch</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12,fontFamily:"monospace"}}>{preview}</div></div>
@@ -965,6 +973,8 @@ function BatchForm({batches,orders,onSave,onCancel}){
         {meta.lines&&<div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Production Line</label>
           <select value={line} onChange={e=>setLine(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
             {meta.lines.map(l=><option key={l}>{l}</option>)}</select></div>}
+        {isFO&&<Field label="Plastic Weight (g/cap)" value={capWt} onChange={setCapWt} type="number" ph="0.56"/>}
+        {isFO&&<Field label="Assembled Weight (g/cap)" value={asmWt} onChange={setAsmWt} type="number" ph="0.96"/>}
         <Field label="Client" value={client} onChange={setClient} ph="e.g. Pharco"/>
         <Field label="Cartons" value={cartons} onChange={setCartons} type="number"/>
         <Field label="Bags per Carton" value={bpc} onChange={setBpc} type="number"/>
