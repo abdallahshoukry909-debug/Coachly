@@ -916,6 +916,7 @@ function AssemblyForm({sub,data,existing,onSave,onCancel}){
 function FinalSortingForm({sub,existing,onSave,onCancel}){
   const [accKg,setAccKg]=useState(sub.finalAcceptedKg||""),[rejKg,setRejKg]=useState(sub.finalRejectedKg||"");
   const [date,setDate]=useState(sub.finalSortDate||today()),[operator,setOperator]=useState(sub.finalSortOperator||""),[err,setErr]=useState("");
+  const [packedCartons,setPackedCartons]=useState(sub.finalCartons||""),[packedBags,setPackedBags]=useState(sub.finalPartialBags||""),[packedKg,setPackedKg]=useState(sub.finalPartialKg||"");
   const acc=Number(accKg)||0,rej=Number(rejKg)||0;
   const asmWt=sub.asmWt||ASM_WT;
   const accPcs=kgToPcs(acc,asmWt),rejPcs=kgToPcs(rej,asmWt);
@@ -923,6 +924,7 @@ function FinalSortingForm({sub,existing,onSave,onCancel}){
   const save=()=>{if(acc<=0){setErr("Enter accepted weight.");return;}
     onSave(Object.assign({},sub,{stage:"Complete",status:"Complete",finalSortDate:date,finalSortOperator:operator,
       finalAcceptedKg:acc,finalRejectedKg:rej,finalAcceptedPcs:accPcs,finalRejectedPcs:rejPcs,
+      finalCartons:Number(packedCartons)||0,finalPartialBags:Number(packedBags)||0,finalPartialKg:Number(packedKg)||0,
       goodPcs:accPcs,totalPcs:accPcs}));};
   return(<div style={{maxWidth:680,fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"#B8860B",borderRadius:"12px 12px 0 0",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -947,6 +949,13 @@ function FinalSortingForm({sub,existing,onSave,onCancel}){
             <div>✗ <strong style={{color:"#DC3545",fontSize:15}}>{rejPcs.toLocaleString()} pcs</strong></div></div>
           <div style={{borderTop:"1px solid #E2E8F0",paddingTop:5,display:"flex",justifyContent:"space-between"}}>
             <span>In {asmIn.toLocaleString()} → Out {(accPcs+rejPcs).toLocaleString()}</span><CheckBadge actual={accPcs+rejPcs} expected={asmIn}/></div></div>}</div>
+      <div style={{background:"#FFFCF0",borderRadius:10,padding:14,marginBottom:12}}>
+        <div style={{fontWeight:700,fontSize:13,color:"#8B6914",marginBottom:2}}>📦 Packed As</div>
+        <div style={{fontSize:11,color:"#A08030",marginBottom:10}}>Whole cartons this shift, plus any leftover that did not fill a whole carton — e.g. 5 cartons + 1 bag + 2 KG</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+          <Field label="Cartons" value={packedCartons} onChange={setPackedCartons} type="number" ph="e.g. 5" accent="#B8860B"/>
+          <Field label="+ Bags" value={packedBags} onChange={setPackedBags} type="number" ph="e.g. 1" accent="#B8860B"/>
+          <Field label="+ KG" value={packedKg} onChange={setPackedKg} type="number" ph="e.g. 2" accent="#B8860B"/></div></div>
       {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#B8860B",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>{existing?"💾 Save Changes":"✅ Complete Shift"}</button>
     </div></div>);
@@ -1080,7 +1089,8 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
               {sub.acceptedPcs?<span>✅ {sub.acceptedPcs.toLocaleString()} sorted</span>:null}
               {sub.aluminumLotNo?<span>🔘 {sub.aluminumLotNo}</span>:null}
               {sub.assembledPcs?<span>⚙️ {sub.assembledPcs.toLocaleString()} asm</span>:null}
-              {sub.goodPcs?<span style={{fontWeight:700,color:"#1A6B2A"}}>📦 {sub.goodPcs.toLocaleString()} packed</span>:null}</div>
+              {sub.goodPcs?<span style={{fontWeight:700,color:"#1A6B2A"}}>📦 {sub.goodPcs.toLocaleString()} packed</span>:null}
+              {sub.finalCartons?<span>📦 {sub.finalCartons} ctn{(sub.finalPartialBags||sub.finalPartialKg)?" + "+(sub.finalPartialBags||0)+" bag"+(sub.finalPartialBags===1?"":"s")+(sub.finalPartialKg?" + "+fmt(sub.finalPartialKg)+" KG":""):""}</span>:null}</div>
             <div style={{marginTop:9,paddingTop:9,borderTop:"1px solid #F0F0F0"}}>
               {confDel===sub.id?(<div style={{display:"flex",gap:8,alignItems:"center"}}>
                 <span style={{fontSize:11,color:"#8B1A1A",fontWeight:600,flex:1}}>Delete {sub.batchNo}{(sub.plasticLotId||(sub.aluminumSelections&&sub.aluminumSelections.length))?" — any material it drew will be returned to stock":""}?</span>
