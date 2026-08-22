@@ -53,6 +53,16 @@ const makeBags=(bn,cnt,dq,qu,ov)=>{ov=ov||{};return Array.from({length:cnt},(_,i
 const markUsed=(bags,n,date)=>bags.map((b,i)=>i<n?Object.assign({},b,{used:true,usedDate:date||null}):b);
 function nextBatchNo(bs,code){const p="EPS-"+code+"-"+pad(getYr(),2);const ns=bs.filter(b=>b.batchNo.indexOf(p)===0&&!b.isSubBatch).map(b=>parseInt(b.batchNo.slice(p.length))||0);return p+pad(ns.length?Math.max.apply(null,ns)+1:1,4);}
 function nextAlLotNo(lots){const p="EPS-AL-"+pad(getYr(),2);const ns=lots.filter(l=>(l.lotNumber||"").indexOf(p)===0).map(l=>parseInt((l.lotNumber||"").slice(p.length))||0);return p+pad(ns.length?Math.max.apply(null,ns)+1:1,4);}
+// Credits scrapKg into the running Aluminum Scrap pool lot, creating it on first use.
+function creditScrap(scrapLots,scrapKg,reason){
+  if(scrapKg<=0)return scrapLots;
+  let pool=scrapLots.filter(l=>l.id==="scrap-pool")[0];
+  if(!pool){pool={id:"scrap-pool",lotNumber:"SCRAP-POOL",plNo:"",date:today(),supplier:"In-house (byproduct)",description:"Aluminum scrap collected from coil stamping",qtyReceived:0,unit:"KG",qtyRemaining:0,unitCost:"",unitCostCurrency:"EGP",status:"In Stock",notes:"Running total — sell down via Sell Scrap",image:null,usageLog:[]};}
+  const newTotal=(Number(pool.qtyRemaining)||0)+scrapKg;
+  const updatedPool=Object.assign({},pool,{qtyReceived:(Number(pool.qtyReceived)||0)+scrapKg,qtyRemaining:newTotal,status:"In Stock",
+    usageLog:(pool.usageLog||[]).concat([{id:genId(),date:today(),qtyUsed:-scrapKg,reason:reason,remainingAfter:newTotal}])});
+  return scrapLots.filter(l=>l.id!=="scrap-pool").concat([updatedPool]);
+}
 const PRODUCT_META={
   "Flip-Off Caps 20mm":{code:"FO",variantLabel:"Cap Colour",sizes:null,lines:null},
   "Silica Gel Capsules":{code:"SC",variantLabel:"Size",sizes:["0.3g","0.5g","1g"],lines:["Line 1","Line 2","Line 3"]},
@@ -535,7 +545,7 @@ function ActiveCoilTracker({coils,boxLots,matConfig,onStart,onMeasure,onFinish})
 }
 
 // ══ MATERIAL VIEW ═════════════════════════════════════════════════════════
-function MaterialView({matName,matConfig,lots,coils,coilLots,onUpdate,onDelete,onAdd,onBack,onStartCoil,onMeasureCoil,onFinishCoil,onToggleBag,onCreateAlBatch}){
+function MaterialView({matName,matConfig,lots,coils,coilLots,onUpdate,onDelete,onAdd,onBack,onStartCoil,onMeasureCoil,onFinishCoil,onToggleBag,onCreateAlBatch,onUseCoilStock}){
   const [editLot,setEditLot]=useState(null),[showAdd,setShowAdd]=useState(false),[detailId,setDetailId]=useState(null);
   const [useStock,setUseStock]=useState(null),[search,setSearch]=useState(""),[confirmDel,setConfirmDel]=useState(null),[coilModal,setCoilModal]=useState(null);
   const [showAlBatch,setShowAlBatch]=useState(false),[sellScrap,setSellScrap]=useState(null);
@@ -593,7 +603,7 @@ function MaterialView({matName,matConfig,lots,coils,coilLots,onUpdate,onDelete,o
       onEdit={()=>{setEditLot(detail);setDetailId(null);}} onUseStock={()=>{setUseStock(detail);setDetailId(null);}}
       onSellScrap={()=>{setSellScrap(detail);setDetailId(null);}}
       onDeleteUsage={u=>onUpdate(u)} onToggleBag={bid=>onToggleBag(detail.id,bid)}/>}
-    {useStock&&<UseStockModal lot={useStock} matConfig={matConfig} onClose={()=>setUseStock(null)} onSave={u=>{onUpdate(u);setUseStock(null);}}/>}
+    {useStock&&<UseStockModal lot={useStock} matConfig={matConfig} onClose={()=>setUseStock(null)} onSave={u=>{if(matConfig.trackCoils&&onUseCoilStock)onUseCoilStock(useStock,u);else onUpdate(u);setUseStock(null);}}/>}
     {sellScrap&&<SellScrapModal lot={sellScrap} matConfig={matConfig} onClose={()=>setSellScrap(null)} onSave={u=>{onUpdate(u);setSellScrap(null);}}/>}
     {(showAdd||editLot)&&<LotModal matName={matName} matConfig={matConfig} lot={editLot} onClose={()=>{setShowAdd(false);setEditLot(null);}}
       onSave={form=>{if(editLot)onUpdate(Object.assign({},form,{id:editLot.id}));else onAdd(Object.assign({},form,{id:genId()}));setShowAdd(false);setEditLot(null);}}/>}
@@ -1382,19 +1392,24 @@ export default function EpsInventoryApp(){
         const ns=rem<=0?"Out of Stock":rem<=rec*0.15?"Low Stock":l.status;
         return Object.assign({},l,{qtyRemaining:rem,status:ns,usageLog:(l.usageLog||[]).concat([{id:genId(),date:today(),qtyUsed:consumption.weightTaken,reason:"Stamped into "+newLot.lotNumber+(consumption.coilNumber?" (Coil "+consumption.coilNumber+")":""),remainingAfter:rem}])});
       });
-      let scrapLots=d["Aluminum Scrap"].lots;
       const scrapKg=Number(consumption.scrapKg)||0;
-      if(scrapKg>0){
-        let pool=scrapLots.filter(l=>l.id==="scrap-pool")[0];
-        if(!pool){pool={id:"scrap-pool",lotNumber:"SCRAP-POOL",plNo:"",date:today(),supplier:"In-house (byproduct)",description:"Aluminum scrap collected from coil stamping",qtyReceived:0,unit:"KG",qtyRemaining:0,unitCost:"",unitCostCurrency:"EGP",status:"In Stock",notes:"Running total — sell down via Sell Scrap",image:null,usageLog:[]};}
-        const newTotal=(Number(pool.qtyRemaining)||0)+scrapKg;
-        const updatedPool=Object.assign({},pool,{qtyReceived:(Number(pool.qtyReceived)||0)+scrapKg,qtyRemaining:newTotal,status:"In Stock",
-          usageLog:(pool.usageLog||[]).concat([{id:genId(),date:today(),qtyUsed:-scrapKg,reason:"From "+newLot.lotNumber+" ("+fmt(consumption.weightTaken)+" KG coil used)",remainingAfter:newTotal}])});
-        scrapLots=scrapLots.filter(l=>l.id!=="scrap-pool").concat([updatedPool]);
-      }
+      const scrapLots=creditScrap(d["Aluminum Scrap"].lots,scrapKg,"From "+newLot.lotNumber+" ("+fmt(consumption.weightTaken)+" KG coil used)");
       return Object.assign({},d,{"Aluminum Caps":caps,"Aluminum Coils":Object.assign({},d["Aluminum Coils"],{lots:coilLots}),"Aluminum Scrap":Object.assign({},d["Aluminum Scrap"],{lots:scrapLots})});
     });
     showToast(newLot.lotNumber+" created ✓ · "+fmt(consumption.weightTaken)+" KG deducted from coil"+(consumption.scrapKg>0?" · "+fmt(consumption.scrapKg)+" KG scrap":""));
+  };
+  // Deducting an Aluminum Coils lot directly via "Use Stock" (instead of through New Aluminum
+  // Batch) still consumes coil weight, so it must still credit the same 27.4% scrap byproduct —
+  // otherwise scrap made this way goes untracked.
+  const useCoilStock=(oldLot,newLot)=>{
+    const usedKg=Math.max(0,(Number(oldLot.qtyRemaining)||0)-(Number(newLot.qtyRemaining)||0));
+    const scrapKg=usedKg*0.274;
+    setData(d=>{
+      const coilLots=d["Aluminum Coils"].lots.map(l=>l.id===newLot.id?newLot:l);
+      const scrapLots=creditScrap(d["Aluminum Scrap"].lots,scrapKg,"From coil "+newLot.lotNumber+" ("+fmt(usedKg)+" KG used — Use Stock)");
+      return Object.assign({},d,{"Aluminum Coils":Object.assign({},d["Aluminum Coils"],{lots:coilLots}),"Aluminum Scrap":Object.assign({},d["Aluminum Scrap"],{lots:scrapLots})});
+    });
+    showToast("Saved ✓"+(scrapKg>0?" · "+fmt(scrapKg)+" KG scrap credited":""));
   };
   const toggleBag=(mat,lotId,bagId)=>{setData(d=>{
     const lots=d[mat].lots.map(lot=>{if(lot.id!==lotId||!lot.bags)return lot;
@@ -1476,6 +1491,7 @@ export default function EpsInventoryApp(){
   else if(activeMat)content=<MaterialView matName={activeMat} matConfig={data[activeMat]} lots={data[activeMat].lots} coils={data[activeMat].coils||[]}
     coilLots={(data["Aluminum Coils"]&&data["Aluminum Coils"].lots)||[]}
     onUpdate={l=>updateLot(activeMat,l)} onDelete={id=>deleteLot(activeMat,id)} onAdd={l=>addLot(activeMat,l)} onBack={()=>setActiveMat(null)}
+    onUseCoilStock={useCoilStock}
     onStartCoil={p=>startCoil(activeMat,p)} onMeasureCoil={p=>measureCoil(activeMat,p)} onFinishCoil={()=>finishCoil(activeMat)}
     onToggleBag={(lid,bid)=>toggleBag(activeMat,lid,bid)} onCreateAlBatch={createAlBatch}/>;
   else content=<Dashboard data={data} batches={batches} orders={orders} onSelect={setActiveMat} onLogout={logout} onExport={exportBackup} onImportFile={importBackup} lastSync={lastSync} onSection={s=>{setSection(s);setActiveMat(null);}}/>;
