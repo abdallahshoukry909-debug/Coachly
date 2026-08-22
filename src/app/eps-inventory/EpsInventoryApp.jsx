@@ -326,7 +326,7 @@ function AluminumBatchForm({capsLots,coilLots,matConfig,onSave,onClose}){
   const [weightTaken,setWeightTaken]=useState(""),[qty,setQty]=useState(""),[unit,setUnit]=useState("Pcs");
   const [scrapPct,setScrapPct]=useState("27.4");
   const [dateStarted,setDateStarted]=useState(""),[dateFinished,setDateFinished]=useState(new Date().toISOString().split("T")[0]);
-  const [bagQty,setBagQty]=useState(""),[bagUnit,setBagUnit]=useState("Pcs"),[bagsList,setBagsList]=useState([]);
+  const [bagQty,setBagQty]=useState(""),[bagUnit,setBagUnit]=useState("Pcs"),[bagCount,setBagCount]=useState("1"),[bagsList,setBagsList]=useState([]);
   const [operator,setOperator]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
   const coil=coilLotId?coilLots.filter(l=>l.id===coilLotId)[0]:null;
   const wt=Number(weightTaken)||0,availKg=coil?Number(coil.qtyRemaining)||0:0;
@@ -335,8 +335,9 @@ function AluminumBatchForm({capsLots,coilLots,matConfig,onSave,onClose}){
   const bagPcsEq=b=>b.unit==="Stamps"?b.qty*6:b.unit==="KG"?kgToPcs(b.qty,0.405):b.qty;
   const bagsTotalPcs=bagsList.reduce((s,b)=>s+bagPcsEq(b),0);
   const addBag=()=>{if(!bagQty||Number(bagQty)<=0){setErr("Enter a quantity for the bag.");return;}
-    setBagsList(bagsList.concat([{qty:Number(bagQty),unit:bagUnit}]));setBagQty("");setErr("");};
-  const removeBag=i=>setBagsList(bagsList.filter((_,idx)=>idx!==i));
+    const n=Math.max(1,Number(bagCount)||1);
+    setBagsList(bagsList.concat(Array.from({length:n},()=>({qty:Number(bagQty),unit:bagUnit}))));
+    setBagQty("");setBagCount("1");setErr("");};
   const dispDate=d=>d?new Date(d+"T00:00:00").toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}).replace(/ /g,"-"):null;
   const save=()=>{
     if(!coilLotId){setErr("Select which coil lot this was stamped from.");return;}
@@ -386,19 +387,23 @@ function AluminumBatchForm({capsLots,coilLots,matConfig,onSave,onClose}){
           <Field label="Operator" value={operator} onChange={setOperator} ph="Name" accent={matConfig.accent}/></div>
         {isBags&&<div style={{background:"#F7F9FC",borderRadius:10,padding:14,marginBottom:14}}>
           <div style={{fontWeight:700,fontSize:13,color:matConfig.color,marginBottom:2}}>Bags Produced</div>
-          <div style={{fontSize:11,color:"#888",marginBottom:10}}>Add each bag with its quantity — Pcs, KG, or Stamps (1 stamp = 6 pcs)</div>
+          <div style={{fontSize:11,color:"#888",marginBottom:10}}>Add several identical bags at once, then add the odd one out separately — Pcs, KG, or Stamps (1 stamp = 6 pcs)</div>
           {bagsList.length>0&&<div style={{marginBottom:10,display:"flex",flexDirection:"column",gap:6}}>
-            {bagsList.map((b,i)=>(<div key={i} style={{background:"#fff",borderRadius:8,padding:"7px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid #E2E8F0"}}>
-              <div style={{fontSize:12}}><strong style={{fontFamily:"monospace",color:matConfig.color}}>{preview}-B{pad(i+1,2)}</strong>
-                <span style={{color:"#888",marginLeft:8}}>{fmtN(b.qty)} {b.unit}{b.unit==="Stamps"?" = "+fmtN(b.qty*6)+" pcs":""}</span></div>
-              <button type="button" onClick={()=>removeBag(i)} style={{background:"#FFF0F0",border:"none",borderRadius:6,padding:"4px 9px",cursor:"pointer",fontSize:12,color:"#DC3545"}}>🗑</button></div>))}
+            {(()=>{const groups=[];bagsList.forEach((b,i)=>{const last=groups[groups.length-1];
+              if(last&&last.qty===b.qty&&last.unit===b.unit&&last.end===i-1)last.end=i;else groups.push({start:i,end:i,qty:b.qty,unit:b.unit});});
+              return groups.map((g,gi)=>{const count=g.end-g.start+1;
+                return(<div key={gi} style={{background:"#fff",borderRadius:8,padding:"7px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid #E2E8F0"}}>
+                  <div style={{fontSize:12}}><strong style={{fontFamily:"monospace",color:matConfig.color}}>{preview}-B{pad(g.start+1,2)}{count>1?"–B"+pad(g.end+1,2):""}</strong>
+                    <span style={{color:"#888",marginLeft:8}}>{count>1?count+" bags × ":""}{fmtN(g.qty)} {g.unit}{g.unit==="Stamps"?" ("+fmtN(g.qty*6)+" pcs each)":""}</span></div>
+                  <button type="button" onClick={()=>setBagsList(bagsList.filter((_,idx)=>idx<g.start||idx>g.end))} style={{background:"#FFF0F0",border:"none",borderRadius:6,padding:"4px 9px",cursor:"pointer",fontSize:12,color:"#DC3545"}}>🗑</button></div>);});})()}
             <div style={{background:matConfig.light,borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:700,color:matConfig.color}}>Total: {bagsList.length} bags · {fmtN(bagsTotalPcs)} pcs</div></div>}
           <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
-            <div style={{flex:1}}><Field label="Quantity" value={bagQty} onChange={v=>{setBagQty(v);setErr("");}} type="number" ph="e.g. 15000" accent={matConfig.accent}/></div>
+            <div style={{width:90}}><Field label="How Many" value={bagCount} onChange={setBagCount} type="number" ph="1" accent={matConfig.accent}/></div>
+            <div style={{flex:1}}><Field label="Quantity Each" value={bagQty} onChange={v=>{setBagQty(v);setErr("");}} type="number" ph="e.g. 25" accent={matConfig.accent}/></div>
             <div style={{flex:1}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Unit</label>
               <select value={bagUnit} onChange={e=>setBagUnit(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
                 <option>Pcs</option><option>KG</option><option>Stamps</option></select></div>
-            <button type="button" onClick={addBag} style={{padding:"9px 16px",background:matConfig.accent,color:"#fff",border:"none",borderRadius:8,fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>+ Add Bag</button></div></div>}
+            <button type="button" onClick={addBag} style={{padding:"9px 16px",background:matConfig.accent,color:"#fff",border:"none",borderRadius:8,fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>+ Add</button></div></div>}
         <div style={{marginBottom:18}}><Field label="Notes" value={notes} onChange={setNotes} accent={matConfig.accent}/></div>
         {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
         {coil&&wt>0&&!err&&<div style={{background:"#E8F5E9",border:"1px solid #A5D6A7",borderRadius:8,padding:"9px 12px",marginBottom:14,fontSize:12,color:"#1A6B2A",fontWeight:600}}>
