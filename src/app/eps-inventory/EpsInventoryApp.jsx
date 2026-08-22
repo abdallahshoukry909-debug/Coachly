@@ -923,6 +923,7 @@ function FinalSortingForm({sub,parentBatch,existing,onSave,onCancel}){
   const accPcs=kgToPcs(acc,asmWt),rejPcs=kgToPcs(rej,asmWt);
   const asmIn=sub.assembledPcs||0;
   const bpc=Number(parentBatch&&parentBatch.bagsPerCarton)||0,ppb=Number(parentBatch&&parentBatch.pcsPerBag)||0;
+  const fullBagKg=ppb>0?pcsToKg(ppb,asmWt):0;
   const canCheckPacked=bpc>0&&ppb>0&&(packedCartons!==""||packedBags!==""||packedKg!=="");
   const packedPcs=(Number(packedCartons)||0)*bpc*ppb+(Number(packedBags)||0)*ppb+kgToPcs(Number(packedKg)||0,asmWt);
   const packedShort=canCheckPacked?Math.max(0,accPcs-packedPcs):0;
@@ -956,12 +957,13 @@ function FinalSortingForm({sub,parentBatch,existing,onSave,onCancel}){
             <span>In {asmIn.toLocaleString()} → Out {(accPcs+rejPcs).toLocaleString()}</span><CheckBadge actual={accPcs+rejPcs} expected={asmIn}/></div></div>}</div>
       <div style={{background:"#FFFCF0",borderRadius:10,padding:14,marginBottom:12}}>
         <div style={{fontWeight:700,fontSize:13,color:"#8B6914",marginBottom:2}}>📦 Packed As</div>
-        <div style={{fontSize:11,color:"#A08030",marginBottom:10}}>Whole cartons this shift, plus a leftover bag that is not full — write it as a decimal, e.g. a bag that is half full is 0.5 (or use +KG if you know its weight instead)</div>
+        <div style={{fontSize:11,color:"#A08030",marginBottom:10}}>Whole cartons this shift, plus a leftover bag that is not full — write it as a decimal, e.g. a bag that is half full is 0.5 (or use +KG if you know its weight instead — a full bag weighs {fullBagKg>0?fmt(fullBagKg)+" KG":"pcs/bag × piece weight"}, so we work out the fraction for you)</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
           <Field label="Cartons" value={packedCartons} onChange={setPackedCartons} type="number" ph="e.g. 5" accent="#B8860B"/>
           <Field label="+ Bags (decimal OK)" value={packedBags} onChange={setPackedBags} type="number" ph="e.g. 0.5" accent="#B8860B"/>
           <Field label="+ KG (optional)" value={packedKg} onChange={setPackedKg} type="number" ph="e.g. 2" accent="#B8860B"/></div>
         {ppb>0&&Number(packedBags)>0&&<div style={{fontSize:11,color:"#8B6914",marginTop:6}}>{packedBags} bag{Number(packedBags)===1?"":"s"} ≈ {fmtN(Number(packedBags)*ppb)} pcs</div>}
+        {fullBagKg>0&&Number(packedKg)>0&&<div style={{fontSize:11,color:"#8B6914",marginTop:2}}>{packedKg} KG ≈ {(Number(packedKg)/fullBagKg).toFixed(2)} of a full bag ({fmt(fullBagKg)} KG)</div>}
         {canCheckPacked&&<div style={{marginTop:10,background:"#fff",borderRadius:8,padding:"10px 12px",fontSize:12}}>
           <div style={{display:"flex",justifyContent:"space-between"}}>
             <span>Accepted {accPcs.toLocaleString()} → Packed {packedPcs.toLocaleString()}</span><CheckBadge actual={packedPcs} expected={accPcs}/></div>
@@ -1257,10 +1259,26 @@ function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDe
 }
 
 // ══ ORDERS ════════════════════════════════════════════════════════════════
-function OrderRow({order,linked,onDelete}){
+function OrderRow({order,linked,allBatches,onDelete}){
   const [confDel,setConfDel]=useState(false);
-  const produced=linked.reduce((s,b)=>s+(b.totalPcs||0),0);
-  const pct=order.targetQty?Math.min(100,Math.round(produced/order.targetQty*100)):0;
+  const linkedNos=linked.map(b=>b.batchNo);
+  const shifts=(allBatches||[]).filter(b=>b.isSubBatch&&linkedNos.indexOf(b.parentBatchNo)>=0);
+  const ref=linked.filter(b=>Number(b.bagsPerCarton)>0&&Number(b.pcsPerBag)>0)[0];
+  const bpc=ref?Number(ref.bagsPerCarton):0,ppb=ref?Number(ref.pcsPerBag):0;
+  const cartonsMode=bpc>0&&ppb>0;
+  // Real cartons produced (not each batch's static target totalPcs) — whole cartons plus
+  // the partial bag/KG leftover from Final Sorting, converted to a carton fraction.
+  const producedCartons=cartonsMode?shifts.reduce((s,x)=>{
+    if(x.finalCartons!=null){
+      const partialPcs=(Number(x.finalPartialBags)||0)*ppb+kgToPcs(Number(x.finalPartialKg)||0,x.asmWt||ASM_WT);
+      return s+(Number(x.finalCartons)||0)+partialPcs/(bpc*ppb);
+    }
+    return s+(Number(x.goodPcs)||0)/(bpc*ppb);   // older shifts/carryovers without cartons detail
+  },0):0;
+  const targetCartons=cartonsMode&&order.targetQty?order.targetQty/(bpc*ppb):0;
+  const produced=cartonsMode?producedCartons:shifts.reduce((s,x)=>s+(x.goodPcs||0),0);
+  const pct=cartonsMode?(targetCartons?Math.min(100,Math.round(producedCartons/targetCartons*100)):0)
+    :(order.targetQty?Math.min(100,Math.round(produced/order.targetQty*100)):0);
   const cfg=BST[order.status]||BST.Production;
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14}}>
     <div style={{display:"flex",alignItems:"flex-start",gap:8,flexWrap:"wrap"}}>
@@ -1269,11 +1287,12 @@ function OrderRow({order,linked,onDelete}){
           <span style={{fontFamily:"monospace",fontWeight:700,fontSize:14,color:NAVY}}>{order.orderNo}</span>
           <span style={{display:"inline-flex",alignItems:"center",gap:4,background:cfg.bg,color:cfg.text,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700}}>
             <span style={{width:6,height:6,borderRadius:"50%",background:cfg.dot}}/>{order.status}</span></div>
-        <div style={{fontSize:12,color:"#666",marginBottom:6}}>{order.client} · {order.color||"any"} · Target {fmtN(order.targetQty)} pcs</div>
+        <div style={{fontSize:12,color:"#666",marginBottom:6}}>{order.client} · {order.color||"any"} · Target {fmtN(order.targetQty)} pcs{cartonsMode?" ("+fmt(targetCartons)+" cartons)":""}</div>
         <div style={{marginBottom:6}}>
           <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#888",marginBottom:3}}>
-            <span>{fmtN(produced)} pcs produced</span><span>{pct}%</span></div>
-          <div style={{height:6,background:"#F0F0F0",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:pct>=100?"#22A03A":ACCENT,borderRadius:3}}/></div></div>
+            <span>{cartonsMode?fmt(producedCartons)+" of "+fmt(targetCartons)+" cartons":fmtN(produced)+" pcs produced"}</span><span>{pct}%</span></div>
+          <div style={{height:6,background:"#F0F0F0",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:pct>=100?"#22A03A":ACCENT,borderRadius:3}}/></div>
+          {cartonsMode&&<div style={{fontSize:11,color:"#888",marginTop:3}}>{fmt(Math.max(0,targetCartons-producedCartons))} cartons left</div>}</div>
         {linked.length>0&&<div style={{fontSize:11,color:"#888"}}>{linked.length} batches: {linked.map(b=><span key={b.id} style={{fontFamily:"monospace",marginRight:8,color:NAVY}}>{b.batchNo}</span>)}</div>}</div>
       {confDel?(<div style={{display:"flex",gap:6,flexShrink:0}}>
         <button type="button" onClick={onDelete} style={{padding:"5px 12px",background:"#DC3545",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700}}>Yes</button>
@@ -1313,7 +1332,7 @@ function OrdersSection({batches,orders,onCreateOrder,onDeleteOrder}){
     {filtered.length===0?(<div style={{textAlign:"center",padding:40,background:"#fff",borderRadius:12,border:"2px dashed #E2E8F0"}}>
       <div style={{fontSize:32,marginBottom:8}}>📋</div><div style={{fontWeight:700,color:"#333"}}>No orders</div></div>)
     :(<div style={{display:"flex",flexDirection:"column",gap:8}}>
-      {filtered.map(o=><OrderRow key={o.id} order={o} linked={batches.filter(b=>b.orderNo===o.orderNo&&!b.isSubBatch)} onDelete={()=>onDeleteOrder(o.id)}/>)}</div>)}
+      {filtered.map(o=><OrderRow key={o.id} order={o} linked={batches.filter(b=>b.orderNo===o.orderNo&&!b.isSubBatch)} allBatches={batches} onDelete={()=>onDeleteOrder(o.id)}/>)}</div>)}
   </div>);
 }
 
