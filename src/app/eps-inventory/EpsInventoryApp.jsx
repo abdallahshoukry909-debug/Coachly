@@ -914,7 +914,7 @@ function AssemblyForm({sub,data,existing,onSave,onCancel}){
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#4A1A6E",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>{existing?"💾 Save Changes":"Save Assembly → Final Sorting"}</button>
     </div></div>);
 }
-function FinalSortingForm({sub,existing,onSave,onCancel}){
+function FinalSortingForm({sub,parentBatch,existing,onSave,onCancel}){
   const [accKg,setAccKg]=useState(sub.finalAcceptedKg||""),[rejKg,setRejKg]=useState(sub.finalRejectedKg||"");
   const [date,setDate]=useState(sub.finalSortDate||today()),[operator,setOperator]=useState(sub.finalSortOperator||""),[err,setErr]=useState("");
   const [packedCartons,setPackedCartons]=useState(sub.finalCartons||""),[packedBags,setPackedBags]=useState(sub.finalPartialBags||""),[packedKg,setPackedKg]=useState(sub.finalPartialKg||"");
@@ -922,6 +922,10 @@ function FinalSortingForm({sub,existing,onSave,onCancel}){
   const asmWt=sub.asmWt||ASM_WT;
   const accPcs=kgToPcs(acc,asmWt),rejPcs=kgToPcs(rej,asmWt);
   const asmIn=sub.assembledPcs||0;
+  const bpc=Number(parentBatch&&parentBatch.bagsPerCarton)||0,ppb=Number(parentBatch&&parentBatch.pcsPerBag)||0;
+  const canCheckPacked=bpc>0&&ppb>0&&(packedCartons!==""||packedBags!==""||packedKg!=="");
+  const packedPcs=(Number(packedCartons)||0)*bpc*ppb+(Number(packedBags)||0)*ppb+kgToPcs(Number(packedKg)||0,asmWt);
+  const packedShort=canCheckPacked?Math.max(0,accPcs-packedPcs):0;
   const save=()=>{if(acc<=0){setErr("Enter accepted weight.");return;}
     onSave(Object.assign({},sub,{stage:"Complete",status:"Complete",finalSortDate:date,finalSortOperator:operator,
       finalAcceptedKg:acc,finalRejectedKg:rej,finalAcceptedPcs:accPcs,finalRejectedPcs:rejPcs,
@@ -956,7 +960,12 @@ function FinalSortingForm({sub,existing,onSave,onCancel}){
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
           <Field label="Cartons" value={packedCartons} onChange={setPackedCartons} type="number" ph="e.g. 5" accent="#B8860B"/>
           <Field label="+ Bags" value={packedBags} onChange={setPackedBags} type="number" ph="e.g. 1" accent="#B8860B"/>
-          <Field label="+ KG" value={packedKg} onChange={setPackedKg} type="number" ph="e.g. 2" accent="#B8860B"/></div></div>
+          <Field label="+ KG" value={packedKg} onChange={setPackedKg} type="number" ph="e.g. 2" accent="#B8860B"/></div>
+        {canCheckPacked&&<div style={{marginTop:10,background:"#fff",borderRadius:8,padding:"10px 12px",fontSize:12}}>
+          <div style={{display:"flex",justifyContent:"space-between"}}>
+            <span>Accepted {accPcs.toLocaleString()} → Packed {packedPcs.toLocaleString()}</span><CheckBadge actual={packedPcs} expected={accPcs}/></div>
+          {packedShort>0&&<div style={{marginTop:6,color:"#DC3545",fontWeight:700}}>⚠️ {packedShort.toLocaleString()} accepted pcs not accounted for in cartons — check for wasted/lost sorted product.</div>}</div>}
+        {bpc<=0||ppb<=0?<div style={{marginTop:8,fontSize:11,color:"#999"}}>Set Bags per Carton and Pcs per Bag on the batch to check packed quantity against accepted.</div>:null}</div>
       {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#B8860B",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>{existing?"💾 Save Changes":"✅ Complete Shift"}</button>
     </div></div>);
@@ -1041,7 +1050,7 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
   if(cur&&form.stage==="Injection")return <InjectionForm parentBatch={parentBatch} batches={batches} data={data} existing={cur} onSave={(b,m)=>{onUpdateSub(b,m,cur);close();}} onCancel={close}/>;
   if(cur&&form.stage==="Plastic Sorting")return <PlasticSortingForm sub={cur} existing={form.editing} onSave={u=>{onUpdateSub(u,null,cur);close();}} onCancel={close}/>;
   if(cur&&form.stage==="Assembly")return <AssemblyForm sub={cur} data={data} existing={form.editing} onSave={(u,m)=>{onUpdateSub(u,m,cur);close();}} onCancel={close}/>;
-  if(cur&&form.stage==="Final Sorting")return <FinalSortingForm sub={cur} existing={form.editing} onSave={u=>{onUpdateSub(u,null,cur);close();}} onCancel={close}/>;
+  if(cur&&form.stage==="Final Sorting")return <FinalSortingForm sub={cur} parentBatch={parentBatch} existing={form.editing} onSave={u=>{onUpdateSub(u,null,cur);close();}} onCancel={close}/>;
 
   const doneStages=sub=>{
     const out=[];
