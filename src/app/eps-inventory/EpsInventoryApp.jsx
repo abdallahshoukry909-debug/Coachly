@@ -956,11 +956,12 @@ function FinalSortingForm({sub,parentBatch,existing,onSave,onCancel}){
             <span>In {asmIn.toLocaleString()} → Out {(accPcs+rejPcs).toLocaleString()}</span><CheckBadge actual={accPcs+rejPcs} expected={asmIn}/></div></div>}</div>
       <div style={{background:"#FFFCF0",borderRadius:10,padding:14,marginBottom:12}}>
         <div style={{fontWeight:700,fontSize:13,color:"#8B6914",marginBottom:2}}>📦 Packed As</div>
-        <div style={{fontSize:11,color:"#A08030",marginBottom:10}}>Whole cartons this shift, plus any leftover that did not fill a whole carton — e.g. 5 cartons + 1 bag + 2 KG</div>
+        <div style={{fontSize:11,color:"#A08030",marginBottom:10}}>Whole cartons this shift, plus a leftover bag that is not full — write it as a decimal, e.g. a bag that is half full is 0.5 (or use +KG if you know its weight instead)</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
           <Field label="Cartons" value={packedCartons} onChange={setPackedCartons} type="number" ph="e.g. 5" accent="#B8860B"/>
-          <Field label="+ Bags" value={packedBags} onChange={setPackedBags} type="number" ph="e.g. 1" accent="#B8860B"/>
-          <Field label="+ KG" value={packedKg} onChange={setPackedKg} type="number" ph="e.g. 2" accent="#B8860B"/></div>
+          <Field label="+ Bags (decimal OK)" value={packedBags} onChange={setPackedBags} type="number" ph="e.g. 0.5" accent="#B8860B"/>
+          <Field label="+ KG (optional)" value={packedKg} onChange={setPackedKg} type="number" ph="e.g. 2" accent="#B8860B"/></div>
+        {ppb>0&&Number(packedBags)>0&&<div style={{fontSize:11,color:"#8B6914",marginTop:6}}>{packedBags} bag{Number(packedBags)===1?"":"s"} ≈ {fmtN(Number(packedBags)*ppb)} pcs</div>}
         {canCheckPacked&&<div style={{marginTop:10,background:"#fff",borderRadius:8,padding:"10px 12px",fontSize:12}}>
           <div style={{display:"flex",justifyContent:"space-between"}}>
             <span>Accepted {accPcs.toLocaleString()} → Packed {packedPcs.toLocaleString()}</span><CheckBadge actual={packedPcs} expected={accPcs}/></div>
