@@ -63,6 +63,113 @@ function creditScrap(scrapLots,scrapKg,reason){
     usageLog:(pool.usageLog||[]).concat([{id:genId(),date:today(),qtyUsed:-scrapKg,reason:reason,remainingAfter:newTotal}])});
   return scrapLots.filter(l=>l.id!=="scrap-pool").concat([updatedPool]);
 }
+
+// ══ REPORTS — pure computation helpers ═══════════════════════════════════
+// Lot/usageLog dates are stored as "DD-Mon-YYYY" (from today()); batch dates are ISO
+// "YYYY-MM-DD" (from <input type="date">). Both need to resolve to the same month key.
+function parseAnyDate(s){
+  if(!s)return null;
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)){const d=new Date(s+"T00:00:00");return isNaN(d)?null:d;}
+  const m=/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/.exec(s);
+  if(m){const mo={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11}[m[2]];
+    if(mo!=null)return new Date(Number(m[3]),mo,Number(m[1]));}
+  const d=new Date(s);return isNaN(d)?null:d;
+}
+function monthKeyOf(s){const d=parseAnyDate(s);return d?d.getFullYear()+"-"+pad(d.getMonth()+1,2):null;}
+const MONTH_NAMES=["January","February","March","April","May","June","July","August","September","October","November","December"];
+function fmtMonthKey(k){if(!k)return"";const p=k.split("-");return MONTH_NAMES[Number(p[1])-1]+" "+p[0];}
+// Aggregates operator performance across shifts, split by stage — the "who is more
+// efficient" view the board wants. Rate = good output ÷ what came into that stage.
+function computeWorkerStats(shifts){
+  const rows={};
+  const bump=(stage,op,pcsIn,pcsOut)=>{
+    const name=op&&op.trim()?op.trim():"Unspecified";
+    const k=stage+"|"+name;
+    if(!rows[k])rows[k]={stage:stage,operator:name,shifts:0,pcsIn:0,pcsOut:0};
+    rows[k].shifts+=1;rows[k].pcsIn+=pcsIn||0;rows[k].pcsOut+=pcsOut||0;
+  };
+  shifts.forEach(s=>{
+    if(s.injections)bump("Injection",s.operator,s.theoreticalPcs,s.acceptedPcs);
+    if(s.assembledPcs!=null)bump("Assembly",s.assemblyOperator,s.acceptedPcs,s.assembledPcs);
+    if(s.finalAcceptedKg!=null)bump("Final Sorting",s.finalSortOperator,s.assembledPcs,s.finalAcceptedPcs);
+  });
+  return Object.values(rows).map(r=>Object.assign({},r,{rate:r.pcsIn>0?Math.min(100,r.pcsOut/r.pcsIn*100):null}))
+    .sort((a,b)=>a.stage!==b.stage?a.stage.localeCompare(b.stage):(b.rate||0)-(a.rate||0));
+}
+// Sums each material's usageLog movement (positive qtyUsed = used, negative = received) within one
+// month. Bagged materials (Aluminum Caps) are consumed by toggling bags in Assembly, which never
+// writes a usageLog entry — so those are counted separately from bag.used/usedDate instead, in pcs.
+function materialUsageInMonth(data,monthKey){
+  const out=[];
+  Object.keys(data).forEach(matName=>{
+    let used=0,added=0,unit="",bagPcsUsed=0,hasBags=false;
+    (data[matName].lots||[]).forEach(lot=>{
+      unit=lot.unit||unit;
+      (lot.usageLog||[]).forEach(e=>{
+        if(monthKeyOf(e.date)!==monthKey)return;
+        if(Number(e.qtyUsed)>=0)used+=Number(e.qtyUsed);else added+=-Number(e.qtyUsed);
+      });
+      (lot.bags||[]).forEach(b=>{
+        if(!b.used||monthKeyOf(b.usedDate)!==monthKey)return;
+        hasBags=true;
+        bagPcsUsed+=b.qtyUnit==="Pcs"?(Number(b.qty)||0):kgToPcs(b.qty,0.405);
+      });
+    });
+    if(hasBags){if(bagPcsUsed>0)out.push({material:matName,used:bagPcsUsed,added:added,unit:"Pcs"});}
+    else if(used>0||added>0)out.push({material:matName,used:used,added:added,unit:unit});
+  });
+  return out;
+}
+function computeWaste(shifts){
+  let injLossKg=0,plasticRejKg=0,asmLossPcs=0,finalRejKg=0,totalPlasticInKg=0;
+  shifts.forEach(s=>{
+    if(s.totalPlasticKg){totalPlasticInKg+=s.totalPlasticKg;if(s.weightBeforeSorting)injLossKg+=Math.max(0,s.totalPlasticKg-s.weightBeforeSorting);}
+    if(s.rejectedWeightKg)plasticRejKg+=s.rejectedWeightKg;
+    if(s.acceptedPcs!=null&&s.assembledPcs!=null)asmLossPcs+=Math.max(0,s.acceptedPcs-s.assembledPcs);
+    if(s.finalRejectedKg)finalRejKg+=s.finalRejectedKg;
+  });
+  return {injLossKg:injLossKg,plasticRejKg:plasticRejKg,asmLossPcs:asmLossPcs,finalRejKg:finalRejKg,totalPlasticInKg:totalPlasticInKg};
+}
+function computeShiftMaterials(shifts){
+  let virginBags=0,regrindKg=0,totalPlasticKg=0,alPcs=0;const alLots={};
+  shifts.forEach(s=>{
+    virginBags+=s.virginBags||0;regrindKg+=s.regrindKg||0;totalPlasticKg+=s.totalPlasticKg||0;
+    alPcs+=s.aluminumPcsIn||0;
+    (s.aluminumSelections||[]).forEach(sel=>{alLots[sel.lotNo]=(alLots[sel.lotNo]||0)+(sel.pcs||0);});
+  });
+  return {virginBags:virginBags,regrindKg:regrindKg,totalPlasticKg:totalPlasticKg,alPcs:alPcs,alLots:alLots};
+}
+function computeProduction(topBatch,shifts){
+  const goodPcs=shifts.reduce((s,x)=>s+(x.goodPcs||0),0);
+  const target=topBatch.totalPcs||0;
+  return {goodPcs:goodPcs,target:target,pct:target?Math.min(100,Math.round(goodPcs/target*100)):null,shiftCount:shifts.length,cartons:topBatch.cartons,status:topBatch.status};
+}
+function buildBatchReport(topBatch,allBatches){
+  const shifts=allBatches.filter(b=>b.isSubBatch&&b.parentBatchNo===topBatch.batchNo);
+  return {batch:topBatch,shifts:shifts,production:computeProduction(topBatch,shifts),materials:computeShiftMaterials(shifts),
+    waste:computeWaste(shifts),workers:computeWorkerStats(shifts),carryovers:shifts.filter(s=>s.isCarryover)};
+}
+function buildOrderReport(order,allBatches){
+  const linked=allBatches.filter(b=>!b.isSubBatch&&b.orderNo===order.orderNo);
+  const batchReports=linked.map(b=>buildBatchReport(b,allBatches));
+  const allShifts=[].concat(...batchReports.map(r=>r.shifts));
+  const goodPcs=batchReports.reduce((s,r)=>s+r.production.goodPcs,0);
+  return {order:order,batches:batchReports,
+    production:{goodPcs:goodPcs,target:order.targetQty||0,pct:order.targetQty?Math.min(100,Math.round(goodPcs/order.targetQty*100)):null,batchCount:linked.length},
+    materials:computeShiftMaterials(allShifts),waste:computeWaste(allShifts),workers:computeWorkerStats(allShifts)};
+}
+function buildMonthlyReport(data,batches,orders,monthKey){
+  const inMonth=d=>monthKeyOf(d)===monthKey;
+  const mainBatches=batches.filter(b=>!b.isSubBatch&&inMonth(b.mfgDate));
+  const shiftsInMonth=batches.filter(b=>b.isSubBatch&&inMonth(b.mfgDate));
+  const byProduct={};
+  mainBatches.forEach(b=>{byProduct[b.product]=(byProduct[b.product]||0)+(b.totalPcs||0);});
+  return {monthKey:monthKey,batches:mainBatches,byProduct:byProduct,
+    goodPcs:shiftsInMonth.reduce((s,x)=>s+(x.goodPcs||0),0),
+    materials:materialUsageInMonth(data,monthKey),waste:computeWaste(shiftsInMonth),workers:computeWorkerStats(shiftsInMonth),
+    orders:orders.filter(o=>batches.some(b=>!b.isSubBatch&&b.orderNo===o.orderNo&&inMonth(b.mfgDate)))};
+}
+
 const PRODUCT_META={
   "Flip-Off Caps 20mm":{code:"FO",variantLabel:"Cap Colour",sizes:null,lines:null},
   "Silica Gel Capsules":{code:"SC",variantLabel:"Size",sizes:["0.3g","0.5g","1g"],lines:["Line 1","Line 2","Line 3"]},
@@ -737,6 +844,7 @@ function AssemblyForm({sub,data,existing,onSave,onCancel}){
   const [sels,setSels]=useState((sub.aluminumSelections&&sub.aluminumSelections.length)?sub.aluminumSelections:[]);
   const [pickLotId,setPickLotId]=useState(""),[pickBags,setPickBags]=useState([]);
   const [asmKg,setAsmKg]=useState(sub.assembledWeightKg||""),[date,setDate]=useState(sub.assemblyDate||today()),[err,setErr]=useState("");
+  const [asmOperator,setAsmOperator]=useState(sub.assemblyOperator||"");
   const alLots=((data&&data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[]).filter(l=>(l.status==="In Stock"||l.status==="Low Stock")&&l.bags&&l.bags.length);
   const pickLot=pickLotId?alLots.filter(l=>l.id===pickLotId)[0]:null;
   const alreadyUsed={};sels.forEach(s=>{s.bagIds.forEach(b=>{alreadyUsed[s.lotId+"|"+b]=1;});});
@@ -754,7 +862,7 @@ function AssemblyForm({sub,data,existing,onSave,onCancel}){
   };
   const save=()=>{if(asm<=0){setErr("Enter assembly output weight.");return;}
     onSave(Object.assign({},sub,{stage:sub.stage==="Assembly"?"Final Sorting":sub.stage,status:sub.stage==="Assembly"?"Final Sorting":sub.status,
-      assemblyDate:date,aluminumSelections:sels,aluminumLotNo:sels.map(s=>s.lotNo).join(", ")||null,aluminumPcsIn:alPcsIn||null,
+      assemblyDate:date,assemblyOperator:asmOperator,aluminumSelections:sels,aluminumLotNo:sels.map(s=>s.lotNo).join(", ")||null,aluminumPcsIn:alPcsIn||null,
       assembledWeightKg:asm,assembledPcs:asmPcs}),{selections:sels});};
   return(<div style={{maxWidth:680,fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"#4A1A6E",borderRadius:"12px 12px 0 0",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -764,8 +872,10 @@ function AssemblyForm({sub,data,existing,onSave,onCancel}){
       <div style={{background:"#EDE0FF",borderRadius:10,padding:12,marginBottom:14,fontSize:12,color:"#4A1A6E"}}>
         <div style={{fontWeight:700,marginBottom:4}}>From Plastic Sorting:</div>
         <div>Accepted plastic caps in: <strong>{accPcs.toLocaleString()} pcs</strong> ({(sub.acceptedWeightKg||0).toFixed(2)} KG)</div></div>
-      <div style={{marginBottom:12}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Assembly Date</label>
-        <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+        <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Assembly Date</label>
+          <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+        <Field label="Operator" value={asmOperator} onChange={setAsmOperator} ph="Name" accent="#4A1A6E"/></div>
       <div style={{background:"#F7F0FF",borderRadius:10,padding:14,marginBottom:12}}>
         <div style={{fontWeight:700,fontSize:13,color:"#4A1A6E",marginBottom:4}}>🔘 Aluminum Caps Used</div>
         <div style={{fontSize:11,color:"#7B3FB5",marginBottom:10}}>Add from as many lots as you need — lots often run out mid-shift</div>
@@ -1249,11 +1359,13 @@ function Dashboard({data,batches,orders,onSelect,onLogout,onExport,onImportFile,
               <span style={{color:"rgba(255,255,255,0.5)",fontSize:11,fontWeight:600}}>{x[0]}</span></div>))}</div>
         {lastSync&&<div style={{marginTop:10,color:"rgba(255,255,255,0.3)",fontSize:10}}>☁️ Synced {lastSync}</div>}</div></div>
     <div style={{maxWidth:700,margin:"0 auto",padding:"18px 16px"}}>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:18}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:18}}>
         <button type="button" onClick={()=>onSection("production")} style={{background:NAVY,color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🏭 Production
           <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>{bStats.total} batches · {fmtN(bStats.totalPcs)} pcs</div></button>
         <button type="button" onClick={()=>onSection("orders")} style={{background:"#0E4A2A",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>📋 Orders
-          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>{orders.length} orders</div></button></div>
+          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>{orders.length} orders</div></button>
+        <button type="button" onClick={()=>onSection("reports")} style={{background:"#4A1A6E",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🧾 Reports
+          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>For the board</div></button></div>
       <div style={{fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Raw Material Inventory</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
         {Object.keys(data).map(matName=>{
@@ -1277,6 +1389,183 @@ function Dashboard({data,batches,orders,onSelect,onLogout,onExport,onImportFile,
               <div style={{borderTop:"1px solid #F5F7FA",paddingTop:8,display:"flex",justifyContent:"flex-end"}}>
                 <span style={{color:mc.accent,fontWeight:800,fontSize:12}}>Open →</span></div></div></div>);})}
       </div></div></div>);
+}
+
+// ══ REPORTS ═══════════════════════════════════════════════════════════════
+function ReportPrintBar({onBack,backLabel}){
+  return(<div className="eps-no-print" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+    <button type="button" onClick={onBack} style={{background:"#F5F7FA",border:"none",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontWeight:700,fontSize:13,color:"#444"}}>← {backLabel||"Back"}</button>
+    <button type="button" onClick={()=>window.print()} style={{background:NAVY,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>🖨️ Print / Save as PDF</button></div>);
+}
+function ReportTitle({title,subtitle}){
+  return(<div style={{marginBottom:20,borderBottom:"2px solid "+NAVY,paddingBottom:14}}>
+    <div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em"}}>East Pharmaceutical Services</div>
+    <h1 style={{fontSize:22,fontWeight:900,color:NAVY,margin:"4px 0 2px"}}>{title}</h1>
+    <div style={{fontSize:12,color:"#888"}}>{subtitle} · Generated {today()}</div></div>);
+}
+function ReportSection({title,children}){
+  return(<div style={{marginBottom:22}}>
+    <div style={{fontSize:12,fontWeight:800,color:NAVY,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>{title}</div>
+    {children}</div>);
+}
+function StatRow({items}){
+  return(<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
+    {items.map((x,i)=>(<div key={i} style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}>
+      <div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>{x[0]}</div>
+      <div style={{fontSize:17,fontWeight:900,color:x[2]||NAVY,marginTop:2}}>{x[1]}</div></div>))}</div>);
+}
+function WorkerTable({workers}){
+  const stages=["Injection","Assembly","Final Sorting"].filter(st=>workers.some(w=>w.stage===st));
+  if(!stages.length)return <div style={{color:"#888",fontSize:12}}>No shift data in this period.</div>;
+  return(<div style={{display:"flex",flexDirection:"column",gap:16}}>
+    {stages.map(st=>(<div key={st}>
+      <div style={{fontWeight:700,fontSize:12,color:"#555",marginBottom:6}}>{st}</div>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+        <thead><tr style={{borderBottom:"2px solid #E2E8F0",textAlign:"left"}}>
+          <th style={{padding:"6px 8px"}}>Operator</th><th style={{padding:"6px 8px"}}>Shifts</th><th style={{padding:"6px 8px"}}>Good Output</th><th style={{padding:"6px 8px"}}>Efficiency</th></tr></thead>
+        <tbody>{workers.filter(w=>w.stage===st).map((w,i)=>(
+          <tr key={i} style={{borderBottom:"1px solid #F0F0F0"}}>
+            <td style={{padding:"6px 8px",fontWeight:700}}>{w.operator}</td>
+            <td style={{padding:"6px 8px"}}>{w.shifts}</td>
+            <td style={{padding:"6px 8px"}}>{fmtN(w.pcsOut)} pcs</td>
+            <td style={{padding:"6px 8px",fontWeight:800,color:w.rate==null?"#888":w.rate>=95?"#1A6B2A":w.rate>=85?"#856404":"#DC3545"}}>{w.rate==null?"—":w.rate.toFixed(1)+"%"}</td>
+          </tr>))}</tbody></table></div>))}
+  </div>);
+}
+function WasteBlock({waste}){
+  const items=[["Injection Loss",fmt(waste.injLossKg)+" KG","#8B1A1A"],["Plastic Sort Reject",fmt(waste.plasticRejKg)+" KG","#8B1A1A"],["Assembly Shrinkage",fmtN(waste.asmLossPcs)+" pcs","#8B1A1A"],["Final Sort Reject",fmt(waste.finalRejKg)+" KG","#8B1A1A"]];
+  const wastePct=waste.totalPlasticInKg>0?((waste.injLossKg+waste.plasticRejKg)/waste.totalPlasticInKg*100):null;
+  return(<div>
+    <StatRow items={items}/>
+    {wastePct!=null&&<div style={{fontSize:12,color:"#666",marginTop:10}}>Plastic waste: <strong>{wastePct.toFixed(1)}%</strong> of total plastic input ({fmt(waste.totalPlasticInKg)} KG)</div>}
+  </div>);
+}
+function MaterialsUsageTable({rows}){
+  if(!rows.length)return <div style={{color:"#888",fontSize:12}}>No material movement recorded this month.</div>;
+  return(<table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+    <thead><tr style={{borderBottom:"2px solid #E2E8F0",textAlign:"left"}}><th style={{padding:"6px 8px"}}>Material</th><th style={{padding:"6px 8px"}}>Received</th><th style={{padding:"6px 8px"}}>Used</th></tr></thead>
+    <tbody>{rows.map((r,i)=>(<tr key={i} style={{borderBottom:"1px solid #F0F0F0"}}>
+      <td style={{padding:"6px 8px",fontWeight:700}}>{r.material}</td>
+      <td style={{padding:"6px 8px",color:"#1A6B2A"}}>{r.added>0?"+"+fmtN(r.added)+" "+r.unit:"—"}</td>
+      <td style={{padding:"6px 8px",color:"#DC3545"}}>{r.used>0?fmtN(r.used)+" "+r.unit:"—"}</td></tr>))}</tbody></table>);
+}
+function ShiftMaterialsBlock({materials}){
+  const alLotRows=Object.keys(materials.alLots);
+  return(<div>
+    <StatRow items={[["Virgin Plastic",fmtN(materials.virginBags)+" bags"],["Regrind",fmt(materials.regrindKg)+" KG"],["Total Plastic",fmt(materials.totalPlasticKg)+" KG"],["Aluminum Caps Used",fmtN(materials.alPcs)+" pcs"]]}/>
+    {alLotRows.length>0&&<div style={{marginTop:10,fontSize:12,color:"#555"}}>
+      <strong>Aluminum lots drawn from:</strong> {alLotRows.map(l=>l+" ("+fmtN(materials.alLots[l])+" pcs)").join(", ")}</div>}
+  </div>);
+}
+function ShiftTable({shifts}){
+  if(!shifts.length)return <div style={{color:"#888",fontSize:12}}>No shifts recorded.</div>;
+  return(<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:640}}>
+    <thead><tr style={{borderBottom:"2px solid #E2E8F0",textAlign:"left"}}>
+      <th style={{padding:"6px 8px"}}>Shift</th><th style={{padding:"6px 8px"}}>Date</th><th style={{padding:"6px 8px"}}>Stage</th>
+      <th style={{padding:"6px 8px"}}>Inj. Operator</th><th style={{padding:"6px 8px"}}>Asm. Operator</th><th style={{padding:"6px 8px"}}>Sort Operator</th>
+      <th style={{padding:"6px 8px"}}>Good Pcs</th></tr></thead>
+    <tbody>{shifts.map(s=>(<tr key={s.id} style={{borderBottom:"1px solid #F0F0F0"}}>
+      <td style={{padding:"6px 8px",fontFamily:"monospace"}}>{s.batchNo}{s.isCarryover?" ↩️":""}</td>
+      <td style={{padding:"6px 8px"}}>{s.mfgDate}</td>
+      <td style={{padding:"6px 8px"}}>{s.stage}</td>
+      <td style={{padding:"6px 8px"}}>{s.operator||"—"}</td>
+      <td style={{padding:"6px 8px"}}>{s.assemblyOperator||"—"}</td>
+      <td style={{padding:"6px 8px"}}>{s.finalSortOperator||"—"}</td>
+      <td style={{padding:"6px 8px",fontWeight:700}}>{s.goodPcs?fmtN(s.goodPcs):"—"}</td></tr>))}</tbody></table></div>);
+}
+function MonthlyReportDoc({report,onBack}){
+  const productRows=Object.keys(report.byProduct);
+  return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"'Inter',sans-serif"}}>
+    <ReportPrintBar onBack={onBack} backLabel="Back to Reports"/>
+    <ReportTitle title={"Monthly Production Report"} subtitle={fmtMonthKey(report.monthKey)}/>
+    <ReportSection title="Production Summary">
+      <StatRow items={[["Batches Started",report.batches.length],["Good Pcs Produced",fmtN(report.goodPcs)],
+        ...productRows.map(p=>[p,fmtN(report.byProduct[p])+" pcs (target)"])]}/>
+    </ReportSection>
+    <ReportSection title="Material Usage"><MaterialsUsageTable rows={report.materials}/></ReportSection>
+    <ReportSection title="Waste"><WasteBlock waste={report.waste}/></ReportSection>
+    <ReportSection title="Worker Performance"><WorkerTable workers={report.workers}/></ReportSection>
+    <ReportSection title="Orders Active This Month">
+      {report.orders.length===0?<div style={{color:"#888",fontSize:12}}>None.</div>:
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+        <thead><tr style={{borderBottom:"2px solid #E2E8F0",textAlign:"left"}}><th style={{padding:"6px 8px"}}>Order</th><th style={{padding:"6px 8px"}}>Client</th><th style={{padding:"6px 8px"}}>Status</th></tr></thead>
+        <tbody>{report.orders.map(o=>(<tr key={o.id} style={{borderBottom:"1px solid #F0F0F0"}}>
+          <td style={{padding:"6px 8px",fontFamily:"monospace"}}>{o.orderNo}</td><td style={{padding:"6px 8px"}}>{o.client||"—"}</td><td style={{padding:"6px 8px"}}>{o.status}</td></tr>))}</tbody></table>}
+    </ReportSection>
+  </div>);
+}
+function BatchOrderReportDoc({type,report,onBack}){
+  const isOrder=type==="order";
+  const title=isOrder?"Order Report — "+report.order.orderNo:"Batch Report — "+report.batch.batchNo;
+  const subtitle=isOrder?(report.order.client||"")+(report.order.color?" · "+report.order.color:""):(report.batch.client||"")+(report.batch.color?" · "+report.batch.color:"")+(report.batch.product?" · "+report.batch.product:"");
+  return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"'Inter',sans-serif"}}>
+    <ReportPrintBar onBack={onBack} backLabel="Back to Reports"/>
+    <ReportTitle title={title} subtitle={subtitle}/>
+    <ReportSection title="Production Summary">
+      <StatRow items={isOrder?
+        [["Batches",report.production.batchCount],["Good Pcs",fmtN(report.production.goodPcs)],["Target",fmtN(report.production.target)],["Completion",report.production.pct!=null?report.production.pct+"%":"—"]]:
+        [["Status",report.production.status],["Shifts",report.production.shiftCount],["Good Pcs",fmtN(report.production.goodPcs)],["Target",fmtN(report.production.target)],["Completion",report.production.pct!=null?report.production.pct+"%":"—"]]}/>
+    </ReportSection>
+    {isOrder&&<ReportSection title="Batches in this Order">
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+        <thead><tr style={{borderBottom:"2px solid #E2E8F0",textAlign:"left"}}><th style={{padding:"6px 8px"}}>Batch</th><th style={{padding:"6px 8px"}}>Status</th><th style={{padding:"6px 8px"}}>Good Pcs</th><th style={{padding:"6px 8px"}}>Target</th></tr></thead>
+        <tbody>{report.batches.map(r=>(<tr key={r.batch.id} style={{borderBottom:"1px solid #F0F0F0"}}>
+          <td style={{padding:"6px 8px",fontFamily:"monospace"}}>{r.batch.batchNo}</td><td style={{padding:"6px 8px"}}>{r.batch.status}</td>
+          <td style={{padding:"6px 8px"}}>{fmtN(r.production.goodPcs)}</td><td style={{padding:"6px 8px"}}>{fmtN(r.production.target)}</td></tr>))}</tbody></table>
+    </ReportSection>}
+    {!isOrder&&<ReportSection title="Shifts"><ShiftTable shifts={report.shifts}/></ReportSection>}
+    {!isOrder&&report.carryovers.length>0&&<ReportSection title="Carryovers Logged">
+      {report.carryovers.map(c=><div key={c.id} style={{fontSize:12,color:"#555",marginBottom:4}}>↩️ {c.batchNo} — from <strong>{c.carryoverFrom}</strong> ({fmtN(c.goodPcs||c.assembledPcs||c.acceptedPcs||0)} pcs) — {c.notes}</div>)}
+    </ReportSection>}
+    <ReportSection title="Material Used"><ShiftMaterialsBlock materials={report.materials}/></ReportSection>
+    <ReportSection title="Waste"><WasteBlock waste={report.waste}/></ReportSection>
+    <ReportSection title="Worker Performance"><WorkerTable workers={report.workers}/></ReportSection>
+  </div>);
+}
+function ReportsSection({data,batches,orders,onClose}){
+  const [doc,setDoc]=useState(null);
+  const [monthKey,setMonthKey]=useState(()=>{const d=new Date();return d.getFullYear()+"-"+pad(d.getMonth()+1,2);});
+  const [pickBatchNo,setPickBatchNo]=useState(""),[pickOrderNo,setPickOrderNo]=useState("");
+  const mainBatches=batches.filter(b=>!b.isSubBatch).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
+  if(doc)return(<div style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
+    {doc.type==="monthly"&&<MonthlyReportDoc report={doc.report} onBack={()=>setDoc(null)}/>}
+    {(doc.type==="batch"||doc.type==="order")&&<BatchOrderReportDoc type={doc.type} report={doc.report} onBack={()=>setDoc(null)}/>}
+  </div>);
+  return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
+    <div style={{background:"linear-gradient(135deg,#0D1F3C,"+NAVY+")",position:"sticky",top:0,zIndex:100}}>
+      <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13}}>← Back</button>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:17}}>🧾 Reports</div>
+          <div style={{color:"rgba(255,255,255,0.5)",fontSize:11}}>For board members and management review</div></div></div></div>
+    <div style={{maxWidth:700,margin:"0 auto",padding:16,display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:16}}>
+        <div style={{fontWeight:800,fontSize:14,color:NAVY,marginBottom:2}}>📅 Monthly Production Report</div>
+        <div style={{fontSize:12,color:"#888",marginBottom:12}}>Production, material usage, waste, and worker performance for one month.</div>
+        <div style={{display:"flex",gap:8}}>
+          <input type="month" value={monthKey} onChange={e=>setMonthKey(e.target.value)} style={{flex:1,border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/>
+          <button type="button" onClick={()=>setDoc({type:"monthly",report:buildMonthlyReport(data,batches,orders,monthKey)})} style={{background:NAVY,color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>Generate</button></div>
+      </div>
+      <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:16}}>
+        <div style={{fontWeight:800,fontSize:14,color:NAVY,marginBottom:2}}>🏭 Batch Report</div>
+        <div style={{fontSize:12,color:"#888",marginBottom:12}}>Full drill-down on one batch — shifts, material used, waste, worker performance.</div>
+        <div style={{display:"flex",gap:8}}>
+          <select value={pickBatchNo} onChange={e=>setPickBatchNo(e.target.value)} style={{flex:1,border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+            <option value="">— select batch —</option>
+            {mainBatches.map(b=><option key={b.id} value={b.batchNo}>{b.batchNo} · {b.color}{b.client?" · "+b.client:""}</option>)}</select>
+          <button type="button" disabled={!pickBatchNo} onClick={()=>{const b=mainBatches.filter(x=>x.batchNo===pickBatchNo)[0];if(b)setDoc({type:"batch",report:buildBatchReport(b,batches)});}}
+            style={{background:pickBatchNo?NAVY:"#E2E8F0",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,fontSize:13,cursor:pickBatchNo?"pointer":"default",whiteSpace:"nowrap"}}>Generate</button></div>
+      </div>
+      <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:16}}>
+        <div style={{fontWeight:800,fontSize:14,color:NAVY,marginBottom:2}}>📋 Order Report</div>
+        <div style={{fontSize:12,color:"#888",marginBottom:12}}>Rolls up every batch linked to one order — production, material, waste, worker performance.</div>
+        <div style={{display:"flex",gap:8}}>
+          <select value={pickOrderNo} onChange={e=>setPickOrderNo(e.target.value)} style={{flex:1,border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+            <option value="">— select order —</option>
+            {orders.map(o=><option key={o.id} value={o.orderNo}>{o.orderNo} · {o.client}</option>)}</select>
+          <button type="button" disabled={!pickOrderNo} onClick={()=>{const o=orders.filter(x=>x.orderNo===pickOrderNo)[0];if(o)setDoc({type:"order",report:buildOrderReport(o,batches)});}}
+            style={{background:pickOrderNo?NAVY:"#E2E8F0",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,fontSize:13,cursor:pickOrderNo?"pointer":"default",whiteSpace:"nowrap"}}>Generate</button></div>
+      </div>
+    </div></div>);
 }
 
 // ══ ROOT ══════════════════════════════════════════════════════════════════
@@ -1484,6 +1773,7 @@ export default function EpsInventoryApp(){
 
   let content;
   if(section==="log")content=<ActivityLog data={data} batches={batches} onClose={()=>setSection("inventory")}/>;
+  else if(section==="reports")content=<ReportsSection data={data} batches={batches} orders={orders} onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
     <ProductionSection data={data} batches={batches} orders={orders} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic}/></div>;
   else if(section==="orders")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
@@ -1496,11 +1786,11 @@ export default function EpsInventoryApp(){
     onToggleBag={(lid,bid)=>toggleBag(activeMat,lid,bid)} onCreateAlBatch={createAlBatch}/>;
   else content=<Dashboard data={data} batches={batches} orders={orders} onSelect={setActiveMat} onLogout={logout} onExport={exportBackup} onImportFile={importBackup} lastSync={lastSync} onSection={s=>{setSection(s);setActiveMat(null);}}/>;
 
-  const showTabs=section!=="log"&&!activeMat;
+  const showTabs=section!=="log"&&section!=="reports"&&!activeMat;
   return(<div style={{fontFamily:"'Inter',sans-serif"}}>
     {showTabs&&<div style={{background:"#142540",position:"sticky",top:0,zIndex:200,borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
       <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
-        {[["📦 Inventory","inventory"],["🏭 Production","production"],["📋 Orders","orders"],["📊 Log","log"]].map(x=>(
+        {[["📦 Inventory","inventory"],["🏭 Production","production"],["📋 Orders","orders"],["🧾 Reports","reports"],["📊 Log","log"]].map(x=>(
           <button type="button" key={x[1]} onClick={()=>{setSection(x[1]);setActiveMat(null);}}
             style={{flex:1,background:"none",border:"none",color:section===x[1]?"#fff":"rgba(255,255,255,0.45)",padding:"11px 8px",fontSize:12,fontWeight:section===x[1]?700:400,cursor:"pointer",borderBottom:"2px solid "+(section===x[1]?ACCENT:"transparent"),fontFamily:"inherit",whiteSpace:"nowrap"}}>{x[0]}</button>))}
       </div></div>}

@@ -15,3 +15,12 @@ body {
 .safe-area-pb {
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+@media print {
+  .eps-no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff !important;
+  }
+}
