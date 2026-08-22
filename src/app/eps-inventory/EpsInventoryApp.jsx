@@ -1011,8 +1011,9 @@ function CarryoverForm({parentBatch,batches,onSave,onCancel}){
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#4A6741",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Log Carryover</button>
     </div></div>);
 }
-function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub}){
+function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,onDeleteSub}){
   const [form,setForm]=useState(null);      // {mode:"new"} | {mode:"carryover"} | {subId, stage, editing:bool}
+  const [confDel,setConfDel]=useState(null);
   const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch).sort((a,b)=>a.batchNo.localeCompare(b.batchNo));
   const totalGood=mySubs.reduce((s,b)=>s+(b.goodPcs||0),0);
   const target=parentBatch.totalPcs||0;
@@ -1080,6 +1081,12 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub}
               {sub.aluminumLotNo?<span>🔘 {sub.aluminumLotNo}</span>:null}
               {sub.assembledPcs?<span>⚙️ {sub.assembledPcs.toLocaleString()} asm</span>:null}
               {sub.goodPcs?<span style={{fontWeight:700,color:"#1A6B2A"}}>📦 {sub.goodPcs.toLocaleString()} packed</span>:null}</div>
+            <div style={{marginTop:9,paddingTop:9,borderTop:"1px solid #F0F0F0"}}>
+              {confDel===sub.id?(<div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <span style={{fontSize:11,color:"#8B1A1A",fontWeight:600,flex:1}}>Delete {sub.batchNo}{(sub.plasticLotId||(sub.aluminumSelections&&sub.aluminumSelections.length))?" — any material it drew will be returned to stock":""}?</span>
+                <button type="button" onClick={()=>{onDeleteSub(sub);setConfDel(null);}} style={{background:"#DC3545",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11,color:"#fff",fontWeight:800}}>Yes, delete</button>
+                <button type="button" onClick={()=>setConfDel(null)} style={{background:"#E2E8F0",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11}}>Cancel</button></div>)
+              :(<button type="button" onClick={()=>setConfDel(sub.id)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>🗑 Delete this shift</button>)}</div>
           </div>);})}
       </div>
       <div style={{display:"flex",gap:8}}>
@@ -1190,7 +1197,7 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts}){
     </div>}
   </div>);
 }
-function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic}){
+function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic,onDeleteSub}){
   const [showForm,setShowForm]=useState(false),[filterSt,setFilterSt]=useState(""),[search,setSearch]=useState(""),[shiftId,setShiftId]=useState(null);
   const all=batches||[];
   const main=all.filter(b=>!b.isSubBatch);
@@ -1203,7 +1210,8 @@ function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDe
     onCreateSub={(b,m)=>{onCreateBatch(b);if(m)onApplyPlastic(null,0,m.plasticLotId,m.plasticBags,b.batchNo);}}
     onUpdateSub={(b,m,old)=>{onUpdateBatch(b);
       if(m&&m.plasticLotId!==undefined)onApplyPlastic(old?old.plasticLotId:null,old?(old.virginBags||0):0,m.plasticLotId,m.plasticBags,b.batchNo);
-      if(m&&m.selections)onApplyAluminum(old?(old.aluminumSelections||[]):[],m.selections);}}/>;
+      if(m&&m.selections)onApplyAluminum(old?(old.aluminumSelections||[]):[],m.selections);}}
+    onDeleteSub={onDeleteSub}/>;
   if(showForm)return <BatchForm batches={all} orders={orders} onSave={b=>{onCreateBatch(b);setShowForm(false);}} onCancel={()=>setShowForm(false)}/>;
 
   return(<div>
@@ -1715,6 +1723,14 @@ export default function EpsInventoryApp(){
   const createBatch=b=>{setBatches(p=>[b].concat(p));showToast(b.batchNo+" created ✓");};
   const updateBatch=u=>{setBatches(p=>p.map(b=>b.id===u.id?u:b));showToast("Updated ✓");};
   const deleteBatch=id=>{setBatches(p=>p.filter(b=>b.id!==id));showToast("Deleted","error");};
+  // Deletes a shift/carryover, first returning whatever material it actually drew (plastic
+  // bags, aluminum caps bags) — a carryover never drew fresh material, so those fields are
+  // simply absent and nothing is reversed for it.
+  const deleteSub=sub=>{
+    if(sub.plasticLotId&&sub.virginBags)applyPlastic(sub.plasticLotId,sub.virginBags,null,0,sub.batchNo);
+    if(sub.aluminumSelections&&sub.aluminumSelections.length)applyAluminum(sub.aluminumSelections,[]);
+    deleteBatch(sub.id);
+  };
   const createOrder=o=>{setOrders(p=>[o].concat(p));showToast(o.orderNo+" created ✓");};
   const deleteOrder=id=>{setOrders(p=>p.filter(o=>o.id!==id));showToast("Deleted","error");};
   // Applies the DIFFERENCE between the previously recorded aluminum selection and the new one.
@@ -1775,7 +1791,7 @@ export default function EpsInventoryApp(){
   if(section==="log")content=<ActivityLog data={data} batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="reports")content=<ReportsSection data={data} batches={batches} orders={orders} onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
-    <ProductionSection data={data} batches={batches} orders={orders} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic}/></div>;
+    <ProductionSection data={data} batches={batches} orders={orders} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onDeleteSub={deleteSub}/></div>;
   else if(section==="orders")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
     <OrdersSection batches={batches} orders={orders} onCreateOrder={createOrder} onDeleteOrder={deleteOrder}/></div>;
   else if(activeMat)content=<MaterialView matName={activeMat} matConfig={data[activeMat]} lots={data[activeMat].lots} coils={data[activeMat].coils||[]}
