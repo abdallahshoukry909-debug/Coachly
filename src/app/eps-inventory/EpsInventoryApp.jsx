@@ -325,21 +325,31 @@ function AluminumBatchForm({capsLots,coilLots,matConfig,onSave,onClose}){
   const [coilLotId,setCoilLotId]=useState(""),[coilNumber,setCoilNumber]=useState("");
   const [weightTaken,setWeightTaken]=useState(""),[qty,setQty]=useState(""),[unit,setUnit]=useState("Pcs");
   const [scrapPct,setScrapPct]=useState("27.4");
-  const [date,setDate]=useState(new Date().toISOString().split("T")[0]);
+  const [dateStarted,setDateStarted]=useState(""),[dateFinished,setDateFinished]=useState(new Date().toISOString().split("T")[0]);
+  const [bagQty,setBagQty]=useState(""),[bagUnit,setBagUnit]=useState("Pcs"),[bagsList,setBagsList]=useState([]);
   const [operator,setOperator]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
   const coil=coilLotId?coilLots.filter(l=>l.id===coilLotId)[0]:null;
   const wt=Number(weightTaken)||0,availKg=coil?Number(coil.qtyRemaining)||0:0;
   const scrapKg=wt*(Number(scrapPct)||0)/100;
+  const isBags=unit==="Bags";
+  const bagPcsEq=b=>b.unit==="Stamps"?b.qty*6:b.unit==="KG"?kgToPcs(b.qty,0.405):b.qty;
+  const bagsTotalPcs=bagsList.reduce((s,b)=>s+bagPcsEq(b),0);
+  const addBag=()=>{if(!bagQty||Number(bagQty)<=0){setErr("Enter a quantity for the bag.");return;}
+    setBagsList(bagsList.concat([{qty:Number(bagQty),unit:bagUnit}]));setBagQty("");setErr("");};
+  const removeBag=i=>setBagsList(bagsList.filter((_,idx)=>idx!==i));
+  const dispDate=d=>d?new Date(d+"T00:00:00").toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}).replace(/ /g,"-"):null;
   const save=()=>{
     if(!coilLotId){setErr("Select which coil lot this was stamped from.");return;}
     if(wt<=0){setErr("Enter the weight taken from the coil.");return;}
     if(wt>availKg){setErr("Only "+fmt(availKg)+" KG remaining on that coil lot.");return;}
-    if(!qty||Number(qty)<=0){setErr("Enter the quantity produced.");return;}
-    const dispDate=new Date(date+"T00:00:00").toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}).replace(/ /g,"-");
-    const newLot={id:genId(),lotNumber:preview,plNo:preview,date:dispDate,supplier:"In-house production",
+    if(isBags){if(bagsList.length===0){setErr("Add at least one bag.");return;}}
+    else if(!qty||Number(qty)<=0){setErr("Enter the quantity produced.");return;}
+    const newLot={id:genId(),lotNumber:preview,plNo:preview,date:dispDate(dateFinished),dateStarted:dispDate(dateStarted),supplier:"In-house production",
       description:"20mm Flip-Off Aluminum Caps – Coil lot "+coil.lotNumber+(coilNumber?" | Coil "+coilNumber:""),
-      qtyReceived:Number(qty),unit:unit,qtyRemaining:Number(qty),unitCost:"",status:"In Stock",
+      qtyReceived:isBags?bagsList.length:Number(qty),unit:unit,qtyRemaining:isBags?bagsList.length:Number(qty),unitCost:"",status:"In Stock",
       notes:(operator?"Operator: "+operator:"")+(coil.notes?" | Source: "+coil.notes:""),image:null,usageLog:[]};
+    if(isBags)newLot.bags=bagsList.map((b,i)=>{const n=pad(i+1,2);const isSt=b.unit==="Stamps";
+      return{id:"B"+n,label:preview+"-B"+n,qty:isSt?b.qty*6:b.qty,qtyUnit:isSt?"Pcs":b.unit,used:false,usedDate:null};});
     onSave(newLot,{coilLotId:coilLotId,weightTaken:wt,coilNumber:coilNumber,scrapKg:scrapKg});
   };
   return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
@@ -365,13 +375,30 @@ function AluminumBatchForm({capsLots,coilLots,matConfig,onSave,onClose}){
             <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>♻️ Scrap Generated</label>
               <div style={{padding:"9px 12px",background:"#FDF3E0",borderRadius:8,fontSize:13,color:"#8B5A2B",fontWeight:700}}>{wt>0?fmt(scrapKg)+" KG":"—"}</div></div></div></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
-          <Field label="Qty Produced *" value={qty} onChange={v=>{setQty(v);setErr("");}} type="number" ph="e.g. 15000" accent={matConfig.accent}/>
           <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Unit</label>
-            <select value={unit} onChange={e=>setUnit(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+            <select value={unit} onChange={e=>{setUnit(e.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
               <option>Pcs</option><option>Bags</option><option>KG</option></select></div>
-          <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date</label>
-            <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+          {!isBags&&<Field label="Qty Produced *" value={qty} onChange={v=>{setQty(v);setErr("");}} type="number" ph="e.g. 15000" accent={matConfig.accent}/>}
+          <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date Started</label>
+            <input type="date" value={dateStarted} onChange={e=>setDateStarted(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+          <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date Finished</label>
+            <input type="date" value={dateFinished} onChange={e=>setDateFinished(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
           <Field label="Operator" value={operator} onChange={setOperator} ph="Name" accent={matConfig.accent}/></div>
+        {isBags&&<div style={{background:"#F7F9FC",borderRadius:10,padding:14,marginBottom:14}}>
+          <div style={{fontWeight:700,fontSize:13,color:matConfig.color,marginBottom:2}}>Bags Produced</div>
+          <div style={{fontSize:11,color:"#888",marginBottom:10}}>Add each bag with its quantity — Pcs, KG, or Stamps (1 stamp = 6 pcs)</div>
+          {bagsList.length>0&&<div style={{marginBottom:10,display:"flex",flexDirection:"column",gap:6}}>
+            {bagsList.map((b,i)=>(<div key={i} style={{background:"#fff",borderRadius:8,padding:"7px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid #E2E8F0"}}>
+              <div style={{fontSize:12}}><strong style={{fontFamily:"monospace",color:matConfig.color}}>{preview}-B{pad(i+1,2)}</strong>
+                <span style={{color:"#888",marginLeft:8}}>{fmtN(b.qty)} {b.unit}{b.unit==="Stamps"?" = "+fmtN(b.qty*6)+" pcs":""}</span></div>
+              <button type="button" onClick={()=>removeBag(i)} style={{background:"#FFF0F0",border:"none",borderRadius:6,padding:"4px 9px",cursor:"pointer",fontSize:12,color:"#DC3545"}}>🗑</button></div>))}
+            <div style={{background:matConfig.light,borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:700,color:matConfig.color}}>Total: {bagsList.length} bags · {fmtN(bagsTotalPcs)} pcs</div></div>}
+          <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+            <div style={{flex:1}}><Field label="Quantity" value={bagQty} onChange={v=>{setBagQty(v);setErr("");}} type="number" ph="e.g. 15000" accent={matConfig.accent}/></div>
+            <div style={{flex:1}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Unit</label>
+              <select value={bagUnit} onChange={e=>setBagUnit(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+                <option>Pcs</option><option>KG</option><option>Stamps</option></select></div>
+            <button type="button" onClick={addBag} style={{padding:"9px 16px",background:matConfig.accent,color:"#fff",border:"none",borderRadius:8,fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>+ Add Bag</button></div></div>}
         <div style={{marginBottom:18}}><Field label="Notes" value={notes} onChange={setNotes} accent={matConfig.accent}/></div>
         {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
         {coil&&wt>0&&!err&&<div style={{background:"#E8F5E9",border:"1px solid #A5D6A7",borderRadius:8,padding:"9px 12px",marginBottom:14,fontSize:12,color:"#1A6B2A",fontWeight:600}}>
@@ -401,7 +428,7 @@ function LotDetail({lot,matConfig,isScrap,onClose,onEdit,onUseStock,onSellScrap,
           <SBadge status={lot.status}/></div>
         <div style={{height:8,background:"#F0F0F0",borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:bar,borderRadius:4}}/></div></div>
       <div style={{margin:"0 20px 14px",borderRadius:12,border:"1.5px solid #EEF2F7",overflow:"hidden"}}>
-        {[["Supplier",lot.supplier],["Description",lot.description],["Unit Cost",lot.unitCost?fmt(lot.unitCost)+" "+(lot.unitCostCurrency||"EGP")+" / "+lot.unit:null],["Est. Remaining Value",lot.unitCost?fmt(rem*Number(lot.unitCost))+" "+(lot.unitCostCurrency||"EGP"):null],["Notes",lot.notes],["Coils",lot.totalCoils?(lot.coilsUsed||0)+" of "+lot.totalCoils+" used":null]].filter(x=>x[1]).map((x,i)=>(
+        {[["Supplier",lot.supplier],["Description",lot.description],["Date Started",lot.dateStarted],["Date Finished",lot.dateStarted?lot.date:null],["Unit Cost",lot.unitCost?fmt(lot.unitCost)+" "+(lot.unitCostCurrency||"EGP")+" / "+lot.unit:null],["Est. Remaining Value",lot.unitCost?fmt(rem*Number(lot.unitCost))+" "+(lot.unitCostCurrency||"EGP"):null],["Notes",lot.notes],["Coils",lot.totalCoils?(lot.coilsUsed||0)+" of "+lot.totalCoils+" used":null]].filter(x=>x[1]).map((x,i)=>(
           <div key={i} style={{display:"flex",borderBottom:"1px solid #F5F7FA",padding:"9px 14px",gap:10}}>
             <div style={{fontSize:11,fontWeight:700,color:"#BBB",textTransform:"uppercase",minWidth:85}}>{x[0]}</div>
             <div style={{fontSize:12,color:"#2D3748",flex:1,lineHeight:1.5}}>{x[1]}</div></div>))}</div>
