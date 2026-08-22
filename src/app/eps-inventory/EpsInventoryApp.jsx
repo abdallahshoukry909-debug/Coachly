@@ -730,7 +730,8 @@ function MaterialView({matName,matConfig,lots,coils,coilLots,onUpdate,onDelete,o
 // ══ SHIFT STAGE FORMS ═════════════════════════════════════════════════════
 function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
   const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch);
-  const subNo=existing?existing.batchNo:parentBatch.batchNo+"-"+String.fromCharCode(65+mySubs.length);
+  const realShifts=mySubs.filter(b=>!b.isCarryover);
+  const subNo=existing?existing.batchNo:parentBatch.batchNo+"-"+String.fromCharCode(65+realShifts.length);
   const e=existing||{};
   const [date,setDate]=useState(e.mfgDate||new Date().toISOString().split("T")[0]);
   const [shift,setShift]=useState(e.shift||"Morning"),[operator,setOperator]=useState(e.operator||"");
@@ -967,7 +968,8 @@ function FinalSortingForm({sub,existing,onSave,onCancel}){
 // draw, since it was already consumed under the original batch.
 function CarryoverForm({parentBatch,batches,onSave,onCancel}){
   const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch);
-  const subNo=parentBatch.batchNo+"-"+String.fromCharCode(65+mySubs.length);
+  const priorCarryovers=mySubs.filter(b=>b.isCarryover).length;
+  const subNo=parentBatch.batchNo+"-CO"+(priorCarryovers+1);
   const sourceOptions=batches.filter(b=>!b.isSubBatch&&b.batchNo!==parentBatch.batchNo);
   const [sourceBatchNo,setSourceBatchNo]=useState(""),[type,setType]=useState("plastic");
   const [qty,setQty]=useState(""),[cartons,setCartons]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
@@ -1024,6 +1026,7 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
   const [form,setForm]=useState(null);      // {mode:"new"} | {mode:"carryover"} | {subId, stage, editing:bool}
   const [confDel,setConfDel]=useState(null);
   const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch).sort((a,b)=>a.batchNo.localeCompare(b.batchNo));
+  const realShiftCount=mySubs.filter(b=>!b.isCarryover).length;
   const totalGood=mySubs.reduce((s,b)=>s+(b.goodPcs||0),0);
   const target=parentBatch.totalPcs||0;
   const pct=target?Math.min(100,Math.round(totalGood/target*100)):0;
@@ -1100,7 +1103,7 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
           </div>);})}
       </div>
       <div style={{display:"flex",gap:8}}>
-        <button type="button" onClick={()=>setForm({mode:"new"})} style={{flex:2,padding:13,background:"linear-gradient(135deg,"+NAVY+","+ACCENT+")",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer"}}>+ New Shift ({String.fromCharCode(65+mySubs.length)})</button>
+        <button type="button" onClick={()=>setForm({mode:"new"})} style={{flex:2,padding:13,background:"linear-gradient(135deg,"+NAVY+","+ACCENT+")",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer"}}>+ New Shift ({String.fromCharCode(65+realShiftCount)})</button>
         <button type="button" onClick={()=>setForm({mode:"carryover"})} style={{flex:1,padding:13,background:"#fff",color:"#4A6741",border:"1.5px solid #4A6741",borderRadius:10,fontWeight:800,fontSize:13,cursor:"pointer"}}>↩️ Carryover</button></div>
     </div></div>);
 }
