@@ -1041,15 +1041,16 @@ function CarryoverForm({parentBatch,batches,onSave,onCancel}){
 // visible in stock the next time an order needs that combination, instead of getting lost.
 function SaveLeftoverForm({parentBatch,onSave,onClose}){
   const mc=MATERIAL_META["WIP Inventory"];
-  const [stage,setStage]=useState("Unsorted Plastic"),[mold,setMold]=useState(""),[weightKg,setWeightKg]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
+  const [stage,setStage]=useState("Unsorted Plastic"),[mold,setMold]=useState("No Logo"),[color,setColor]=useState(parentBatch.color||""),[company,setCompany]=useState(parentBatch.client||"");
+  const [weightKg,setWeightKg]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
   const STAGES_WIP=["Unsorted Plastic","Sorted Plastic","Assembled"];
   const pieceWt=stage==="Assembled"?(parentBatch.asmWt||ASM_WT):(parentBatch.capWt||CAP_WT);
   const wt=Number(weightKg)||0,pcs=kgToPcs(wt,pieceWt);
   const save=()=>{
     if(wt<=0){setErr("Enter the leftover weight in KG.");return;}
     onSave({id:genId(),lotNumber:"WIP-"+parentBatch.batchNo+"-"+genId().slice(-4),plNo:"",date:today(),
-      supplier:parentBatch.client||"",
-      description:stage+" — "+(mold.trim()||"unspecified mold")+" — "+(parentBatch.color||"any color"),
+      supplier:company.trim(),
+      description:stage+" — "+(mold.trim()||"unspecified mold")+" — "+(color.trim()||"any color")+(company.trim()?" — "+company.trim():""),
       qtyReceived:pcs,unit:"Pcs",qtyRemaining:pcs,unitCost:"",status:"In Stock",
       notes:"From "+parentBatch.batchNo+" — "+fmt(wt)+" KG @ "+pieceWt+" g/pc"+(notes?" — "+notes:""),image:null,usageLog:[]});
   };
@@ -1065,6 +1066,8 @@ function SaveLeftoverForm({parentBatch,onSave,onClose}){
             {STAGES_WIP.map(s=>(<div key={s} onClick={()=>setStage(s)} style={{padding:"10px 14px",borderRadius:9,border:"2px solid "+(stage===s?mc.color:"#E2E8F0"),background:stage===s?mc.light:"#fff",cursor:"pointer",fontSize:13,fontWeight:stage===s?700:500,color:stage===s?mc.color:"#444"}}>{s}</div>))}</div></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
           <Field label="Mold / Logo" value={mold} onChange={setMold} ph="e.g. No Logo" accent={mc.accent}/>
+          <Field label="Color" value={color} onChange={setColor} ph="e.g. Green" accent={mc.accent}/>
+          <Field label="Company" value={company} onChange={setCompany} ph="e.g. Global Napi" accent={mc.accent}/>
           <Field label="Weight (KG) *" value={weightKg} onChange={v=>{setWeightKg(v);setErr("");}} type="number" ph="e.g. 56" accent={mc.accent}/></div>
         {wt>0&&<div style={{background:mc.light,borderRadius:8,padding:"9px 12px",marginBottom:14,fontSize:12,color:mc.color}}>
           ≈ <strong>{fmtN(pcs)} pcs</strong> at {pieceWt} g/pc ({stage==="Assembled"?"assembled":"plastic"} weight)</div>}
