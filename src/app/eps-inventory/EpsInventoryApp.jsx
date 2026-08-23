@@ -1043,8 +1043,8 @@ function SaveLeftoverForm({parentBatch,onSave,onClose}){
   const mc=MATERIAL_META["WIP Inventory"];
   const [stage,setStage]=useState("Unsorted Plastic"),[mold,setMold]=useState("No Logo"),[color,setColor]=useState(parentBatch.color||""),[company,setCompany]=useState(parentBatch.client||"");
   const [weightKg,setWeightKg]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
-  const STAGES_WIP=["Unsorted Plastic","Sorted Plastic","Assembled"];
-  const pieceWt=stage==="Assembled"?(parentBatch.asmWt||ASM_WT):(parentBatch.capWt||CAP_WT);
+  const STAGES_WIP=["Unsorted Plastic","Sorted Plastic","Unsorted Assembled","Sorted Assembled"];
+  const pieceWt=stage.indexOf("Assembled")>=0?(parentBatch.asmWt||ASM_WT):(parentBatch.capWt||CAP_WT);
   const wt=Number(weightKg)||0,pcs=kgToPcs(wt,pieceWt);
   const save=()=>{
     if(wt<=0){setErr("Enter the leftover weight in KG.");return;}
@@ -1070,7 +1070,7 @@ function SaveLeftoverForm({parentBatch,onSave,onClose}){
           <Field label="Company" value={company} onChange={setCompany} ph="e.g. Global Napi" accent={mc.accent}/>
           <Field label="Weight (KG) *" value={weightKg} onChange={v=>{setWeightKg(v);setErr("");}} type="number" ph="e.g. 56" accent={mc.accent}/></div>
         {wt>0&&<div style={{background:mc.light,borderRadius:8,padding:"9px 12px",marginBottom:14,fontSize:12,color:mc.color}}>
-          ≈ <strong>{fmtN(pcs)} pcs</strong> at {pieceWt} g/pc ({stage==="Assembled"?"assembled":"plastic"} weight)</div>}
+          ≈ <strong>{fmtN(pcs)} pcs</strong> at {pieceWt} g/pc ({stage.indexOf("Assembled")>=0?"assembled":"plastic"} weight)</div>}
         <div style={{marginBottom:18}}><Field label="Notes (optional)" value={notes} onChange={setNotes} accent={mc.accent}/></div>
         {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:mc.accent,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save to WIP Inventory</button>
