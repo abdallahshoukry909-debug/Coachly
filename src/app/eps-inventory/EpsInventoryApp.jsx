@@ -15,6 +15,7 @@ const MATERIAL_META={
   "Plastic Material":{color:"#4A1A6E",accent:"#7B3FB5",light:"#EDE0FF",emoji:"🧴"},
   "Sachets Paper":{color:"#6B3010",accent:"#B85C1A",light:"#FEE8D0",emoji:"📄"},
   "Silica Gel":{color:"#0E4A2A",accent:"#1A7A45",light:"#D0F0E0",emoji:"🟡"},
+  "WIP Inventory":{color:"#6B4F9E",accent:"#8B6FC7",light:"#EFEAFB",emoji:"🗂️"},
 };
 const STATUS_CONFIG={
   "In Stock":{bg:"#C6EFCE",text:"#1A6B2A",dot:"#22A03A"},
@@ -229,6 +230,7 @@ const INITIAL_LOTS={
   "Silica Gel":[
     {id:"sg-1",lotNumber:"YM0120260120",plNo:"YM012026012C",date:"20-Jan-2026",supplier:"Dongying Yiming New Materials Co., Ltd",description:"Silica Gel Beaded Type A – 25 KG/bag",qtyReceived:16000,unit:"KG",qtyRemaining:15350,unitCost:0.95,unitCostCurrency:"USD",status:"In Stock",notes:"640 packages × 25 KG",image:null,usageLog:[{id:"sg-1-hist1",date:"19-Aug-2026",qtyUsed:650,reason:"Recovered usage",remainingAfter:15350}]},
   ],
+  "WIP Inventory":[],
 };
 
 const mkB=(id,no,st,col,c,bpc,ppb,mfg,cl,ord,notes,prod)=>({id:id,batchNo:no,isSubBatch:false,parentBatchNo:null,product:prod||"Flip-Off Caps 20mm",status:st,color:col,cartons:c,bagsPerCarton:bpc,pcsPerBag:ppb,partialCartonBags:0,totalPcs:c*bpc*ppb,mfgDate:mfg,client:cl,orderNo:ord,notes:notes||"",createdAt:mfg});
@@ -1034,9 +1036,44 @@ function CarryoverForm({parentBatch,batches,onSave,onCancel}){
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#4A6741",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Log Carryover</button>
     </div></div>);
 }
-function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,onDeleteSub}){
+// Saves leftover WIP from this batch (unsorted/sorted plastic or assembled caps that never
+// made it to Final Sorting) as its own inventory lot — client/color/mold tagged — so it's
+// visible in stock the next time an order needs that combination, instead of getting lost.
+function SaveLeftoverForm({parentBatch,onSave,onClose}){
+  const mc=MATERIAL_META["WIP Inventory"];
+  const [stage,setStage]=useState("Unsorted Plastic"),[mold,setMold]=useState(""),[qty,setQty]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
+  const STAGES_WIP=["Unsorted Plastic","Sorted Plastic","Assembled"];
+  const save=()=>{
+    if(!qty||Number(qty)<=0){setErr("Enter how many pcs are left over.");return;}
+    const n=Number(qty);
+    onSave({id:genId(),lotNumber:"WIP-"+parentBatch.batchNo+"-"+genId().slice(-4),plNo:"",date:today(),
+      supplier:parentBatch.client||"",
+      description:stage+" — "+(mold.trim()||"unspecified mold")+" — "+(parentBatch.color||"any color"),
+      qtyReceived:n,unit:"Pcs",qtyRemaining:n,unitCost:"",status:"In Stock",
+      notes:"From "+parentBatch.batchNo+(notes?" — "+notes:""),image:null,usageLog:[]});
+  };
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:480,maxHeight:"92vh",overflowY:"auto"}}>
+      <div style={{background:mc.color,borderRadius:"16px 16px 0 0",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>{mc.emoji} Save Leftover to Stock</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>{parentBatch.batchNo} · {parentBatch.color}{parentBatch.client?" · "+parentBatch.client:""}</div></div>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
+      <div style={{padding:24}}>
+        <div style={{marginBottom:14}}>
+          <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>What Is It?</label>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {STAGES_WIP.map(s=>(<div key={s} onClick={()=>setStage(s)} style={{padding:"10px 14px",borderRadius:9,border:"2px solid "+(stage===s?mc.color:"#E2E8F0"),background:stage===s?mc.light:"#fff",cursor:"pointer",fontSize:13,fontWeight:stage===s?700:500,color:stage===s?mc.color:"#444"}}>{s}</div>))}</div></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+          <Field label="Mold / Logo" value={mold} onChange={setMold} ph="e.g. No Logo" accent={mc.accent}/>
+          <Field label="Quantity (Pcs) *" value={qty} onChange={v=>{setQty(v);setErr("");}} type="number" ph="e.g. 100000" accent={mc.accent}/></div>
+        <div style={{marginBottom:18}}><Field label="Notes (optional)" value={notes} onChange={setNotes} accent={mc.accent}/></div>
+        {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
+        <button type="button" onClick={save} style={{width:"100%",padding:13,background:mc.accent,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save to WIP Inventory</button>
+      </div></div></div>);
+}
+function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,onDeleteSub,onSaveLeftover}){
   const [form,setForm]=useState(null);      // {mode:"new"} | {mode:"carryover"} | {subId, stage, editing:bool}
   const [confDel,setConfDel]=useState(null);
+  const [showLeftover,setShowLeftover]=useState(false);
   const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch).sort((a,b)=>a.batchNo.localeCompare(b.batchNo));
   const realShiftCount=mySubs.filter(b=>!b.isCarryover).length;
   const totalGood=mySubs.reduce((s,b)=>s+(b.goodPcs||0),0);
@@ -1114,10 +1151,13 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
               :(<button type="button" onClick={()=>setConfDel(sub.id)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>🗑 Delete this shift</button>)}</div>
           </div>);})}
       </div>
-      <div style={{display:"flex",gap:8}}>
-        <button type="button" onClick={()=>setForm({mode:"new"})} style={{flex:2,padding:13,background:"linear-gradient(135deg,"+NAVY+","+ACCENT+")",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer"}}>+ New Shift ({String.fromCharCode(65+realShiftCount)})</button>
-        <button type="button" onClick={()=>setForm({mode:"carryover"})} style={{flex:1,padding:13,background:"#fff",color:"#4A6741",border:"1.5px solid #4A6741",borderRadius:10,fontWeight:800,fontSize:13,cursor:"pointer"}}>↩️ Carryover</button></div>
-    </div></div>);
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button type="button" onClick={()=>setForm({mode:"new"})} style={{flex:2,minWidth:150,padding:13,background:"linear-gradient(135deg,"+NAVY+","+ACCENT+")",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer"}}>+ New Shift ({String.fromCharCode(65+realShiftCount)})</button>
+        <button type="button" onClick={()=>setForm({mode:"carryover"})} style={{flex:1,minWidth:120,padding:13,background:"#fff",color:"#4A6741",border:"1.5px solid #4A6741",borderRadius:10,fontWeight:800,fontSize:13,cursor:"pointer"}}>↩️ Carryover</button>
+        <button type="button" onClick={()=>setShowLeftover(true)} style={{flex:1,minWidth:150,padding:13,background:"#fff",color:"#6B4F9E",border:"1.5px solid #6B4F9E",borderRadius:10,fontWeight:800,fontSize:13,cursor:"pointer"}}>🗂️ Save Leftover to Stock</button></div>
+    </div>
+    {showLeftover&&<SaveLeftoverForm parentBatch={parentBatch} onSave={lot=>{onSaveLeftover(lot);setShowLeftover(false);}} onClose={()=>setShowLeftover(false)}/>}
+    </div>);
 }
 
 // ══ BATCH FORM / CARD / PRODUCTION ════════════════════════════════════════
@@ -1222,7 +1262,7 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts}){
     </div>}
   </div>);
 }
-function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic,onDeleteSub}){
+function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic,onDeleteSub,onSaveLeftover}){
   const [showForm,setShowForm]=useState(false),[filterSt,setFilterSt]=useState(""),[search,setSearch]=useState(""),[shiftId,setShiftId]=useState(null);
   const all=batches||[];
   const main=all.filter(b=>!b.isSubBatch);
@@ -1236,7 +1276,7 @@ function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDe
     onUpdateSub={(b,m,old)=>{onUpdateBatch(b);
       if(m&&m.plasticLotId!==undefined)onApplyPlastic(old?old.plasticLotId:null,old?(old.virginBags||0):0,m.plasticLotId,m.plasticBags,b.batchNo);
       if(m&&m.selections)onApplyAluminum(old?(old.aluminumSelections||[]):[],m.selections);}}
-    onDeleteSub={onDeleteSub}/>;
+    onDeleteSub={onDeleteSub} onSaveLeftover={onSaveLeftover}/>;
   if(showForm)return <BatchForm batches={all} orders={orders} onSave={b=>{onCreateBatch(b);setShowForm(false);}} onCancel={()=>setShowForm(false)}/>;
 
   return(<div>
@@ -1833,7 +1873,7 @@ export default function EpsInventoryApp(){
   if(section==="log")content=<ActivityLog data={data} batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="reports")content=<ReportsSection data={data} batches={batches} orders={orders} onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
-    <ProductionSection data={data} batches={batches} orders={orders} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onDeleteSub={deleteSub}/></div>;
+    <ProductionSection data={data} batches={batches} orders={orders} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onDeleteSub={deleteSub} onSaveLeftover={lot=>addLot("WIP Inventory",lot)}/></div>;
   else if(section==="orders")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
     <OrdersSection batches={batches} orders={orders} onCreateOrder={createOrder} onDeleteOrder={deleteOrder}/></div>;
   else if(activeMat)content=<MaterialView matName={activeMat} matConfig={data[activeMat]} lots={data[activeMat].lots} coils={data[activeMat].coils||[]}
