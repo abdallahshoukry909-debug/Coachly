@@ -357,8 +357,8 @@ function UseStockModal({lot,matConfig,onSave,onClose}){
     if(!qty||qtyNum<=0){setError("Enter a valid quantity.");return;}
     // Tolerate float drift from repeated deductions (e.g. stored 0.0999997 displayed as 0.10),
     // so using exactly what's shown as remaining isn't wrongly rejected as "too much".
-    if(bags&&qtyNum>remBags+0.005){setError("Max "+remBags.toLocaleString()+" bags.");return;}
-    if(!bags&&usedKg>remKg+0.005){setError("Max "+fmt(remKg)+" "+lot.unit);return;}
+    if(bags&&qtyNum>remBags+0.01){setError("Max "+remBags.toLocaleString()+" bags.");return;}
+    if(!bags&&usedKg>remKg+0.01){setError("Max "+fmt(remKg)+" "+lot.unit);return;}
     const ns=newRem<=0?"Out of Stock":newRem<=remKg*0.15?"Low Stock":lot.status==="Out of Stock"?"In Stock":lot.status;
     onSave(Object.assign({},lot,{qtyRemaining:newRem,status:ns,usageLog:(lot.usageLog||[]).concat([{id:genId(),date:today(),qtyUsed:usedKg,bagsUsed:bags?qtyNum:null,reason:reason||"Production use",remainingAfter:newRem}])}));
   };
@@ -465,7 +465,7 @@ function AluminumBatchForm({capsLots,coilLots,matConfig,onSave,onClose}){
     if(wt<=0){setErr("Enter the weight taken from the coil.");return;}
     // Tolerate float drift from repeated deductions across many batches, so using exactly
     // what's shown as remaining isn't wrongly rejected as "too much".
-    if(wt>availKg+0.005){setErr("Only "+fmt(availKg)+" KG remaining on that coil lot.");return;}
+    if(wt>availKg+0.01){setErr("Only "+fmt(availKg)+" KG remaining on that coil lot.");return;}
     if(isBags){if(bagsList.length===0){setErr("Add at least one bag.");return;}}
     else if(!qty||Number(qty)<=0){setErr("Enter the quantity produced.");return;}
     const newLot={id:genId(),lotNumber:preview,plNo:preview,date:dispDate(dateFinished),dateStarted:dispDate(dateStarted),supplier:"In-house production",
