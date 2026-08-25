@@ -5,7 +5,7 @@ import {createClient} from "@/lib/supabase/client";
 
 const SHARED_KEY="eps-inventory-data-v1";
 const NAVY="#1A3C5E",ACCENT="#2D6A9F";
-const CAP_WT=0.56,ASM_WT=0.96,PCS_INJ=64,BAG_KG=25,PLASTIC_BAG_KG=25;
+const CAP_WT=0.56,ASM_WT=0.96,PCS_INJ=64,BAG_KG=25,PLASTIC_BAG_KG=25,WASTE_PER_INJ=28;
 const ALU_DEN=2700/1e9;
 
 const MATERIAL_META={
@@ -746,9 +746,13 @@ function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
   const [weightBefore,setWeightBefore]=useState(e.weightBeforeSorting||""),[notes,setNotes]=useState(e.notes||""),[err,setErr]=useState("");
   const plasticLots=((data&&data["Plastic Material"]&&data["Plastic Material"].lots)||[]).filter(l=>l.status!=="Out of Stock"||l.id===e.plasticLotId);
   const selPlastic=plasticLotId?plasticLots.filter(l=>l.id===plasticLotId)[0]:null;
-  const capWt=parentBatch.capWt||CAP_WT,asmWt=parentBatch.asmWt||ASM_WT;
+  const capWt=parentBatch.capWt||CAP_WT,asmWt=parentBatch.asmWt||ASM_WT,wastePerInj=parentBatch.wastePerInj||WASTE_PER_INJ;
   const inj=Number(injections)||0,vBags=Number(virginBags)||0,vKg=vBags*PLASTIC_BAG_KG,rKg=Number(regrindKg)||0,wBef=Number(weightBefore)||0;
   const thPcs=inj*PCS_INJ,thKg=pcsToKg(thPcs,capWt),totalPlastic=vKg+rKg;
+  // Each shot uses more material than just the cap itself — sprue/runner waste per shot,
+  // regardless of mold cavity count — so the material a shift SHOULD need is caps + that waste.
+  const theoWasteKg=inj*wastePerInj/1000,theoMaterialKg=thKg+theoWasteKg;
+  const actualLossKg=totalPlastic>0&&wBef>0?Math.max(0,totalPlastic-wBef):0;
   const regrindPct=totalPlastic>0?(rKg/totalPlastic*100):0;
   const availBags=selPlastic?Number(selPlastic.qtyRemaining):0;
   const save=()=>{
@@ -759,7 +763,7 @@ function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
     if(!wBef){setErr("Enter weight before sorting.");return;}
     const payload=Object.assign({},e,{id:e.id||genId(),batchNo:subNo,isSubBatch:true,parentBatchNo:parentBatch.batchNo,product:parentBatch.product,
       status:e.stage&&e.stage!=="Injection"?e.status:"Plastic Sorting",stage:e.stage&&e.stage!=="Injection"?e.stage:"Plastic Sorting",
-      color:parentBatch.color,client:parentBatch.client,orderNo:parentBatch.orderNo,capWt:capWt,asmWt:asmWt,
+      color:parentBatch.color,client:parentBatch.client,orderNo:parentBatch.orderNo,capWt:capWt,asmWt:asmWt,wastePerInj:wastePerInj,
       cartons:e.cartons||0,bagsPerCarton:e.bagsPerCarton||0,pcsPerBag:e.pcsPerBag||0,partialCartonBags:0,totalPcs:e.totalPcs||0,
       mfgDate:date,shift:shift,operator:operator,injections:inj,theoreticalPcs:thPcs,theoreticalKg:thKg,
       plasticLotId:plasticLotId||null,plasticLotNo:selPlastic?selPlastic.lotNumber:null,
@@ -784,7 +788,10 @@ function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
         <div style={{fontWeight:700,fontSize:13,color:"#856404",marginBottom:10}}>💉 Injection Output</div>
         <Field label="No. of Injections (× 64 cavities)" value={injections} onChange={v=>{setInjections(v);setErr("");}} type="number" ph="e.g. 200" accent="#856404"/>
         {inj>0&&<div style={{marginTop:8,background:"#fff",borderRadius:8,padding:"10px 12px",fontSize:12,display:"flex",gap:20,flexWrap:"wrap"}}>
-          <div>Theoretical: <strong>{thPcs.toLocaleString()} pcs</strong></div><div>Expected: <strong>{thKg.toFixed(2)} KG</strong></div><div style={{color:"#888"}}>@ {capWt} g/cap</div></div>}</div>
+          <div>Theoretical: <strong>{thPcs.toLocaleString()} pcs</strong></div><div>Caps: <strong>{thKg.toFixed(2)} KG</strong></div><div style={{color:"#888"}}>@ {capWt} g/cap</div></div>}
+        {inj>0&&<div style={{marginTop:8,background:"#fff",borderRadius:8,padding:"10px 12px",fontSize:12,display:"flex",gap:20,flexWrap:"wrap"}}>
+          <div>Expected waste (sprue): <strong>{theoWasteKg.toFixed(2)} KG</strong></div><div style={{color:"#888"}}>@ {wastePerInj} g/shot</div>
+          <div>Total material needed: <strong>{theoMaterialKg.toFixed(2)} KG</strong></div></div>}</div>
       <div style={{background:"#F5EDFF",borderRadius:10,padding:14,marginBottom:14}}>
         <div style={{fontWeight:700,fontSize:13,color:"#4A1A6E",marginBottom:10}}>🧴 Plastic Material Consumed</div>
         <div style={{marginBottom:10}}>
@@ -807,7 +814,8 @@ function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
         {wBef>0&&thKg>0&&<div style={{marginTop:8,background:"#fff",borderRadius:8,padding:"10px 12px",fontSize:12}}>
           <div style={{marginBottom:4}}>≈ <strong>{kgToPcs(wBef,capWt).toLocaleString()} pcs</strong> vs {thPcs.toLocaleString()} theoretical<CheckBadge actual={wBef} expected={thKg}/></div>
           {totalPlastic>0&&<div style={{borderTop:"1px solid #E2E8F0",paddingTop:5,color:"#555"}}>
-            Loss at injection: <strong style={{color:(totalPlastic-wBef)>totalPlastic*0.05?"#DC3545":"#1A6B2A"}}>{(totalPlastic-wBef).toFixed(2)} KG</strong> (purge, sprue, spillage)</div>}</div>}</div>
+            Loss at injection: <strong style={{color:(totalPlastic-wBef)>totalPlastic*0.05?"#DC3545":"#1A6B2A"}}>{(totalPlastic-wBef).toFixed(2)} KG</strong> (purge, sprue, spillage)
+            {inj>0&&<span> vs <strong>{theoWasteKg.toFixed(2)} KG</strong> expected<CheckBadge actual={actualLossKg} expected={theoWasteKg}/></span>}</div>}</div>}</div>
       <div style={{marginBottom:14}}><Field label="Notes (optional)" value={notes} onChange={setNotes} accent="#856404"/></div>
       {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
       {!existing&&vBags>0&&selPlastic&&<div style={{background:"#E8F5E9",border:"1px solid #A5D6A7",borderRadius:8,padding:"9px 12px",marginBottom:10,fontSize:12,color:"#1A6B2A",fontWeight:600}}>
@@ -1102,6 +1110,17 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
   },0);
   const totalPlasticPcs=sortedPlasticPcs+unsortedPlasticPcs;
   const plasticPct=target?Math.min(100,Math.round(totalPlasticPcs/target*100)):0;
+  // Aluminum/assembly-side loss, so it can be traced instead of only showing up as a
+  // missing total: shrinkage during Assembly itself, and accepted product that Final
+  // Sorting says is good but never actually made it into a counted carton.
+  const bpc=Number(parentBatch.bagsPerCarton)||0,ppb=Number(parentBatch.pcsPerBag)||0;
+  const asmShrinkagePcs=mySubs.reduce((s,b)=>(b.acceptedPcs!=null&&b.assembledPcs!=null)?s+Math.max(0,b.acceptedPcs-b.assembledPcs):s,0);
+  const canCheckPacking=bpc>0&&ppb>0;
+  const notPackedPcs=canCheckPacking?mySubs.reduce((s,b)=>{
+    if(b.finalCartons==null||b.finalAcceptedPcs==null)return s;
+    const packedPcs=(Number(b.finalCartons)||0)*bpc*ppb+(Number(b.finalPartialBags)||0)*ppb+kgToPcs(Number(b.finalPartialKg)||0,b.asmWt||ASM_WT);
+    return s+Math.max(0,b.finalAcceptedPcs-packedPcs);
+  },0):0;
   const cur=form&&form.subId?mySubs.filter(b=>b.id===form.subId)[0]:null;
   const close=()=>setForm(null);
 
@@ -1143,9 +1162,12 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
         {plasticPct>=100&&<div style={{marginTop:8,fontSize:11,color:"#8B1A1A",fontWeight:700}}>✅ Enough plastic made for this batch — no need to run more Injection shifts.</div>}</div>}
       {mySubs.length>0&&<div style={{background:"#FFF5F5",borderRadius:10,padding:12,marginBottom:12}}>
         <div style={{fontSize:11,fontWeight:800,color:"#8B1A1A",textTransform:"uppercase",marginBottom:8}}>♻️ Waste Summary</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(105px,1fr))",gap:10,fontSize:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(105px,1fr))",gap:10,fontSize:12,marginBottom:10}}>
           {[["Plastic in",wPlastic,NAVY],["Plastic sort reject",wSort,"#DC3545"],["Final sort reject",wFinal,"#DC3545"]].map(x=>(
-            <div key={x[0]}><div style={{color:"#888",fontSize:10}}>{x[0]}</div><div style={{fontWeight:800,color:x[2]}}>{x[1].toFixed(1)} KG</div></div>))}</div></div>}
+            <div key={x[0]}><div style={{color:"#888",fontSize:10}}>{x[0]}</div><div style={{fontWeight:800,color:x[2]}}>{x[1].toFixed(1)} KG</div></div>))}</div>
+        <div style={{borderTop:"1px solid #F1D4D4",paddingTop:10,display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(105px,1fr))",gap:10,fontSize:12}}>
+          <div><div style={{color:"#888",fontSize:10}}>Assembly shrinkage</div><div style={{fontWeight:800,color:"#DC3545"}}>{fmtN(asmShrinkagePcs)} pcs</div></div>
+          <div><div style={{color:"#888",fontSize:10}}>Not packed{canCheckPacking?"":" (set Bags/Pcs per carton)"}</div><div style={{fontWeight:800,color:"#DC3545"}}>{canCheckPacking?fmtN(notPackedPcs)+" pcs":"—"}</div></div></div></div>}
       <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
         {mySubs.length===0&&<div style={{textAlign:"center",padding:20,color:"#888",fontSize:13}}>No shifts yet — start the first one below</div>}
         {mySubs.map(sub=>{
@@ -1200,6 +1222,7 @@ function BatchForm({batches,orders,onSave,onCancel}){
   const [expDate,setExpDate]=useState("");
   const [status,setStatus]=useState("Production"),[orderNo,setOrderNo]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
   const [capWt,setCapWt]=useState(String(CAP_WT)),[asmWt,setAsmWt]=useState(String(ASM_WT));
+  const [wastePerInj,setWastePerInj]=useState(String(WASTE_PER_INJ));
   const isFO=product==="Flip-Off Caps 20mm";
   const preview=nextBatchNo(batches,meta.code);
   const c=Number(cartons)||0,b=Number(bpc)||0,p=Number(ppb)||0,pt=Number(partial)||0;
@@ -1209,7 +1232,8 @@ function BatchForm({batches,orders,onSave,onCancel}){
     onSave({id:genId(),batchNo:preview,isSubBatch:false,parentBatchNo:null,product:product,status:status,
       color:variant.trim(),line:meta.lines?line:"",cartons:c,bagsPerCarton:b,pcsPerBag:p,partialCartonBags:pt,totalPcs:totalPcs,
       mfgDate:mfgDate,expiryDate:expDate,client:client.trim(),orderNo:orderNo||null,notes:notes.trim(),createdAt:today(),
-      capWt:isFO?(Number(capWt)||CAP_WT):null,asmWt:isFO?(Number(asmWt)||ASM_WT):null});};
+      capWt:isFO?(Number(capWt)||CAP_WT):null,asmWt:isFO?(Number(asmWt)||ASM_WT):null,
+      wastePerInj:isFO?(Number(wastePerInj)||WASTE_PER_INJ):null});};
   return(<div style={{maxWidth:700,fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:NAVY,borderRadius:"12px 12px 0 0",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
       <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>Create Batch</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12,fontFamily:"monospace"}}>{preview}</div></div>
@@ -1228,6 +1252,7 @@ function BatchForm({batches,orders,onSave,onCancel}){
             {meta.lines.map(l=><option key={l}>{l}</option>)}</select></div>}
         {isFO&&<Field label="Plastic Weight (g/cap)" value={capWt} onChange={setCapWt} type="number" ph="0.56"/>}
         {isFO&&<Field label="Assembled Weight (g/cap)" value={asmWt} onChange={setAsmWt} type="number" ph="0.96"/>}
+        {isFO&&<Field label="Waste per Injection (g)" value={wastePerInj} onChange={setWastePerInj} type="number" ph="28"/>}
         <Field label="Client" value={client} onChange={setClient} ph="e.g. Pharco"/>
         <Field label="Cartons" value={cartons} onChange={setCartons} type="number"/>
         <Field label="Bags per Carton" value={bpc} onChange={setBpc} type="number"/>
