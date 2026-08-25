@@ -6,6 +6,10 @@ import {createClient} from "@/lib/supabase/client";
 const SHARED_KEY="eps-inventory-data-v1";
 const NAVY="#1A3C5E",ACCENT="#2D6A9F";
 const CAP_WT=0.56,ASM_WT=0.96,PCS_INJ=64,BAG_KG=25,PLASTIC_BAG_KG=25,WASTE_PER_INJ=28,DEFAULT_SCRAP_RATE_EGP=160;
+// Starting labor rates, worked back from real figures — all editable in Finance since actual
+// pay varies: Sorting 10 girls x 300 EGP/day over 3 shifts/day; Injection 27,000 EGP/26 days
+// (24h operation) over 3 shifts/day; Press 12,000 EGP/16 shifts/month, 1 shift = 240,000 pcs.
+const DEFAULT_LABOR_RATES={sortingCostPerShift:1000,injectionCostPerShift:346.15,pressCostPerPc:0.003125};
 const ALU_DEN=2700/1e9;
 
 const MATERIAL_META={
@@ -201,7 +205,8 @@ function deriveCapsCost(lot,coilLots){
 // no new purchase cost) priced from the Plastic Material lot each shift actually drew from,
 // and aluminum caps priced from the coil they were stamped from. Costs are kept split by
 // currency rather than guessing an exchange rate.
-function buildBatchCost(batch,batches,data){
+function buildBatchCost(batch,batches,data,laborRates){
+  const rates=Object.assign({},DEFAULT_LABOR_RATES,laborRates);
   const shifts=batches.filter(b=>b.isSubBatch&&b.parentBatchNo===batch.batchNo);
   const plasticLots=(data["Plastic Material"]&&data["Plastic Material"].lots)||[];
   const capsLots=(data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[];
@@ -248,9 +253,25 @@ function buildBatchCost(batch,batches,data){
   const avgScrapRateEGP=scrapRateIsAssumed?DEFAULT_SCRAP_RATE_EGP:scrapRevenue/scrapQtySold;
   const estScrapCreditEGP=scrapKgForBatch*avgScrapRateEGP;
 
+  // Labor — driven by how many shifts of each stage this batch actually ran (Injection,
+  // Plastic Sorting) or how many pcs went through Assembly (Press), at the rates set in
+  // Finance settings. All EGP, so unlike materials these can be summed with plastic + scrap.
+  const injectionShifts=shifts.filter(s=>s.injections).length;
+  const sortingShifts=shifts.filter(s=>s.acceptedPcs!=null).length;
+  const pressPcs=shifts.reduce((s,x)=>s+(x.assembledPcs||0),0);
+  const laborInjectionEGP=injectionShifts*(Number(rates.injectionCostPerShift)||0);
+  const laborSortingEGP=sortingShifts*(Number(rates.sortingCostPerShift)||0);
+  const laborPressEGP=pressPcs*(Number(rates.pressCostPerPc)||0);
+  const laborTotalEGP=laborInjectionEGP+laborSortingEGP+laborPressEGP;
+
+  const netEGP=(plasticCost.EGP||0)+laborTotalEGP-estScrapCreditEGP;
+
   return {batch:batch,plasticCost:plasticCost,plasticBagsCosted:plasticBagsCosted,plasticBagsUncosted:plasticBagsUncosted,
     regrindKgTotal:regrindKgTotal,alCost:alCost,alPcsCosted:alPcsCosted,alPcsUncosted:alPcsUncosted,
-    scrapKgForBatch:scrapKgForBatch,avgScrapRateEGP:avgScrapRateEGP,scrapRateIsAssumed:scrapRateIsAssumed,estScrapCreditEGP:estScrapCreditEGP};
+    scrapKgForBatch:scrapKgForBatch,avgScrapRateEGP:avgScrapRateEGP,scrapRateIsAssumed:scrapRateIsAssumed,estScrapCreditEGP:estScrapCreditEGP,
+    injectionShifts:injectionShifts,sortingShifts:sortingShifts,pressPcs:pressPcs,
+    laborInjectionEGP:laborInjectionEGP,laborSortingEGP:laborSortingEGP,laborPressEGP:laborPressEGP,laborTotalEGP:laborTotalEGP,
+    netEGP:netEGP};
 }
 
 const PRODUCT_META={
@@ -1857,13 +1878,46 @@ function BatchCostDoc({cost,onBack}){
           :"Based on your average realized scrap sale rate ("+fmt(cost.avgScrapRateEGP)+" EGP/KG)."} Scrap is sold from a shared pool, not tracked per batch, so this is an estimate, not an exact figure.</div></>)
       :<div style={{color:"#888",fontSize:12}}>No scrap traceable to this batch&apos;s caps yet.</div>}
     </ReportSection>
+    <ReportSection title="Labor (rates set in Finance — edit any time under Labor Rates)">
+      <div style={{display:"flex",flexDirection:"column",gap:6,fontSize:12,color:"#666",marginBottom:8}}>
+        <div>Injection — {cost.injectionShifts} shift{cost.injectionShifts===1?"":"s"}: <strong>{fmt(cost.laborInjectionEGP)} EGP</strong></div>
+        <div>Plastic Sorting — {cost.sortingShifts} shift{cost.sortingShifts===1?"":"s"}: <strong>{fmt(cost.laborSortingEGP)} EGP</strong></div>
+        <div>Press (Assembly) — {fmtN(cost.pressPcs)} pcs: <strong>{fmt(cost.laborPressEGP)} EGP</strong></div></div>
+      <div style={{fontSize:20,fontWeight:900,color:NAVY}}>{fmt(cost.laborTotalEGP)} <span style={{fontSize:12,color:"#888",fontWeight:700}}>EGP labor total</span></div>
+    </ReportSection>
+    <div style={{background:"#EBF1F8",borderRadius:10,padding:16,marginBottom:16}}>
+      <div style={{fontSize:11,fontWeight:800,color:NAVY,textTransform:"uppercase",marginBottom:6}}>Net EGP (Plastic + Labor − Scrap Credit)</div>
+      <div style={{fontSize:26,fontWeight:900,color:NAVY}}>{fmt(cost.netEGP)} <span style={{fontSize:13,color:"#888",fontWeight:700}}>EGP</span></div>
+      <div style={{fontSize:11,color:"#888",marginTop:4}}>Aluminum caps cost is kept separate, shown above in its own currency (usually USD) — not included in this EGP total.</div>
+    </div>
     <div style={{background:"#F7F9FC",borderRadius:10,padding:14,fontSize:12,color:"#666"}}>
-      This covers plastic and aluminum material cost only — no labor, overhead, or currency conversion applied. Add more cost inputs over time to make this more accurate.</div>
+      This covers plastic, aluminum, and labor cost — no overhead or currency conversion applied. Add more cost inputs over time to make this more accurate.</div>
   </div>);
 }
-function FinanceSection({data,batches,onClose}){
+function LaborRatesModal({rates,onSave,onClose}){
+  const [sorting,setSorting]=useState(String(rates.sortingCostPerShift));
+  const [injection,setInjection]=useState(String(rates.injectionCostPerShift));
+  const [press,setPress]=useState(String(rates.pressCostPerPc));
+  const save=()=>onSave({sortingCostPerShift:Number(sorting)||0,injectionCostPerShift:Number(injection)||0,pressCostPerPc:Number(press)||0});
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:440,overflow:"hidden"}}>
+      <div style={{background:NAVY,padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>⚙️ Labor Rates</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>Used to cost every batch — change any time</div></div>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
+      <div style={{padding:24}}>
+        <div style={{marginBottom:14}}><Field label="Plastic Sorting (EGP per shift)" value={sorting} onChange={setSorting} type="number" ph="1000"/>
+          <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 10 girls × 300 EGP/day ÷ 3 shifts/day</div></div>
+        <div style={{marginBottom:14}}><Field label="Injection (EGP per shift)" value={injection} onChange={setInjection} type="number" ph="346.15"/>
+          <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 27,000 EGP ÷ 26 days ÷ 3 shifts/day</div></div>
+        <div style={{marginBottom:18}}><Field label="Press / Assembly (EGP per pc)" value={press} onChange={setPress} type="number" ph="0.003125"/>
+          <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 12,000 EGP ÷ 16 shifts ÷ 240,000 pcs/shift</div></div>
+        <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Rates</button>
+      </div></div></div>);
+}
+function FinanceSection({data,batches,laborRates,onSaveLaborRates,onClose}){
   const [doc,setDoc]=useState(null);
   const [pickBatchNo,setPickBatchNo]=useState("");
+  const [showRates,setShowRates]=useState(false);
   const mainBatches=batches.filter(b=>!b.isSubBatch).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
   if(doc)return(<div style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
     <BatchCostDoc cost={doc} onBack={()=>setDoc(null)}/></div>);
@@ -1871,18 +1925,20 @@ function FinanceSection({data,batches,onClose}){
     <div style={{background:"linear-gradient(135deg,#0D1F3C,"+NAVY+")",position:"sticky",top:0,zIndex:100}}>
       <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
         <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13}}>← Back</button>
-        <div><div style={{color:"#fff",fontWeight:800,fontSize:17}}>💰 Finance</div>
-          <div style={{color:"rgba(255,255,255,0.5)",fontSize:11}}>Material cost per batch — testing phase</div></div></div></div>
+        <div style={{flex:1}}><div style={{color:"#fff",fontWeight:800,fontSize:17}}>💰 Finance</div>
+          <div style={{color:"rgba(255,255,255,0.5)",fontSize:11}}>Material + labor cost per batch — testing phase</div></div>
+        <button type="button" onClick={()=>setShowRates(true)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap"}}>⚙️ Labor Rates</button></div></div>
     <div style={{maxWidth:700,margin:"0 auto",padding:16,display:"flex",flexDirection:"column",gap:16}}>
       <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:16}}>
         <div style={{fontWeight:800,fontSize:14,color:NAVY,marginBottom:2}}>🏭 Batch Cost</div>
-        <div style={{fontSize:12,color:"#888",marginBottom:12}}>Plastic + aluminum material cost for one batch, net of an estimated scrap credit.</div>
+        <div style={{fontSize:12,color:"#888",marginBottom:12}}>Plastic + aluminum + labor cost for one batch, net of an estimated scrap credit.</div>
         <div style={{display:"flex",gap:8}}>
           <select value={pickBatchNo} onChange={e=>setPickBatchNo(e.target.value)} style={{flex:1,border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
             <option value="">— select batch —</option>
             {mainBatches.map(b=><option key={b.id} value={b.batchNo}>{b.batchNo} · {b.color}{b.client?" · "+b.client:""}</option>)}</select>
-          <button type="button" disabled={!pickBatchNo} onClick={()=>{const b=mainBatches.filter(x=>x.batchNo===pickBatchNo)[0];if(b)setDoc(buildBatchCost(b,batches,data));}}
+          <button type="button" disabled={!pickBatchNo} onClick={()=>{const b=mainBatches.filter(x=>x.batchNo===pickBatchNo)[0];if(b)setDoc(buildBatchCost(b,batches,data,laborRates));}}
             style={{background:pickBatchNo?NAVY:"#E2E8F0",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,fontSize:13,cursor:pickBatchNo?"pointer":"default",whiteSpace:"nowrap"}}>Generate</button></div>
+      {showRates&&<LaborRatesModal rates={laborRates} onClose={()=>setShowRates(false)} onSave={r=>{onSaveLaborRates(r);setShowRates(false);}}/>}
       </div>
     </div></div>);
 }
@@ -1892,6 +1948,7 @@ export default function EpsInventoryApp(){
   const router=useRouter();
   const [data,setData]=useState(null);
   const [batches,setBatches]=useState([]),[orders,setOrders]=useState([]);
+  const [laborRates,setLaborRates]=useState(DEFAULT_LABOR_RATES);
   const [activeMat,setActiveMat]=useState(null),[section,setSection]=useState("inventory");
   const [toast,setToast]=useState(null),[lastSync,setLastSync]=useState(null);
   const [dataLoaded,setDataLoaded]=useState(false);
@@ -1899,7 +1956,7 @@ export default function EpsInventoryApp(){
   const showToast=(msg,type)=>{setToast({msg:msg,type:type||"ok"});setTimeout(()=>setToast(null),2500);};
 
   useEffect(()=>{(async()=>{
-    let merged={},bs=INITIAL_BATCHES,os=INITIAL_ORDERS;
+    let merged={},bs=INITIAL_BATCHES,os=INITIAL_ORDERS,lr=DEFAULT_LABOR_RATES;
     try{
       const supabase=createClient();
       const {data:row,error}=await supabase.from("eps_inventory_data").select("value").eq("key",SHARED_KEY).maybeSingle();
@@ -1924,16 +1981,17 @@ export default function EpsInventoryApp(){
         bs=sb.concat(INITIAL_BATCHES.filter(b=>!nos[b.batchNo]));
         const so=p._orders||[];const ons={};so.forEach(o=>{ons[o.orderNo]=1;});
         os=so.concat(INITIAL_ORDERS.filter(o=>!ons[o.orderNo]));
+        lr=p._laborRates?Object.assign({},DEFAULT_LABOR_RATES,p._laborRates):DEFAULT_LABOR_RATES;
         setLastSync(today());
       } else {
         Object.keys(MATERIAL_META).forEach(k=>{merged[k]=Object.assign({},MATERIAL_META[k],{lots:INITIAL_LOTS[k],coils:INITIAL_COILS[k]||[]});});
       }
     }catch(e){console.error("Load failed",e);showToast("⚠️ Couldn't load saved data — showing starter data","error");
       Object.keys(MATERIAL_META).forEach(k=>{merged[k]=Object.assign({},MATERIAL_META[k],{lots:INITIAL_LOTS[k],coils:INITIAL_COILS[k]||[]});});}
-    setData(merged);setBatches(bs);setOrders(os);
+    setData(merged);setBatches(bs);setOrders(os);setLaborRates(lr);
     // Snapshot what we just loaded so the effect doesn't immediately re-write identical data
     const snap={};Object.keys(merged).forEach(k=>{snap[k]={lots:merged[k].lots.map(l=>Object.assign({},l,{image:null})),coils:merged[k].coils||[]};});
-    snap._batches=bs;snap._orders=os;
+    snap._batches=bs;snap._orders=os;snap._laborRates=lr;
     skipSave.current=JSON.stringify(snap);
     setDataLoaded(true);
   })();},[]);
@@ -1941,7 +1999,7 @@ export default function EpsInventoryApp(){
   useEffect(()=>{
     if(!data||!dataLoaded)return;
     const toSave={};Object.keys(data).forEach(k=>{toSave[k]={lots:data[k].lots.map(l=>Object.assign({},l,{image:null})),coils:data[k].coils||[]};});
-    toSave._batches=batches;toSave._orders=orders;
+    toSave._batches=batches;toSave._orders=orders;toSave._laborRates=laborRates;
     const json=JSON.stringify(toSave);
     // Only skip when the payload is byte-identical to what we loaded — never skip a real change
     if(skipSave.current===json){return;}
@@ -1957,12 +2015,12 @@ export default function EpsInventoryApp(){
       }catch(e){lastErr=e;if(a<2)await new Promise(r=>setTimeout(r,800));}}
       throw lastErr;
     }catch(e){console.error("Save failed",e);showToast("⚠️ Save failed — check your connection","error");}})();
-  },[data,batches,orders,dataLoaded]);
+  },[data,batches,orders,laborRates,dataLoaded]);
 
   const logout=async()=>{const supabase=createClient();await supabase.auth.signOut();router.push("/auth/login");router.refresh();};
 
   const exportBackup=()=>{
-    const payload={exportedAt:new Date().toISOString(),data:data,batches:batches,orders:orders};
+    const payload={exportedAt:new Date().toISOString(),data:data,batches:batches,orders:orders,laborRates:laborRates};
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
@@ -1978,6 +2036,7 @@ export default function EpsInventoryApp(){
         const p=JSON.parse(ev.target.result);
         if(!p||typeof p!=="object"||!p.data||!Array.isArray(p.batches)||!Array.isArray(p.orders))throw new Error("bad shape");
         setData(p.data);setBatches(p.batches);setOrders(p.orders);
+        if(p.laborRates)setLaborRates(Object.assign({},DEFAULT_LABOR_RATES,p.laborRates));
         showToast("Backup restored ✓ — review, then it will auto-save");
       }catch(e){console.error("Import failed",e);showToast("⚠️ That file doesn't look like a valid backup","error");}
     };
@@ -2101,7 +2160,7 @@ export default function EpsInventoryApp(){
   let content;
   if(section==="log")content=<ActivityLog data={data} batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="reports")content=<ReportsSection data={data} batches={batches} orders={orders} onClose={()=>setSection("inventory")}/>;
-  else if(section==="finance")content=<FinanceSection data={data} batches={batches} onClose={()=>setSection("inventory")}/>;
+  else if(section==="finance")content=<FinanceSection data={data} batches={batches} laborRates={laborRates} onSaveLaborRates={setLaborRates} onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
     <ProductionSection data={data} batches={batches} orders={orders} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onDeleteSub={deleteSub} onSaveLeftover={lot=>addLot("WIP Inventory",lot)}/></div>;
   else if(section==="orders")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
