@@ -5,7 +5,7 @@ import {createClient} from "@/lib/supabase/client";
 
 const SHARED_KEY="eps-inventory-data-v1";
 const NAVY="#1A3C5E",ACCENT="#2D6A9F";
-const CAP_WT=0.56,ASM_WT=0.96,PCS_INJ=64,BAG_KG=25,PLASTIC_BAG_KG=25,WASTE_PER_INJ=28;
+const CAP_WT=0.56,ASM_WT=0.96,PCS_INJ=64,BAG_KG=25,PLASTIC_BAG_KG=25,WASTE_PER_INJ=28,DEFAULT_SCRAP_RATE_EGP=160;
 const ALU_DEN=2700/1e9;
 
 const MATERIAL_META={
@@ -172,14 +172,40 @@ function buildMonthlyReport(data,batches,orders,monthKey){
 }
 
 // ══ FINANCE — pure computation helpers ═══════════════════════════════════
+// Pieces a caps lot actually holds, regardless of how it's tracked (Pcs/Bags/KG) — needed to
+// turn a lot-level cost into a per-piece rate for aluminumSelections (always in pcs).
+function capsLotTotalPcs(lot){
+  if(lot.bags&&lot.bags.length)return lot.bags.reduce((s,b)=>s+(b.qtyUnit==="Pcs"?Number(b.qty)||0:kgToPcs(Number(b.qty)||0,0.405)),0);
+  if(lot.unit==="KG")return kgToPcs(Number(lot.qtyReceived)||0,0.405);
+  return Number(lot.qtyReceived)||0;
+}
+// Cost per piece for an Aluminum Caps lot. Lots made after costPerPc was introduced already
+// carry it; older lots don't, but the coil they came from is still traceable via its usageLog
+// ("Stamped into <lotNumber>", recorded when the caps lot was created) — so derive it the same
+// way, on the fly, rather than leaving every pre-existing lot uncosted.
+function deriveCapsCost(lot,coilLots){
+  if(lot.costPerPc)return {costPerPc:Number(lot.costPerPc),currency:lot.unitCostCurrency||"USD",scrapKg:Number(lot.scrapKg)||0};
+  for(let i=0;i<coilLots.length;i++){
+    const coil=coilLots[i];
+    const entry=(coil.usageLog||[]).filter(e=>(e.reason||"").indexOf("Stamped into "+lot.lotNumber)===0)[0];
+    if(entry&&coil.unitCost){
+      const weightTaken=Math.abs(Number(entry.qtyUsed))||0;
+      const totalPcs=capsLotTotalPcs(lot);
+      if(totalPcs<=0)return null;
+      return {costPerPc:(weightTaken*Number(coil.unitCost))/totalPcs,currency:coil.unitCostCurrency||"USD",scrapKg:weightTaken*0.274};
+    }
+  }
+  return null;
+}
 // Material cost for one batch: plastic (virgin bags only — regrind is reused material with
 // no new purchase cost) priced from the Plastic Material lot each shift actually drew from,
-// and aluminum caps priced from the coil they were stamped from (costPerPc, set at Aluminum
-// Batch creation). Costs are kept split by currency rather than guessing an exchange rate.
+// and aluminum caps priced from the coil they were stamped from. Costs are kept split by
+// currency rather than guessing an exchange rate.
 function buildBatchCost(batch,batches,data){
   const shifts=batches.filter(b=>b.isSubBatch&&b.parentBatchNo===batch.batchNo);
   const plasticLots=(data["Plastic Material"]&&data["Plastic Material"].lots)||[];
   const capsLots=(data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[];
+  const coilLots=(data["Aluminum Coils"]&&data["Aluminum Coils"].lots)||[];
   const scrapLots=(data["Aluminum Scrap"]&&data["Aluminum Scrap"].lots)||[];
 
   const plasticCost={};let plasticBagsCosted=0,plasticBagsUncosted=0,regrindKgTotal=0;
@@ -199,13 +225,14 @@ function buildBatchCost(batch,batches,data){
     (s.aluminumSelections||[]).forEach(sel=>{
       const lot=capsLots.filter(l=>l.lotNumber===sel.lotNo)[0];
       const pcs=sel.pcs||0;
-      if(lot&&lot.costPerPc){
-        const cur=lot.unitCostCurrency||"USD";
-        alCost[cur]=(alCost[cur]||0)+pcs*Number(lot.costPerPc);
+      const derived=lot?deriveCapsCost(lot,coilLots):null;
+      if(derived){
+        const cur=derived.currency;
+        alCost[cur]=(alCost[cur]||0)+pcs*derived.costPerPc;
         alPcsCosted+=pcs;
-        if(lot.scrapKg&&lot.qtyReceived){
-          const lotPcs=lot.unit==="KG"?kgToPcs(Number(lot.qtyReceived)||0,0.405):(Number(lot.qtyReceived)||0);
-          if(lotPcs>0)scrapKgForBatch+=Number(lot.scrapKg)*(pcs/lotPcs);
+        if(derived.scrapKg){
+          const lotPcs=capsLotTotalPcs(lot);
+          if(lotPcs>0)scrapKgForBatch+=derived.scrapKg*(pcs/lotPcs);
         }
       }else alPcsUncosted+=pcs;
     });
@@ -215,12 +242,15 @@ function buildBatchCost(batch,batches,data){
   scrapLots.forEach(lot=>(lot.usageLog||[]).forEach(e=>{
     if(e.qtyUsed>0&&e.saleRevenue!=null){scrapQtySold+=Number(e.qtyUsed);scrapRevenue+=Number(e.saleRevenue);}
   }));
-  const avgScrapRateEGP=scrapQtySold>0?scrapRevenue/scrapQtySold:null;
-  const estScrapCreditEGP=avgScrapRateEGP!=null?scrapKgForBatch*avgScrapRateEGP:null;
+  // Fall back to a stated assumed rate when there's no real sale history yet, so the credit
+  // isn't just blank — clearly flagged so it isn't mistaken for a measured figure.
+  const scrapRateIsAssumed=scrapQtySold<=0;
+  const avgScrapRateEGP=scrapRateIsAssumed?DEFAULT_SCRAP_RATE_EGP:scrapRevenue/scrapQtySold;
+  const estScrapCreditEGP=scrapKgForBatch*avgScrapRateEGP;
 
   return {batch:batch,plasticCost:plasticCost,plasticBagsCosted:plasticBagsCosted,plasticBagsUncosted:plasticBagsUncosted,
     regrindKgTotal:regrindKgTotal,alCost:alCost,alPcsCosted:alPcsCosted,alPcsUncosted:alPcsUncosted,
-    scrapKgForBatch:scrapKgForBatch,avgScrapRateEGP:avgScrapRateEGP,estScrapCreditEGP:estScrapCreditEGP};
+    scrapKgForBatch:scrapKgForBatch,avgScrapRateEGP:avgScrapRateEGP,scrapRateIsAssumed:scrapRateIsAssumed,estScrapCreditEGP:estScrapCreditEGP};
 }
 
 const PRODUCT_META={
@@ -1820,10 +1850,12 @@ function BatchCostDoc({cost,onBack}){
     </ReportSection>
     <ReportSection title="Aluminum Scrap Credit (estimate)">
       <div style={{fontSize:12,color:"#666",marginBottom:8}}>Scrap generated from the coils behind this batch&apos;s caps: <strong>{fmt(cost.scrapKgForBatch)} KG</strong></div>
-      {cost.avgScrapRateEGP!=null?(<>
+      {cost.scrapKgForBatch>0?(<>
         <div style={{fontSize:20,fontWeight:900,color:"#1A6B2A"}}>{fmt(cost.estScrapCreditEGP)} <span style={{fontSize:12,color:"#888",fontWeight:700}}>EGP (estimated credit)</span></div>
-        <div style={{fontSize:11,color:"#999",marginTop:4}}>Based on your average realized scrap sale rate ({fmt(cost.avgScrapRateEGP)} EGP/KG) — scrap is sold from a shared pool, not tracked per batch, so this is an estimate, not an exact figure.</div></>)
-      :<div style={{color:"#888",fontSize:12}}>No scrap sales recorded yet — not enough data to estimate a rate.</div>}
+        <div style={{fontSize:11,color:"#999",marginTop:4}}>{cost.scrapRateIsAssumed
+          ?"Based on an assumed rate of "+fmt(cost.avgScrapRateEGP)+" EGP/KG (no scrap sales recorded yet to measure a real rate)."
+          :"Based on your average realized scrap sale rate ("+fmt(cost.avgScrapRateEGP)+" EGP/KG)."} Scrap is sold from a shared pool, not tracked per batch, so this is an estimate, not an exact figure.</div></>)
+      :<div style={{color:"#888",fontSize:12}}>No scrap traceable to this batch&apos;s caps yet.</div>}
     </ReportSection>
     <div style={{background:"#F7F9FC",borderRadius:10,padding:14,fontSize:12,color:"#666"}}>
       This covers plastic and aluminum material cost only — no labor, overhead, or currency conversion applied. Add more cost inputs over time to make this more accurate.</div>
