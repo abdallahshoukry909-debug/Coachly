@@ -8,8 +8,8 @@ const NAVY="#1A3C5E",ACCENT="#2D6A9F";
 const CAP_WT=0.56,ASM_WT=0.96,PCS_INJ=64,BAG_KG=25,PLASTIC_BAG_KG=25,WASTE_PER_INJ=28,DEFAULT_SCRAP_RATE_EGP=160;
 // Starting labor rates, worked back from real figures — all editable in Finance since actual
 // pay varies: Sorting 10 girls x 300 EGP/day over 3 shifts/day; Injection 27,000 EGP/26 days
-// (24h operation) over 3 shifts/day; Press 12,000 EGP/16 shifts/month, 1 shift = 240,000 pcs.
-const DEFAULT_LABOR_RATES={sortingCostPerShift:1000,injectionCostPerShift:346.15,pressCostPerPc:0.003125};
+// over 2 x 12h shifts/day; Press 12,000 EGP/16 shifts/month, 1 shift = 240,000 pcs.
+const DEFAULT_LABOR_RATES={sortingCostPerShift:1000,injectionCostPerShift:519.23,pressCostPerPc:0.003125};
 const ALU_DEN=2700/1e9;
 
 const MATERIAL_META={
@@ -1907,8 +1907,8 @@ function LaborRatesModal({rates,onSave,onClose}){
       <div style={{padding:24}}>
         <div style={{marginBottom:14}}><Field label="Plastic Sorting (EGP per shift)" value={sorting} onChange={setSorting} type="number" ph="1000"/>
           <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 10 girls × 300 EGP/day ÷ 3 shifts/day</div></div>
-        <div style={{marginBottom:14}}><Field label="Injection (EGP per shift)" value={injection} onChange={setInjection} type="number" ph="346.15"/>
-          <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 27,000 EGP ÷ 26 days ÷ 3 shifts/day</div></div>
+        <div style={{marginBottom:14}}><Field label="Injection (EGP per shift)" value={injection} onChange={setInjection} type="number" ph="519.23"/>
+          <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 27,000 EGP ÷ 26 days ÷ 2 x 12h shifts/day</div></div>
         <div style={{marginBottom:18}}><Field label="Press / Assembly (EGP per pc)" value={press} onChange={setPress} type="number" ph="0.003125"/>
           <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 12,000 EGP ÷ 16 shifts ÷ 240,000 pcs/shift</div></div>
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Rates</button>
