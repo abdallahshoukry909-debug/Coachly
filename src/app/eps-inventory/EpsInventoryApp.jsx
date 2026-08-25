@@ -1092,6 +1092,16 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
   const wPlastic=mySubs.reduce((s,b)=>s+(b.totalPlasticKg||0),0);
   const wSort=mySubs.reduce((s,b)=>s+(b.rejectedWeightKg||0),0);
   const wFinal=mySubs.reduce((s,b)=>s+(b.finalRejectedKg||0),0);
+  // Plastic made so far, independent of assembly/packing — sorted (accepted, ready for
+  // Assembly) vs unsorted (injected but not yet through Plastic Sorting) — so it's clear
+  // when enough plastic has been made for the batch and Injection can stop.
+  const sortedPlasticPcs=mySubs.reduce((s,b)=>s+(b.acceptedPcs!=null?b.acceptedPcs:0),0);
+  const unsortedPlasticPcs=mySubs.reduce((s,b)=>{
+    if(b.acceptedPcs!=null||!b.weightBeforeSorting)return s;
+    return s+kgToPcs(b.weightBeforeSorting,b.capWt||CAP_WT);
+  },0);
+  const totalPlasticPcs=sortedPlasticPcs+unsortedPlasticPcs;
+  const plasticPct=target?Math.min(100,Math.round(totalPlasticPcs/target*100)):0;
   const cur=form&&form.subId?mySubs.filter(b=>b.id===form.subId)[0]:null;
   const close=()=>setForm(null);
 
@@ -1122,6 +1132,15 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
           <span style={{fontWeight:700,color:NAVY}}>{totalGood.toLocaleString()} good pcs</span>
           <span style={{color:"#888"}}>{pct}% · {Math.max(0,target-totalGood).toLocaleString()} remaining</span></div>
         <div style={{height:8,background:"#D6E4F4",borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:pct>=100?"#22A03A":ACCENT,borderRadius:4}}/></div></div>}
+      {mySubs.length>0&&<div style={{background:"#F5EDFF",borderRadius:10,padding:12,marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:6,fontSize:11}}>
+          <span style={{fontWeight:800,color:"#4A1A6E",textTransform:"uppercase"}}>🧴 Plastic Made</span>
+          <span style={{color:"#7B3FB5"}}>{fmtN(totalPlasticPcs)} of {fmtN(target)} pcs · {plasticPct}%</span></div>
+        <div style={{height:8,background:"#E0CFFA",borderRadius:4,overflow:"hidden",marginBottom:8}}><div style={{height:"100%",width:plasticPct+"%",background:plasticPct>=100?"#22A03A":"#7B3FB5",borderRadius:4}}/></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,fontSize:12}}>
+          <div><div style={{color:"#7B3FB5",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>Sorted</div><div style={{fontWeight:800,color:"#4A1A6E"}}>{fmtN(sortedPlasticPcs)} pcs</div></div>
+          <div><div style={{color:"#7B3FB5",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>Unsorted</div><div style={{fontWeight:800,color:"#4A1A6E"}}>{fmtN(unsortedPlasticPcs)} pcs</div></div></div>
+        {plasticPct>=100&&<div style={{marginTop:8,fontSize:11,color:"#8B1A1A",fontWeight:700}}>✅ Enough plastic made for this batch — no need to run more Injection shifts.</div>}</div>}
       {mySubs.length>0&&<div style={{background:"#FFF5F5",borderRadius:10,padding:12,marginBottom:12}}>
         <div style={{fontSize:11,fontWeight:800,color:"#8B1A1A",textTransform:"uppercase",marginBottom:8}}>♻️ Waste Summary</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(105px,1fr))",gap:10,fontSize:12}}>
