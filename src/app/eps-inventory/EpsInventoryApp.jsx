@@ -1276,8 +1276,24 @@ function BatchForm({batches,orders,onSave,onCancel}){
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"linear-gradient(135deg,"+NAVY+","+ACCENT+")",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Batch</button>
     </div></div>);
 }
-function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts}){
-  const [exp,setExp]=useState(false),[confDel,setConfDel]=useState(false);
+function BatchWeightsModal({batch,onSave,onClose}){
+  const [capWt,setCapWt]=useState(String(batch.capWt||CAP_WT)),[asmWt,setAsmWt]=useState(String(batch.asmWt||ASM_WT));
+  const [wastePerInj,setWastePerInj]=useState(String(batch.wastePerInj||WASTE_PER_INJ));
+  const save=()=>onSave(Object.assign({},batch,{capWt:Number(capWt)||CAP_WT,asmWt:Number(asmWt)||ASM_WT,wastePerInj:Number(wastePerInj)||WASTE_PER_INJ}));
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:440,overflow:"hidden"}}>
+      <div style={{background:NAVY,padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>⚖️ Batch Weights</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>{batch.batchNo}</div></div>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
+      <div style={{padding:24}}>
+        <div style={{marginBottom:14}}><Field label="Plastic Weight (g/cap)" value={capWt} onChange={setCapWt} type="number" ph="0.56"/></div>
+        <div style={{marginBottom:14}}><Field label="Assembled Weight (g/cap)" value={asmWt} onChange={setAsmWt} type="number" ph="0.96"/></div>
+        <div style={{marginBottom:18}}><Field label="Waste per Injection (g)" value={wastePerInj} onChange={setWastePerInj} type="number" ph="28"/></div>
+        <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Weights</button>
+      </div></div></div>);
+}
+function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts,onUpdateBatch}){
+  const [exp,setExp]=useState(false),[confDel,setConfDel]=useState(false),[showWeights,setShowWeights]=useState(false);
   const cfg=BST[batch.status]||BST.Production;
   const subs=subBatches||[];
   const subGood=subs.reduce((s,b)=>s+(b.goodPcs||0),0);
@@ -1308,12 +1324,15 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts}){
       <div style={{fontSize:12,color:"#666",lineHeight:1.7,marginBottom:10}}>
         <div><strong>Qty:</strong> {batch.cartons} × {batch.bagsPerCarton} × {fmtN(batch.pcsPerBag)} = {fmtN(batch.totalPcs)} pcs</div>
         {batch.mfgDate&&<div><strong>Mfg:</strong> {batch.mfgDate}</div>}
+        {isFO&&<div><strong>Weights:</strong> {batch.capWt||CAP_WT} g/cap plastic · {batch.asmWt||ASM_WT} g/cap assembled · {batch.wastePerInj||WASTE_PER_INJ} g/shot waste</div>}
         {batch.notes&&<div><strong>Notes:</strong> {batch.notes}</div>}</div>
+      {isFO&&<button type="button" onClick={()=>setShowWeights(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:10,marginRight:8}}>⚖️ Edit Weights</button>}
       {confDel?(<div style={{display:"flex",gap:8}}>
         <button type="button" onClick={()=>{onDelete();setConfDel(false);}} style={{padding:"6px 14px",background:"#DC3545",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700}}>Yes, delete</button>
         <button type="button" onClick={()=>setConfDel(false)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",borderRadius:6,background:"#fff",cursor:"pointer",fontSize:12}}>Cancel</button></div>)
       :(<button type="button" onClick={()=>setConfDel(true)} style={{padding:"6px 14px",border:"1.5px solid #F1948A",color:"#DC3545",background:"#FFF0F0",borderRadius:6,cursor:"pointer",fontSize:12}}>Delete batch</button>)}
     </div>}
+    {showWeights&&<BatchWeightsModal batch={batch} onSave={u=>{onUpdateBatch(u);setShowWeights(false);}} onClose={()=>setShowWeights(false)}/>}
   </div>);
 }
 function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic,onDeleteSub,onSaveLeftover}){
@@ -1348,7 +1367,7 @@ function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDe
       <div style={{fontSize:32,marginBottom:8}}>🏭</div><div style={{fontWeight:700,color:"#333"}}>No batches</div></div>)
     :(<div style={{display:"flex",flexDirection:"column",gap:8}}>
       {filtered.map(batch=><BatchCard key={batch.id} batch={batch} subBatches={all.filter(b=>b.parentBatchNo===batch.batchNo&&b.isSubBatch)}
-        onStatusChange={st=>onUpdateBatch(Object.assign({},batch,{status:st}))} onDelete={()=>onDeleteBatch(batch.id)} onManageShifts={()=>setShiftId(batch.id)}/>)}</div>)}
+        onStatusChange={st=>onUpdateBatch(Object.assign({},batch,{status:st}))} onDelete={()=>onDeleteBatch(batch.id)} onManageShifts={()=>setShiftId(batch.id)} onUpdateBatch={onUpdateBatch}/>)}</div>)}
   </div>);
 }
 
