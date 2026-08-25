@@ -172,14 +172,12 @@ function buildMonthlyReport(data,batches,orders,monthKey){
 }
 
 // ══ FINANCE — pure computation helpers ═══════════════════════════════════
-// Material cost for one order: plastic (virgin bags only — regrind is reused material with
+// Material cost for one batch: plastic (virgin bags only — regrind is reused material with
 // no new purchase cost) priced from the Plastic Material lot each shift actually drew from,
 // and aluminum caps priced from the coil they were stamped from (costPerPc, set at Aluminum
 // Batch creation). Costs are kept split by currency rather than guessing an exchange rate.
-function buildOrderCost(order,batches,data){
-  const linked=batches.filter(b=>!b.isSubBatch&&b.orderNo===order.orderNo);
-  const linkedNos=linked.map(b=>b.batchNo);
-  const shifts=batches.filter(b=>b.isSubBatch&&linkedNos.indexOf(b.parentBatchNo)>=0);
+function buildBatchCost(batch,batches,data){
+  const shifts=batches.filter(b=>b.isSubBatch&&b.parentBatchNo===batch.batchNo);
   const plasticLots=(data["Plastic Material"]&&data["Plastic Material"].lots)||[];
   const capsLots=(data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[];
   const scrapLots=(data["Aluminum Scrap"]&&data["Aluminum Scrap"].lots)||[];
@@ -196,7 +194,7 @@ function buildOrderCost(order,batches,data){
     }else plasticBagsUncosted+=bags;
   });
 
-  const alCost={};let alPcsCosted=0,alPcsUncosted=0,scrapKgForOrder=0;
+  const alCost={};let alPcsCosted=0,alPcsUncosted=0,scrapKgForBatch=0;
   shifts.forEach(s=>{
     (s.aluminumSelections||[]).forEach(sel=>{
       const lot=capsLots.filter(l=>l.lotNumber===sel.lotNo)[0];
@@ -207,7 +205,7 @@ function buildOrderCost(order,batches,data){
         alPcsCosted+=pcs;
         if(lot.scrapKg&&lot.qtyReceived){
           const lotPcs=lot.unit==="KG"?kgToPcs(Number(lot.qtyReceived)||0,0.405):(Number(lot.qtyReceived)||0);
-          if(lotPcs>0)scrapKgForOrder+=Number(lot.scrapKg)*(pcs/lotPcs);
+          if(lotPcs>0)scrapKgForBatch+=Number(lot.scrapKg)*(pcs/lotPcs);
         }
       }else alPcsUncosted+=pcs;
     });
@@ -218,11 +216,11 @@ function buildOrderCost(order,batches,data){
     if(e.qtyUsed>0&&e.saleRevenue!=null){scrapQtySold+=Number(e.qtyUsed);scrapRevenue+=Number(e.saleRevenue);}
   }));
   const avgScrapRateEGP=scrapQtySold>0?scrapRevenue/scrapQtySold:null;
-  const estScrapCreditEGP=avgScrapRateEGP!=null?scrapKgForOrder*avgScrapRateEGP:null;
+  const estScrapCreditEGP=avgScrapRateEGP!=null?scrapKgForBatch*avgScrapRateEGP:null;
 
-  return {order:order,plasticCost:plasticCost,plasticBagsCosted:plasticBagsCosted,plasticBagsUncosted:plasticBagsUncosted,
+  return {batch:batch,plasticCost:plasticCost,plasticBagsCosted:plasticBagsCosted,plasticBagsUncosted:plasticBagsUncosted,
     regrindKgTotal:regrindKgTotal,alCost:alCost,alPcsCosted:alPcsCosted,alPcsUncosted:alPcsUncosted,
-    scrapKgForOrder:scrapKgForOrder,avgScrapRateEGP:avgScrapRateEGP,estScrapCreditEGP:estScrapCreditEGP};
+    scrapKgForBatch:scrapKgForBatch,avgScrapRateEGP:avgScrapRateEGP,estScrapCreditEGP:estScrapCreditEGP};
 }
 
 const PRODUCT_META={
@@ -1596,7 +1594,7 @@ function Dashboard({data,batches,orders,onSelect,onLogout,onExport,onImportFile,
         <button type="button" onClick={()=>onSection("reports")} style={{background:"#4A1A6E",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🧾 Reports
           <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>For the board</div></button>
         <button type="button" onClick={()=>onSection("finance")} style={{background:"#8B6914",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>💰 Finance
-          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Cost per order</div></button></div>
+          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Cost per batch</div></button></div>
       <div style={{fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Raw Material Inventory</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
         {Object.keys(data).map(matName=>{
@@ -1806,11 +1804,11 @@ function CurrencyLines({byCurrency}){
   return <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>{curs.map(c=>(
     <div key={c} style={{fontSize:20,fontWeight:900,color:NAVY}}>{fmt(byCurrency[c])} <span style={{fontSize:12,color:"#888",fontWeight:700}}>{c}</span></div>))}</div>;
 }
-function OrderCostDoc({cost,onBack}){
-  const o=cost.order;
+function BatchCostDoc({cost,onBack}){
+  const b=cost.batch;
   return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"'Inter',sans-serif"}}>
     <ReportPrintBar onBack={onBack} backLabel="Back to Finance"/>
-    <ReportTitle title={"Order Cost — "+o.orderNo} subtitle={(o.client||"")+(o.color?" · "+o.color:"")}/>
+    <ReportTitle title={"Batch Cost — "+b.batchNo} subtitle={(b.client||"")+(b.color?" · "+b.color:"")}/>
     <ReportSection title="Plastic (virgin only — regrind is reused, no added cost)">
       <CurrencyLines byCurrency={cost.plasticCost}/>
       <div style={{fontSize:12,color:"#666",marginTop:8}}>{fmtN(cost.plasticBagsCosted)} bags costed{cost.plasticBagsUncosted>0?" · "+fmtN(cost.plasticBagsUncosted)+" bags with no lot cost on file":""}
@@ -1821,37 +1819,38 @@ function OrderCostDoc({cost,onBack}){
       <div style={{fontSize:12,color:"#666",marginTop:8}}>{fmtN(cost.alPcsCosted)} pcs costed{cost.alPcsUncosted>0?" · "+fmtN(cost.alPcsUncosted)+" pcs from lots with no cost on file (made before costing was tracked)":""}</div>
     </ReportSection>
     <ReportSection title="Aluminum Scrap Credit (estimate)">
-      <div style={{fontSize:12,color:"#666",marginBottom:8}}>Scrap generated from the coils behind this order&apos;s caps: <strong>{fmt(cost.scrapKgForOrder)} KG</strong></div>
+      <div style={{fontSize:12,color:"#666",marginBottom:8}}>Scrap generated from the coils behind this batch&apos;s caps: <strong>{fmt(cost.scrapKgForBatch)} KG</strong></div>
       {cost.avgScrapRateEGP!=null?(<>
         <div style={{fontSize:20,fontWeight:900,color:"#1A6B2A"}}>{fmt(cost.estScrapCreditEGP)} <span style={{fontSize:12,color:"#888",fontWeight:700}}>EGP (estimated credit)</span></div>
-        <div style={{fontSize:11,color:"#999",marginTop:4}}>Based on your average realized scrap sale rate ({fmt(cost.avgScrapRateEGP)} EGP/KG) — scrap is sold from a shared pool, not tracked per order, so this is an estimate, not an exact figure.</div></>)
+        <div style={{fontSize:11,color:"#999",marginTop:4}}>Based on your average realized scrap sale rate ({fmt(cost.avgScrapRateEGP)} EGP/KG) — scrap is sold from a shared pool, not tracked per batch, so this is an estimate, not an exact figure.</div></>)
       :<div style={{color:"#888",fontSize:12}}>No scrap sales recorded yet — not enough data to estimate a rate.</div>}
     </ReportSection>
     <div style={{background:"#F7F9FC",borderRadius:10,padding:14,fontSize:12,color:"#666"}}>
       This covers plastic and aluminum material cost only — no labor, overhead, or currency conversion applied. Add more cost inputs over time to make this more accurate.</div>
   </div>);
 }
-function FinanceSection({data,batches,orders,onClose}){
+function FinanceSection({data,batches,onClose}){
   const [doc,setDoc]=useState(null);
-  const [pickOrderNo,setPickOrderNo]=useState("");
+  const [pickBatchNo,setPickBatchNo]=useState("");
+  const mainBatches=batches.filter(b=>!b.isSubBatch).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
   if(doc)return(<div style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
-    <OrderCostDoc cost={doc} onBack={()=>setDoc(null)}/></div>);
+    <BatchCostDoc cost={doc} onBack={()=>setDoc(null)}/></div>);
   return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"linear-gradient(135deg,#0D1F3C,"+NAVY+")",position:"sticky",top:0,zIndex:100}}>
       <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
         <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13}}>← Back</button>
         <div><div style={{color:"#fff",fontWeight:800,fontSize:17}}>💰 Finance</div>
-          <div style={{color:"rgba(255,255,255,0.5)",fontSize:11}}>Material cost per order — testing phase</div></div></div></div>
+          <div style={{color:"rgba(255,255,255,0.5)",fontSize:11}}>Material cost per batch — testing phase</div></div></div></div>
     <div style={{maxWidth:700,margin:"0 auto",padding:16,display:"flex",flexDirection:"column",gap:16}}>
       <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:16}}>
-        <div style={{fontWeight:800,fontSize:14,color:NAVY,marginBottom:2}}>📋 Order Cost</div>
-        <div style={{fontSize:12,color:"#888",marginBottom:12}}>Plastic + aluminum material cost for one order, net of an estimated scrap credit.</div>
+        <div style={{fontWeight:800,fontSize:14,color:NAVY,marginBottom:2}}>🏭 Batch Cost</div>
+        <div style={{fontSize:12,color:"#888",marginBottom:12}}>Plastic + aluminum material cost for one batch, net of an estimated scrap credit.</div>
         <div style={{display:"flex",gap:8}}>
-          <select value={pickOrderNo} onChange={e=>setPickOrderNo(e.target.value)} style={{flex:1,border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
-            <option value="">— select order —</option>
-            {orders.map(o=><option key={o.id} value={o.orderNo}>{o.orderNo} · {o.client}</option>)}</select>
-          <button type="button" disabled={!pickOrderNo} onClick={()=>{const o=orders.filter(x=>x.orderNo===pickOrderNo)[0];if(o)setDoc(buildOrderCost(o,batches,data));}}
-            style={{background:pickOrderNo?NAVY:"#E2E8F0",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,fontSize:13,cursor:pickOrderNo?"pointer":"default",whiteSpace:"nowrap"}}>Generate</button></div>
+          <select value={pickBatchNo} onChange={e=>setPickBatchNo(e.target.value)} style={{flex:1,border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+            <option value="">— select batch —</option>
+            {mainBatches.map(b=><option key={b.id} value={b.batchNo}>{b.batchNo} · {b.color}{b.client?" · "+b.client:""}</option>)}</select>
+          <button type="button" disabled={!pickBatchNo} onClick={()=>{const b=mainBatches.filter(x=>x.batchNo===pickBatchNo)[0];if(b)setDoc(buildBatchCost(b,batches,data));}}
+            style={{background:pickBatchNo?NAVY:"#E2E8F0",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,fontSize:13,cursor:pickBatchNo?"pointer":"default",whiteSpace:"nowrap"}}>Generate</button></div>
       </div>
     </div></div>);
 }
@@ -2070,7 +2069,7 @@ export default function EpsInventoryApp(){
   let content;
   if(section==="log")content=<ActivityLog data={data} batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="reports")content=<ReportsSection data={data} batches={batches} orders={orders} onClose={()=>setSection("inventory")}/>;
-  else if(section==="finance")content=<FinanceSection data={data} batches={batches} orders={orders} onClose={()=>setSection("inventory")}/>;
+  else if(section==="finance")content=<FinanceSection data={data} batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
     <ProductionSection data={data} batches={batches} orders={orders} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onDeleteSub={deleteSub} onSaveLeftover={lot=>addLot("WIP Inventory",lot)}/></div>;
   else if(section==="orders")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
