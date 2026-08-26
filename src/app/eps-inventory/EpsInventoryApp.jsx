@@ -9,7 +9,10 @@ const CAP_WT=0.56,ASM_WT=0.96,PCS_INJ=64,BAG_KG=25,PLASTIC_BAG_KG=25,WASTE_PER_I
 // Starting labor rates, worked back from real figures — all editable in Finance since actual
 // pay varies: Sorting 10 girls x 300 EGP/day, 200,000 pcs sorted/day; Injection 27,000 EGP/26
 // days over 2 x 12h shifts/day; Press 12,000 EGP/16 shifts/month, 1 shift = 240,000 pcs.
-const DEFAULT_LABOR_RATES={sortingCostPerPc:0.015,injectionCostPerShift:519.23,pressCostPerPc:0.003125};
+// usdToEgpFallbackRate converts aluminum coil cost to EGP when the coil itself has no rate
+// recorded from when it was actually bought — real purchase-time rates (set on the coil lot)
+// are always preferred over this fallback.
+const DEFAULT_LABOR_RATES={sortingCostPerPc:0.015,injectionCostPerShift:519.23,pressCostPerPc:0.003125,usdToEgpFallbackRate:50};
 const ALU_DEN=2700/1e9;
 
 const MATERIAL_META={
@@ -188,7 +191,11 @@ function capsLotTotalPcs(lot){
 // ("Stamped into <lotNumber>", recorded when the caps lot was created) — so derive it the same
 // way, on the fly, rather than leaving every pre-existing lot uncosted.
 function deriveCapsCost(lot,coilLots){
-  if(lot.costPerPc)return {costPerPc:Number(lot.costPerPc),currency:lot.unitCostCurrency||"USD",scrapKg:Number(lot.scrapKg)||0};
+  if(lot.costPerPc){
+    const srcCoil=lot.sourceCoilLotNo?coilLots.filter(c=>c.lotNumber===lot.sourceCoilLotNo)[0]:null;
+    return {costPerPc:Number(lot.costPerPc),currency:lot.unitCostCurrency||"USD",scrapKg:Number(lot.scrapKg)||0,
+      usdToEgpRate:srcCoil&&srcCoil.usdToEgpRate?Number(srcCoil.usdToEgpRate):null};
+  }
   for(let i=0;i<coilLots.length;i++){
     const coil=coilLots[i];
     const entry=(coil.usageLog||[]).filter(e=>(e.reason||"").indexOf("Stamped into "+lot.lotNumber)===0)[0];
@@ -196,7 +203,8 @@ function deriveCapsCost(lot,coilLots){
       const weightTaken=Math.abs(Number(entry.qtyUsed))||0;
       const totalPcs=capsLotTotalPcs(lot);
       if(totalPcs<=0)return null;
-      return {costPerPc:(weightTaken*Number(coil.unitCost))/totalPcs,currency:coil.unitCostCurrency||"USD",scrapKg:weightTaken*0.274};
+      return {costPerPc:(weightTaken*Number(coil.unitCost))/totalPcs,currency:coil.unitCostCurrency||"USD",scrapKg:weightTaken*0.274,
+        usdToEgpRate:coil.usdToEgpRate?Number(coil.usdToEgpRate):null};
     }
   }
   return null;
@@ -225,7 +233,12 @@ function buildBatchCost(batch,batches,data,laborRates){
     }else plasticBagsUncosted+=bags;
   });
 
+  // alCostEGP converts non-EGP aluminum cost using each coil's own purchase-time rate when
+  // set, falling back to Finance's fallback rate otherwise — tracked separately so it's clear
+  // which pcs got a real rate vs the fallback, rather than blending them silently.
   const alCost={};let alPcsCosted=0,alPcsUncosted=0,scrapKgForBatch=0;
+  let alCostEGP=0,alPcsRealRate=0,alPcsFallbackRate=0,alPcsNoRate=0;
+  const fallbackRate=Number(rates.usdToEgpFallbackRate)||0;
   shifts.forEach(s=>{
     (s.aluminumSelections||[]).forEach(sel=>{
       const lot=capsLots.filter(l=>l.lotNumber===sel.lotNo)[0];
@@ -233,12 +246,17 @@ function buildBatchCost(batch,batches,data,laborRates){
       const derived=lot?deriveCapsCost(lot,coilLots):null;
       if(derived){
         const cur=derived.currency;
-        alCost[cur]=(alCost[cur]||0)+pcs*derived.costPerPc;
+        const lineCost=pcs*derived.costPerPc;
+        alCost[cur]=(alCost[cur]||0)+lineCost;
         alPcsCosted+=pcs;
         if(derived.scrapKg){
           const lotPcs=capsLotTotalPcs(lot);
           if(lotPcs>0)scrapKgForBatch+=derived.scrapKg*(pcs/lotPcs);
         }
+        if(cur==="EGP"){alCostEGP+=lineCost;alPcsRealRate+=pcs;}
+        else if(derived.usdToEgpRate){alCostEGP+=lineCost*derived.usdToEgpRate;alPcsRealRate+=pcs;}
+        else if(fallbackRate>0){alCostEGP+=lineCost*fallbackRate;alPcsFallbackRate+=pcs;}
+        else alPcsNoRate+=pcs;
       }else alPcsUncosted+=pcs;
     });
   });
@@ -264,10 +282,11 @@ function buildBatchCost(batch,batches,data,laborRates){
   const laborPressEGP=pressPcs*(Number(rates.pressCostPerPc)||0);
   const laborTotalEGP=laborInjectionEGP+laborSortingEGP+laborPressEGP;
 
-  const netEGP=(plasticCost.EGP||0)+laborTotalEGP-estScrapCreditEGP;
+  const netEGP=(plasticCost.EGP||0)+laborTotalEGP+alCostEGP-estScrapCreditEGP;
 
   return {batch:batch,plasticCost:plasticCost,plasticBagsCosted:plasticBagsCosted,plasticBagsUncosted:plasticBagsUncosted,
     regrindKgTotal:regrindKgTotal,alCost:alCost,alPcsCosted:alPcsCosted,alPcsUncosted:alPcsUncosted,
+    alCostEGP:alCostEGP,alPcsRealRate:alPcsRealRate,alPcsFallbackRate:alPcsFallbackRate,alPcsNoRate:alPcsNoRate,
     scrapKgForBatch:scrapKgForBatch,avgScrapRateEGP:avgScrapRateEGP,scrapRateIsAssumed:scrapRateIsAssumed,estScrapCreditEGP:estScrapCreditEGP,
     injectionShifts:injectionShifts,sortingPcs:sortingPcs,pressPcs:pressPcs,
     laborInjectionEGP:laborInjectionEGP,laborSortingEGP:laborSortingEGP,laborPressEGP:laborPressEGP,laborTotalEGP:laborTotalEGP,
@@ -533,6 +552,8 @@ function LotModal({matName,matConfig,lot,onSave,onClose}){
         <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Currency</label>
           <select value={form.unitCostCurrency||"EGP"} onChange={e=>set("unitCostCurrency",e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
             <option>EGP</option><option>USD</option></select></div>
+        {form.unitCostCurrency==="USD"&&<div style={{gridColumn:"1/-1"}}><Field label="USD → EGP Rate (on the day you bought this)" value={form.usdToEgpRate==null?"":form.usdToEgpRate} onChange={v=>set("usdToEgpRate",v)} type="number" ph="e.g. 50" accent={matConfig.accent}/>
+          <div style={{fontSize:11,color:"#999",marginTop:3}}>Locks this lot&apos;s EGP cost to what you actually paid — leave blank to use Finance&apos;s fallback rate instead.</div></div>}
         <div style={{gridColumn:"1/-1"}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:6,textTransform:"uppercase"}}>Status</label>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{Object.keys(STATUS_CONFIG).map(s=>(
             <button type="button" key={s} onClick={()=>set("status",s)} style={{padding:"7px 14px",borderRadius:20,border:"2px solid "+(form.status===s?STATUS_CONFIG[s].dot:"#E2E8F0"),background:form.status===s?STATUS_CONFIG[s].bg:"#fff",color:form.status===s?STATUS_CONFIG[s].text:"#666",fontWeight:700,fontSize:12,cursor:"pointer"}}>{s}</button>))}</div></div>
@@ -1868,6 +1889,11 @@ function BatchCostDoc({cost,onBack}){
     <ReportSection title="Aluminum Caps (priced from the coil they were stamped from)">
       <CurrencyLines byCurrency={cost.alCost}/>
       <div style={{fontSize:12,color:"#666",marginTop:8}}>{fmtN(cost.alPcsCosted)} pcs costed{cost.alPcsUncosted>0?" · "+fmtN(cost.alPcsUncosted)+" pcs from lots with no cost on file (made before costing was tracked)":""}</div>
+      {cost.alCostEGP>0&&<div style={{marginTop:10,background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}>
+        <div style={{fontSize:16,fontWeight:900,color:NAVY}}>{fmt(cost.alCostEGP)} <span style={{fontSize:12,color:"#888",fontWeight:700}}>EGP (converted)</span></div>
+        <div style={{fontSize:11,color:"#999",marginTop:3}}>{fmtN(cost.alPcsRealRate)} pcs at each coil&apos;s actual purchase-time rate
+          {cost.alPcsFallbackRate>0?" · "+fmtN(cost.alPcsFallbackRate)+" pcs at Finance's fallback rate":""}
+          {cost.alPcsNoRate>0?" · "+fmtN(cost.alPcsNoRate)+" pcs with no rate available":""}</div></div>}
     </ReportSection>
     <ReportSection title="Aluminum Scrap Credit (estimate)">
       <div style={{fontSize:12,color:"#666",marginBottom:8}}>Scrap generated from the coils behind this batch&apos;s caps: <strong>{fmt(cost.scrapKgForBatch)} KG</strong></div>
@@ -1886,32 +1912,35 @@ function BatchCostDoc({cost,onBack}){
       <div style={{fontSize:20,fontWeight:900,color:NAVY}}>{fmt(cost.laborTotalEGP)} <span style={{fontSize:12,color:"#888",fontWeight:700}}>EGP labor total</span></div>
     </ReportSection>
     <div style={{background:"#EBF1F8",borderRadius:10,padding:16,marginBottom:16}}>
-      <div style={{fontSize:11,fontWeight:800,color:NAVY,textTransform:"uppercase",marginBottom:6}}>Net EGP (Plastic + Labor − Scrap Credit)</div>
+      <div style={{fontSize:11,fontWeight:800,color:NAVY,textTransform:"uppercase",marginBottom:6}}>Net EGP (Plastic + Aluminum + Labor − Scrap Credit)</div>
       <div style={{fontSize:26,fontWeight:900,color:NAVY}}>{fmt(cost.netEGP)} <span style={{fontSize:13,color:"#888",fontWeight:700}}>EGP</span></div>
-      <div style={{fontSize:11,color:"#888",marginTop:4}}>Aluminum caps cost is kept separate, shown above in its own currency (usually USD) — not included in this EGP total.</div>
+      <div style={{fontSize:11,color:"#888",marginTop:4}}>Aluminum is converted to EGP using each coil&apos;s purchase-time rate where set, otherwise Finance&apos;s fallback rate.</div>
     </div>
     <div style={{background:"#F7F9FC",borderRadius:10,padding:14,fontSize:12,color:"#666"}}>
-      This covers plastic, aluminum, and labor cost — no overhead or currency conversion applied. Add more cost inputs over time to make this more accurate.</div>
+      This covers plastic, aluminum, and labor cost — no overhead applied yet. Add more cost inputs over time to make this more accurate.</div>
   </div>);
 }
 function LaborRatesModal({rates,onSave,onClose}){
   const [sorting,setSorting]=useState(String(rates.sortingCostPerPc));
   const [injection,setInjection]=useState(String(rates.injectionCostPerShift));
   const [press,setPress]=useState(String(rates.pressCostPerPc));
-  const save=()=>onSave({sortingCostPerPc:Number(sorting)||0,injectionCostPerShift:Number(injection)||0,pressCostPerPc:Number(press)||0});
+  const [fxRate,setFxRate]=useState(String(rates.usdToEgpFallbackRate));
+  const save=()=>onSave({sortingCostPerPc:Number(sorting)||0,injectionCostPerShift:Number(injection)||0,pressCostPerPc:Number(press)||0,usdToEgpFallbackRate:Number(fxRate)||0});
   return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:440,overflow:"hidden"}}>
       <div style={{background:NAVY,padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>⚙️ Labor Rates</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>Used to cost every batch — change any time</div></div>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>⚙️ Finance Settings</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>Used to cost every batch — change any time</div></div>
         <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
       <div style={{padding:24}}>
         <div style={{marginBottom:14}}><Field label="Plastic Sorting (EGP per pc)" value={sorting} onChange={setSorting} type="number" ph="0.015"/>
           <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 10 girls × 300 EGP/day ÷ 200,000 pcs sorted/day</div></div>
         <div style={{marginBottom:14}}><Field label="Injection (EGP per shift)" value={injection} onChange={setInjection} type="number" ph="519.23"/>
           <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 27,000 EGP ÷ 26 days ÷ 2 x 12h shifts/day</div></div>
-        <div style={{marginBottom:18}}><Field label="Press / Assembly (EGP per pc)" value={press} onChange={setPress} type="number" ph="0.003125"/>
+        <div style={{marginBottom:14}}><Field label="Press / Assembly (EGP per pc)" value={press} onChange={setPress} type="number" ph="0.003125"/>
           <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 12,000 EGP ÷ 16 shifts ÷ 240,000 pcs/shift</div></div>
-        <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Rates</button>
+        <div style={{marginBottom:18}}><Field label="USD → EGP Fallback Rate" value={fxRate} onChange={setFxRate} type="number" ph="50"/>
+          <div style={{fontSize:11,color:"#999",marginTop:3}}>Used only when a coil lot doesn&apos;t have its own purchase-time rate set.</div></div>
+        <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Settings</button>
       </div></div></div>);
 }
 function FinanceSection({data,batches,laborRates,onSaveLaborRates,onClose}){
@@ -1927,7 +1956,7 @@ function FinanceSection({data,batches,laborRates,onSaveLaborRates,onClose}){
         <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13}}>← Back</button>
         <div style={{flex:1}}><div style={{color:"#fff",fontWeight:800,fontSize:17}}>💰 Finance</div>
           <div style={{color:"rgba(255,255,255,0.5)",fontSize:11}}>Material + labor cost per batch — testing phase</div></div>
-        <button type="button" onClick={()=>setShowRates(true)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap"}}>⚙️ Labor Rates</button></div></div>
+        <button type="button" onClick={()=>setShowRates(true)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap"}}>⚙️ Settings</button></div></div>
     <div style={{maxWidth:700,margin:"0 auto",padding:16,display:"flex",flexDirection:"column",gap:16}}>
       <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:16}}>
         <div style={{fontWeight:800,fontSize:14,color:NAVY,marginBottom:2}}>🏭 Batch Cost</div>
