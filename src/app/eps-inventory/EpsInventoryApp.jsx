@@ -7,9 +7,9 @@ const SHARED_KEY="eps-inventory-data-v1";
 const NAVY="#1A3C5E",ACCENT="#2D6A9F";
 const CAP_WT=0.56,ASM_WT=0.96,PCS_INJ=64,BAG_KG=25,PLASTIC_BAG_KG=25,WASTE_PER_INJ=28,DEFAULT_SCRAP_RATE_EGP=160;
 // Starting labor rates, worked back from real figures — all editable in Finance since actual
-// pay varies: Sorting 10 girls x 300 EGP/day over 3 shifts/day; Injection 27,000 EGP/26 days
-// over 2 x 12h shifts/day; Press 12,000 EGP/16 shifts/month, 1 shift = 240,000 pcs.
-const DEFAULT_LABOR_RATES={sortingCostPerShift:1000,injectionCostPerShift:519.23,pressCostPerPc:0.003125};
+// pay varies: Sorting 10 girls x 300 EGP/day, 200,000 pcs sorted/day; Injection 27,000 EGP/26
+// days over 2 x 12h shifts/day; Press 12,000 EGP/16 shifts/month, 1 shift = 240,000 pcs.
+const DEFAULT_LABOR_RATES={sortingCostPerPc:0.015,injectionCostPerShift:519.23,pressCostPerPc:0.003125};
 const ALU_DEN=2700/1e9;
 
 const MATERIAL_META={
@@ -253,14 +253,14 @@ function buildBatchCost(batch,batches,data,laborRates){
   const avgScrapRateEGP=scrapRateIsAssumed?DEFAULT_SCRAP_RATE_EGP:scrapRevenue/scrapQtySold;
   const estScrapCreditEGP=scrapKgForBatch*avgScrapRateEGP;
 
-  // Labor — driven by how many shifts of each stage this batch actually ran (Injection,
-  // Plastic Sorting) or how many pcs went through Assembly (Press), at the rates set in
-  // Finance settings. All EGP, so unlike materials these can be summed with plastic + scrap.
+  // Labor — Injection by how many shifts this batch ran; Plastic Sorting and Press (Assembly)
+  // by how many pcs actually went through that stage (sorting handles both accepted and
+  // rejected pcs), at the rates set in Finance. All EGP, so these sum with plastic + scrap.
   const injectionShifts=shifts.filter(s=>s.injections).length;
-  const sortingShifts=shifts.filter(s=>s.acceptedPcs!=null).length;
+  const sortingPcs=shifts.reduce((s,x)=>s+(x.acceptedPcs!=null?(x.acceptedPcs||0)+(x.rejectedPcs||0):0),0);
   const pressPcs=shifts.reduce((s,x)=>s+(x.assembledPcs||0),0);
   const laborInjectionEGP=injectionShifts*(Number(rates.injectionCostPerShift)||0);
-  const laborSortingEGP=sortingShifts*(Number(rates.sortingCostPerShift)||0);
+  const laborSortingEGP=sortingPcs*(Number(rates.sortingCostPerPc)||0);
   const laborPressEGP=pressPcs*(Number(rates.pressCostPerPc)||0);
   const laborTotalEGP=laborInjectionEGP+laborSortingEGP+laborPressEGP;
 
@@ -269,7 +269,7 @@ function buildBatchCost(batch,batches,data,laborRates){
   return {batch:batch,plasticCost:plasticCost,plasticBagsCosted:plasticBagsCosted,plasticBagsUncosted:plasticBagsUncosted,
     regrindKgTotal:regrindKgTotal,alCost:alCost,alPcsCosted:alPcsCosted,alPcsUncosted:alPcsUncosted,
     scrapKgForBatch:scrapKgForBatch,avgScrapRateEGP:avgScrapRateEGP,scrapRateIsAssumed:scrapRateIsAssumed,estScrapCreditEGP:estScrapCreditEGP,
-    injectionShifts:injectionShifts,sortingShifts:sortingShifts,pressPcs:pressPcs,
+    injectionShifts:injectionShifts,sortingPcs:sortingPcs,pressPcs:pressPcs,
     laborInjectionEGP:laborInjectionEGP,laborSortingEGP:laborSortingEGP,laborPressEGP:laborPressEGP,laborTotalEGP:laborTotalEGP,
     netEGP:netEGP};
 }
@@ -1881,7 +1881,7 @@ function BatchCostDoc({cost,onBack}){
     <ReportSection title="Labor (rates set in Finance — edit any time under Labor Rates)">
       <div style={{display:"flex",flexDirection:"column",gap:6,fontSize:12,color:"#666",marginBottom:8}}>
         <div>Injection — {cost.injectionShifts} shift{cost.injectionShifts===1?"":"s"}: <strong>{fmt(cost.laborInjectionEGP)} EGP</strong></div>
-        <div>Plastic Sorting — {cost.sortingShifts} shift{cost.sortingShifts===1?"":"s"}: <strong>{fmt(cost.laborSortingEGP)} EGP</strong></div>
+        <div>Plastic Sorting — {fmtN(cost.sortingPcs)} pcs: <strong>{fmt(cost.laborSortingEGP)} EGP</strong></div>
         <div>Press (Assembly) — {fmtN(cost.pressPcs)} pcs: <strong>{fmt(cost.laborPressEGP)} EGP</strong></div></div>
       <div style={{fontSize:20,fontWeight:900,color:NAVY}}>{fmt(cost.laborTotalEGP)} <span style={{fontSize:12,color:"#888",fontWeight:700}}>EGP labor total</span></div>
     </ReportSection>
@@ -1895,18 +1895,18 @@ function BatchCostDoc({cost,onBack}){
   </div>);
 }
 function LaborRatesModal({rates,onSave,onClose}){
-  const [sorting,setSorting]=useState(String(rates.sortingCostPerShift));
+  const [sorting,setSorting]=useState(String(rates.sortingCostPerPc));
   const [injection,setInjection]=useState(String(rates.injectionCostPerShift));
   const [press,setPress]=useState(String(rates.pressCostPerPc));
-  const save=()=>onSave({sortingCostPerShift:Number(sorting)||0,injectionCostPerShift:Number(injection)||0,pressCostPerPc:Number(press)||0});
+  const save=()=>onSave({sortingCostPerPc:Number(sorting)||0,injectionCostPerShift:Number(injection)||0,pressCostPerPc:Number(press)||0});
   return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:440,overflow:"hidden"}}>
       <div style={{background:NAVY,padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>⚙️ Labor Rates</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>Used to cost every batch — change any time</div></div>
         <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
       <div style={{padding:24}}>
-        <div style={{marginBottom:14}}><Field label="Plastic Sorting (EGP per shift)" value={sorting} onChange={setSorting} type="number" ph="1000"/>
-          <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 10 girls × 300 EGP/day ÷ 3 shifts/day</div></div>
+        <div style={{marginBottom:14}}><Field label="Plastic Sorting (EGP per pc)" value={sorting} onChange={setSorting} type="number" ph="0.015"/>
+          <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 10 girls × 300 EGP/day ÷ 200,000 pcs sorted/day</div></div>
         <div style={{marginBottom:14}}><Field label="Injection (EGP per shift)" value={injection} onChange={setInjection} type="number" ph="519.23"/>
           <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 27,000 EGP ÷ 26 days ÷ 2 x 12h shifts/day</div></div>
         <div style={{marginBottom:18}}><Field label="Press / Assembly (EGP per pc)" value={press} onChange={setPress} type="number" ph="0.003125"/>
