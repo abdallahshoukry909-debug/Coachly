@@ -1693,8 +1693,8 @@ function Dashboard({data,batches,orders,onSelect,onLogout,onExport,onImportFile,
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:8}}>
           <div><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Already Made</div><div style={{fontSize:16,fontWeight:900,color:"#37474F"}}>{fmtN(alAvail.madeCapsPcs)}</div><div style={{fontSize:10,color:"#aaa"}}>pcs in stock</div></div>
           <div><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Can Still Make</div><div style={{fontSize:16,fontWeight:900,color:"#2D6A9F"}}>{fmtN(alAvail.makeableCapsPcs)}</div><div style={{fontSize:10,color:"#aaa"}}>from {fmt(alAvail.coilKgRemaining)} KG coil</div></div>
-          <div><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Total Available</div><div style={{fontSize:16,fontWeight:900,color:"#1A6B2A"}}>{fmtN(alAvail.totalAvailablePcs)}</div><div style={{fontSize:10,color:"#aaa"}}>pcs</div></div></div>
-        <div style={{fontSize:10,color:"#bbb"}}>At ~{fmtN(COIL_KG_TO_CAPS)} caps/KG of coil — watch Total Available against what your orders need to know when to buy more coil.</div></div>
+          <div><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Total Available</div><div style={{fontSize:16,fontWeight:900,color:"#1A6B2A"}}>{fmtN(alAvail.totalAvailablePcs)}</div><div style={{fontSize:10,color:"#aaa"}}>= Already Made + Can Still Make</div></div></div>
+        <div style={{fontSize:10,color:"#bbb"}}>Can Still Make = coil KG × ~{fmtN(COIL_KG_TO_CAPS)} caps/KG. Watch Total Available against what your orders need to know when to buy more coil.</div></div>
       <div style={{fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Raw Material Inventory</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
         {Object.keys(data).map(matName=>{
