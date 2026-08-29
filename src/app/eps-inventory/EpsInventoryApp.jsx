@@ -6,6 +6,7 @@ import {createClient} from "@/lib/supabase/client";
 const SHARED_KEY="eps-inventory-data-v1";
 const NAVY="#1A3C5E",ACCENT="#2D6A9F";
 const CAP_WT=0.56,ASM_WT=0.96,PCS_INJ=64,BAG_KG=25,PLASTIC_BAG_KG=25,WASTE_PER_INJ=28,DEFAULT_SCRAP_RATE_EGP=160;
+const ALCAP_WT_KG=0.405,COIL_KG_TO_CAPS=1972.4;
 // Starting labor rates, worked back from real figures — all editable in Finance since actual
 // pay varies: Sorting 10 girls x 300 EGP/day, 200,000 pcs sorted/day; Injection 27,000 EGP/26
 // days over 2 x 12h shifts/day; Press 12,000 EGP/16 shifts/month, 1 shift = 240,000 pcs.
@@ -185,6 +186,25 @@ function capsLotTotalPcs(lot){
   if(lot.bags&&lot.bags.length)return lot.bags.reduce((s,b)=>s+(b.qtyUnit==="Pcs"?Number(b.qty)||0:kgToPcs(Number(b.qty)||0,0.405)),0);
   if(lot.unit==="KG")return kgToPcs(Number(lot.qtyReceived)||0,0.405);
   return Number(lot.qtyReceived)||0;
+}
+// Same as capsLotTotalPcs but for what's still in stock (unused bags / qtyRemaining), not the
+// lot's original total — used to show current aluminum caps availability.
+function capsLotRemainingPcs(lot){
+  if(lot.bags&&lot.bags.length)return lot.bags.filter(b=>!b.used).reduce((s,b)=>s+(b.qtyUnit==="Pcs"?Number(b.qty)||0:kgToPcs(Number(b.qty)||0,ALCAP_WT_KG)),0);
+  if(lot.unit==="KG")return kgToPcs(Number(lot.qtyRemaining)||0,ALCAP_WT_KG);
+  return Number(lot.qtyRemaining)||0;
+}
+// Combined aluminum availability: caps already made and sitting in stock, plus how many more
+// could still be made from remaining Aluminum Coils weight — so it's clear when coil stock is
+// running low relative to what's actually needed, in the same pcs unit as everything else.
+function buildAluminumAvailability(data){
+  const capsLots=(data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[];
+  const coilLots=(data["Aluminum Coils"]&&data["Aluminum Coils"].lots)||[];
+  const madeCapsPcs=capsLots.reduce((s,l)=>s+capsLotRemainingPcs(l),0);
+  const coilKgRemaining=coilLots.reduce((s,l)=>s+(Number(l.qtyRemaining)||0),0);
+  const makeableCapsPcs=coilKgRemaining*COIL_KG_TO_CAPS;
+  return {madeCapsPcs:madeCapsPcs,coilKgRemaining:coilKgRemaining,makeableCapsPcs:makeableCapsPcs,
+    totalAvailablePcs:madeCapsPcs+makeableCapsPcs};
 }
 // Cost per piece for an Aluminum Caps lot. Lots made after costPerPc was introduced already
 // carry it; older lots don't, but the coil they came from is still traceable via its usageLog
@@ -1639,6 +1659,7 @@ function Dashboard({data,batches,orders,onSelect,onLogout,onExport,onImportFile,
   const all=[];Object.keys(data).forEach(k=>{(data[k].lots||[]).forEach(l=>all.push(l));});
   const main=batches.filter(b=>!b.isSubBatch);
   const bStats={total:main.length,prod:main.filter(b=>b.status==="Production").length,rel:main.filter(b=>b.status==="Released").length,totalPcs:main.reduce((s,b)=>s+(b.totalPcs||0),0)};
+  const alAvail=buildAluminumAvailability(data);
   return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"linear-gradient(135deg,#0D1F3C,"+NAVY+")",padding:"28px 16px 22px"}}>
       <div style={{maxWidth:700,margin:"0 auto"}}>
@@ -1667,6 +1688,13 @@ function Dashboard({data,batches,orders,onSelect,onLogout,onExport,onImportFile,
           <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>For the board</div></button>
         <button type="button" onClick={()=>onSection("finance")} style={{background:"#8B6914",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>💰 Finance
           <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Cost per batch</div></button></div>
+      <div onClick={()=>onSelect("Aluminum Caps")} style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:18,cursor:"pointer"}}>
+        <div style={{fontSize:11,fontWeight:800,color:"#37474F",textTransform:"uppercase",marginBottom:8}}>🔘 Aluminum Availability</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:8}}>
+          <div><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Already Made</div><div style={{fontSize:16,fontWeight:900,color:"#37474F"}}>{fmtN(alAvail.madeCapsPcs)}</div><div style={{fontSize:10,color:"#aaa"}}>pcs in stock</div></div>
+          <div><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Can Still Make</div><div style={{fontSize:16,fontWeight:900,color:"#2D6A9F"}}>{fmtN(alAvail.makeableCapsPcs)}</div><div style={{fontSize:10,color:"#aaa"}}>from {fmt(alAvail.coilKgRemaining)} KG coil</div></div>
+          <div><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Total Available</div><div style={{fontSize:16,fontWeight:900,color:"#1A6B2A"}}>{fmtN(alAvail.totalAvailablePcs)}</div><div style={{fontSize:10,color:"#aaa"}}>pcs</div></div></div>
+        <div style={{fontSize:10,color:"#bbb"}}>At ~{fmtN(COIL_KG_TO_CAPS)} caps/KG of coil — watch Total Available against what your orders need to know when to buy more coil.</div></div>
       <div style={{fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Raw Material Inventory</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
         {Object.keys(data).map(matName=>{
