@@ -1962,6 +1962,7 @@ function Barcode({value}){
 const labelHdStyle={fontSize:10,color:"#666",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.03em"};
 const labelValStyle={fontSize:14,fontWeight:800,color:"#111",marginTop:2};
 function LabelCard({product,client,variantLabel,variantValue,unitLabel,unitText,netQtyText,mfgDate,expDate,serial}){
+  const showExp=expDate!=null;
   return(<div className="eps-label-card" style={{border:"1.5px dashed #999",borderRadius:10,padding:"18px 20px",width:"100%",maxWidth:640,background:"#fff",breakInside:"avoid",marginBottom:22}}>
     <div style={{background:"#000",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 14px",marginBottom:14,gap:10}}>
       <span style={{fontWeight:800,fontSize:14,letterSpacing:"0.02em"}}>{COMPANY_NAME}</span>
@@ -1972,10 +1973,10 @@ function LabelCard({product,client,variantLabel,variantValue,unitLabel,unitText,
       <div><div style={labelHdStyle}>Client</div><div style={labelValStyle}>{client||"—"}</div></div>
       <div><div style={labelHdStyle}>{variantLabel}</div><div style={labelValStyle}>{variantValue||"—"}</div></div>
       <div><div style={labelHdStyle}>Serial No.</div><div style={{...labelValStyle,fontFamily:"monospace",fontSize:13}}>{serial}</div></div></div>
-    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:16}}>
+    <div style={{display:"grid",gridTemplateColumns:"repeat("+(showExp?3:2)+",1fr)",gap:12,marginBottom:16}}>
       <div><div style={labelHdStyle}>Net Qty</div><div style={labelValStyle}>{netQtyText}</div></div>
       <div><div style={labelHdStyle}>Mfg. Date</div><div style={labelValStyle}>{mfgDate||"—"}</div></div>
-      <div><div style={labelHdStyle}>Exp. Date</div><div style={labelValStyle}>{expDate||"—"}</div></div></div>
+      {showExp&&<div><div style={labelHdStyle}>Exp. Date</div><div style={labelValStyle}>{expDate||"—"}</div></div>}</div>
     <div style={{display:"flex",justifyContent:"center",marginBottom:12}}><Barcode value={serial}/></div>
     <div style={{borderTop:"1px solid #ddd",paddingTop:8,fontSize:10,color:"#333",lineHeight:1.5}}>
       <div>{COMPANY_PHONE}</div><div>{COMPANY_EMAIL}</div><div>{COMPANY_ADDRESS}</div></div>
@@ -1985,8 +1986,10 @@ function LabelCard({product,client,variantLabel,variantValue,unitLabel,unitText,
 // reusing the same real label template at every scale, just changing the counted unit.
 function buildLabels(batch,mode){
   const meta=PRODUCT_META[batch.product]||{variantLabel:"Variant"};
+  const isFO=batch.batchNo.indexOf("EPS-FO-")===0;
   const base={product:batch.product,client:batch.client,variantLabel:meta.variantLabel||"Variant",
-    variantValue:batch.color,mfgDate:batch.mfgDate,expDate:batch.expiryDate||""};
+    variantValue:batch.color,mfgDate:batch.mfgDate};
+  if(!isFO)base.expDate=batch.expiryDate||"";
   const bpc=Number(batch.bagsPerCarton)||0,ppb=Number(batch.pcsPerBag)||0;
   const fullCartons=Number(batch.cartons)||0,partialBags=Number(batch.partialCartonBags)||0;
   const totalCartons=fullCartons+(partialBags>0?1:0);
