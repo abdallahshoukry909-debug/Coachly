@@ -1244,10 +1244,49 @@ function SaveLeftoverForm({parentBatch,onSave,onClose}){
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:mc.accent,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save to WIP Inventory</button>
       </div></div></div>);
 }
+// Reassigns a full, already-recorded shift from one batch to another — for when Injection ran
+// more plastic than a batch needed and the extra shift really belongs to a different order.
+// Only offers batches with the same color/client (mold-logo), since a mismatched move would
+// mislabel that shift's material and costing under the wrong cap design.
+function MoveShiftModal({shift,parentBatch,batches,onMove,onCancel}){
+  const candidates=batches.filter(b=>!b.isSubBatch&&b.batchNo!==parentBatch.batchNo&&b.color===parentBatch.color&&(b.client||"")===(parentBatch.client||""));
+  const [targetNo,setTargetNo]=useState(""),[err,setErr]=useState("");
+  const target=targetNo?candidates.filter(b=>b.batchNo===targetNo)[0]:null;
+  const destSubs=target?batches.filter(b=>b.parentBatchNo===target.batchNo&&b.isSubBatch&&!b.isCarryover):[];
+  const newLetter=String.fromCharCode(65+destSubs.length);
+  const newBatchNo=target?target.batchNo+"-"+newLetter:"";
+  const move=()=>{
+    if(!target){setErr("Select which batch to move this shift to.");return;}
+    onMove(Object.assign({},shift,{batchNo:newBatchNo,parentBatchNo:target.batchNo,product:target.product,
+      color:target.color,client:target.client,orderNo:target.orderNo,movedFrom:shift.batchNo,
+      notes:(shift.notes?shift.notes+" — ":"")+"Moved from "+parentBatch.batchNo}));
+  };
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:460,maxHeight:"92vh",overflowY:"auto"}}>
+      <div style={{background:NAVY,borderRadius:"16px 16px 0 0",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>↪️ Move Shift {shift.batchNo}</div>
+          <div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>{parentBatch.color}{parentBatch.client?" · "+parentBatch.client:""} — only same color &amp; logo batches shown</div></div>
+        <button type="button" onClick={onCancel} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
+      <div style={{padding:24}}>
+        {candidates.length===0?(
+          <div style={{fontSize:13,color:"#888",background:"#F7F9FC",borderRadius:8,padding:14}}>No other batch with the same color &amp; logo ({parentBatch.color}{parentBatch.client?" · "+parentBatch.client:""}) exists yet. Create that batch first, then come back to move this shift into it.</div>
+        ):(<>
+          <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Move To Batch</label>
+          <select value={targetNo} onChange={e=>{setTargetNo(e.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff",marginBottom:14}}>
+            <option value="">— select batch —</option>
+            {candidates.map(b=><option key={b.id} value={b.batchNo}>{b.batchNo} · {b.status}</option>)}</select>
+          {target&&<div style={{background:"#EBF1F8",borderRadius:8,padding:"10px 12px",marginBottom:14,fontSize:12,color:NAVY}}>
+            Will become <strong>{newBatchNo}</strong> — {destSubs.length===0?"first shift on this batch":"shift #"+(destSubs.length+1)+" on this batch"}.</div>}
+          {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
+          <button type="button" onClick={move} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>↪️ Move Shift</button>
+        </>)}
+      </div></div></div>);
+}
 function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,onDeleteSub,onSaveLeftover}){
   const [form,setForm]=useState(null);      // {mode:"new"} | {mode:"carryover"} | {subId, stage, editing:bool}
   const [confDel,setConfDel]=useState(null);
   const [showLeftover,setShowLeftover]=useState(false);
+  const [moveSub,setMoveSub]=useState(null);
   const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch).sort((a,b)=>a.batchNo.localeCompare(b.batchNo));
   const realShiftCount=mySubs.filter(b=>!b.isCarryover).length;
   const totalGood=mySubs.reduce((s,b)=>s+(b.goodPcs||0),0);
@@ -1335,7 +1374,8 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
               <div><span style={{fontFamily:"monospace",fontWeight:800,fontSize:14,color:NAVY}}>{sub.batchNo}</span>
                 <span style={{background:sbg,color:sc,borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700,marginLeft:8}}>{sub.stage}</span>
                 {sub.shift&&<span style={{fontSize:11,color:"#888",marginLeft:8}}>{sub.shift} · {sub.mfgDate}</span>}
-                {sub.isCarryover&&<span style={{background:"#EEF3EC",color:"#4A6741",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700,marginLeft:8}}>↩️ from {sub.carryoverFrom}</span>}</div>
+                {sub.isCarryover&&<span style={{background:"#EEF3EC",color:"#4A6741",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700,marginLeft:8}}>↩️ from {sub.carryoverFrom}</span>}
+                {sub.movedFrom&&<span style={{background:"#EBF1F8",color:NAVY,borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700,marginLeft:8}}>↪️ moved from {sub.movedFrom}</span>}</div>
               {sub.stage!=="Complete"&&<button type="button" onClick={()=>setForm({subId:sub.id,stage:sub.stage,editing:false})} style={{background:sc,color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>Enter {sub.stage} →</button>}</div>
             <div style={{display:"flex",gap:4,marginTop:8,marginBottom:8}}>
               {STAGES.slice(0,4).map((s,i)=><div key={s} style={{flex:1,height:4,borderRadius:2,background:sub.stage==="Complete"||i<idx?"#22A03A":i===idx?stageColor[s]:"#E2E8F0"}}/>)}</div>
@@ -1355,7 +1395,10 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
                 <span style={{fontSize:11,color:"#8B1A1A",fontWeight:600,flex:1}}>Delete {sub.batchNo}{(sub.plasticLotId||(sub.aluminumSelections&&sub.aluminumSelections.length))?" — any material it drew will be returned to stock":""}?</span>
                 <button type="button" onClick={()=>{onDeleteSub(sub);setConfDel(null);}} style={{background:"#DC3545",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11,color:"#fff",fontWeight:800}}>Yes, delete</button>
                 <button type="button" onClick={()=>setConfDel(null)} style={{background:"#E2E8F0",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11}}>Cancel</button></div>)
-              :(<button type="button" onClick={()=>setConfDel(sub.id)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>🗑 Delete this shift</button>)}</div>
+              :(<div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+                  <button type="button" onClick={()=>setConfDel(sub.id)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>🗑 Delete this shift</button>
+                  {!sub.isCarryover&&<button type="button" onClick={()=>setMoveSub(sub)} style={{background:"none",border:"none",color:NAVY,cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>↪️ Move to another batch</button>}
+                </div>)}</div>
           </div>);})}
       </div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -1364,6 +1407,7 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
         <button type="button" onClick={()=>setShowLeftover(true)} style={{flex:1,minWidth:150,padding:13,background:"#fff",color:"#6B4F9E",border:"1.5px solid #6B4F9E",borderRadius:10,fontWeight:800,fontSize:13,cursor:"pointer"}}>🗂️ Save Leftover to Stock</button></div>
     </div>
     {showLeftover&&<SaveLeftoverForm parentBatch={parentBatch} onSave={lot=>{onSaveLeftover(lot);setShowLeftover(false);}} onClose={()=>setShowLeftover(false)}/>}
+    {moveSub&&<MoveShiftModal shift={moveSub} parentBatch={parentBatch} batches={batches} onMove={u=>{onUpdateSub(u,null,moveSub);setMoveSub(null);}} onCancel={()=>setMoveSub(null)}/>}
     </div>);
 }
 
