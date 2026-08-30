@@ -1738,8 +1738,10 @@ function Dashboard({data,batches,orders,onSelect,onLogout,onExport,onImportFile,
           <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>For the board</div></button>
         <button type="button" onClick={()=>onSection("finance")} style={{background:"#8B6914",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>💰 Finance
           <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Cost per batch</div></button>
-        <button type="button" onClick={()=>onSection("labels")} style={{gridColumn:"1/-1",background:"#5A3E1B",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🏷️ Labels
-          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Batch, carton &amp; bag labels</div></button></div>
+        <button type="button" onClick={()=>onSection("labels")} style={{background:"#5A3E1B",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🏷️ Labels
+          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Batch, carton &amp; bag labels</div></button>
+        <button type="button" onClick={()=>onSection("certificates")} style={{background:"#1B5A4E",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🧪 Certificates
+          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Certificate of Analysis (COA)</div></button></div>
       <div onClick={()=>onSelect("Aluminum Caps")} style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:18,cursor:"pointer"}}>
         <div style={{fontSize:11,fontWeight:800,color:"#37474F",textTransform:"uppercase",marginBottom:8}}>🔘 Aluminum Availability</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:8}}>
@@ -2050,6 +2052,90 @@ function LabelsSection({batches,onClose}){
             <div style={{fontSize:11,color:"#888",marginTop:2}}>{m[2]}</div></div>))}</div>
         <button type="button" onClick={()=>setLabels(buildLabels(batch,mode))} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>🏷️ Generate Labels</button>
       </div>}
+    </div></div>);
+}
+
+// ══ CERTIFICATES (COA) ════════════════════════════════════════════════════
+// Fixed QC spec/test template for Flip-Off Caps — only the header block (batch, qty,
+// mfg date) and the issue date are per-generation; the test results are the company's
+// standard sign-off, not measured per batch, so they're not pulled from batch data.
+const COA_PRODUCT_NAME="Flip-Off Aluminum–Plastic Vial Seal (20 mm)";
+const COA_SECTIONS=[
+  {title:"1. Appearance & Identification",items:[
+    "Visual Appearance: Clean, uniform color; no burrs or cracks — Complies",
+    "Dimensions: 20 mm ± 0.05 mm — Complies",
+    "Total Height: 9.2 mm ± 0.1 mm — Complies",
+    "Aluminum Height: 7.6 mm ± 0.1 mm — Complies",
+    "Flip-Off External Diameter: 22.75 mm ± 0.1 mm — Complies",
+    "Aluminum Diameter: 20.3 mm ± 0.05 mm — Complies",
+    "Aluminum Alloy ID: Confirms 8011 alloy — Pass"]},
+  {title:"2. Functional Tests",items:[
+    "Flip-Off Force: 18–25 N — 22 N",
+    "Crimping Performance: Must seal properly — Pass",
+    "Tamper Evidence: Button detaches clearly — Pass"]},
+  {title:"3. Material Tests",items:[
+    "Aluminum Thickness: 0.23 mm ± 0.01 — 0.23 mm",
+    "Polypropylene Button: Virgin PP — Conforms",
+    "Color Masterbatch: Heavy metal–free — Conforms"]},
+  {title:"4. Chemical & Safety Tests",items:[
+    "Heavy Metals: ≤ EU/USP limits — Pass",
+    "Extractables: Within USP <661.1> — Pass",
+    "TSE/BSE: Free from animal origin — Complies",
+    "ISO 10993: Non-cytotoxic — Pass"]},
+  {title:"5. Microbiological Tests",items:[
+    "Bioburden: ≤100 CFU/pcs — <10 CFU",
+    "Yeast & Mold: ≤10 CFU — <1 CFU",
+    "Endotoxin: ≤0.25 EU/mL — Pass"]},
+  {title:"6. Compliance Statements",items:[
+    "Manufactured under ISO 9001 & GMP"]}];
+function COADoc({batch,onBack}){
+  return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"'Inter',sans-serif"}}>
+    <ReportPrintBar onBack={onBack} backLabel="Back to Certificates"/>
+    <ReportTitle title="Certificate of Analysis (COA)" subtitle={batch.batchNo}/>
+    <div style={{display:"flex",flexDirection:"column",gap:5,fontSize:13,color:"#222",marginBottom:22}}>
+      <div><strong>Product:</strong> {COA_PRODUCT_NAME}</div>
+      <div><strong>Batch/Lot Number:</strong> {batch.batchNo}</div>
+      <div><strong>Quantity:</strong> {fmtN(batch.totalPcs)} pcs</div>
+      <div><strong>Manufacturing Date:</strong> {batch.mfgDate||"—"}</div>
+    </div>
+    {COA_SECTIONS.map(sec=>(<ReportSection key={sec.title} title={sec.title}>
+      <div style={{display:"flex",flexDirection:"column",gap:5,fontSize:13,color:"#333"}}>
+        {sec.items.map((it,i)=><div key={i}>- {it}</div>)}
+      </div></ReportSection>))}
+    <ReportSection title="Authorization">
+      <div style={{display:"flex",flexDirection:"column",gap:5,fontSize:13,color:"#333"}}>
+        <div>QC Analyst: Abdallah Shoukry</div>
+        <div>QA Reviewer: Roger Gendy</div>
+        <div>Date of Issue: {today()}</div>
+      </div>
+    </ReportSection>
+    <div style={{borderTop:"1px solid #eee",paddingTop:10,marginTop:6,fontSize:11,color:"#666"}}>
+      <div>Plot number 602 industrial zone 6th October, Giza government</div>
+      <div>neweastpharma@gmail.com &nbsp; 01222442004 - 01110055538</div>
+    </div>
+  </div>);
+}
+function CertificatesSection({batches,onClose}){
+  const [pickBatchNo,setPickBatchNo]=useState(""),[doc,setDoc]=useState(null);
+  const mainBatches=batches.filter(b=>!b.isSubBatch&&b.batchNo.indexOf("EPS-FO-")===0).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
+  const batch=pickBatchNo?mainBatches.filter(b=>b.batchNo===pickBatchNo)[0]:null;
+  if(doc)return(<div style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}><COADoc batch={doc} onBack={()=>setDoc(null)}/></div>);
+  return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
+    <div style={{background:"linear-gradient(135deg,#0D1F3C,"+NAVY+")",position:"sticky",top:0,zIndex:100}}>
+      <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13}}>← Back</button>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:17}}>🧪 Certificates</div>
+          <div style={{color:"rgba(255,255,255,0.5)",fontSize:11}}>Certificate of Analysis (COA) per batch</div></div></div></div>
+    <div style={{maxWidth:700,margin:"0 auto",padding:16,display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:16}}>
+        <div style={{fontWeight:800,fontSize:14,color:NAVY,marginBottom:2}}>Select Batch</div>
+        <div style={{fontSize:12,color:"#888",marginBottom:12}}>Flip-Off Caps batches only — the COA template is specific to this product.</div>
+        <select value={pickBatchNo} onChange={e=>setPickBatchNo(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff",marginBottom:12}}>
+          <option value="">— select batch —</option>
+          {mainBatches.map(b=><option key={b.id} value={b.batchNo}>{b.batchNo} · {b.color}{b.client?" · "+b.client:""}</option>)}</select>
+        <button type="button" disabled={!batch} onClick={()=>setDoc(batch)} style={{width:"100%",padding:13,background:batch?NAVY:"#E2E8F0",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:batch?"pointer":"default"}}>🧪 Generate COA</button>
+      </div>
+      {mainBatches.length===0&&<div style={{color:"#888",fontSize:13,textAlign:"center",padding:20}}>No Flip-Off Caps batches yet.</div>}
     </div></div>);
 }
 
@@ -2375,6 +2461,7 @@ export default function EpsInventoryApp(){
   else if(section==="reports")content=<ReportsSection data={data} batches={batches} orders={orders} onClose={()=>setSection("inventory")}/>;
   else if(section==="finance")content=<FinanceSection data={data} batches={batches} laborRates={laborRates} onSaveLaborRates={setLaborRates} onClose={()=>setSection("inventory")}/>;
   else if(section==="labels")content=<LabelsSection batches={batches} onClose={()=>setSection("inventory")}/>;
+  else if(section==="certificates")content=<CertificatesSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
     <ProductionSection data={data} batches={batches} orders={orders} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onDeleteSub={deleteSub} onSaveLeftover={lot=>addLot("WIP Inventory",lot)}/></div>;
   else if(section==="orders")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
@@ -2387,7 +2474,7 @@ export default function EpsInventoryApp(){
     onToggleBag={(lid,bid)=>toggleBag(activeMat,lid,bid)} onCreateAlBatch={createAlBatch}/>;
   else content=<Dashboard data={data} batches={batches} orders={orders} onSelect={setActiveMat} onLogout={logout} onExport={exportBackup} onImportFile={importBackup} lastSync={lastSync} onSection={s=>{setSection(s);setActiveMat(null);}}/>;
 
-  const showTabs=section!=="log"&&section!=="reports"&&section!=="finance"&&section!=="labels"&&!activeMat;
+  const showTabs=section!=="log"&&section!=="reports"&&section!=="finance"&&section!=="labels"&&section!=="certificates"&&!activeMat;
   return(<div style={{fontFamily:"'Inter',sans-serif"}}>
     {showTabs&&<div style={{background:"#142540",position:"sticky",top:0,zIndex:200,borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
       <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
