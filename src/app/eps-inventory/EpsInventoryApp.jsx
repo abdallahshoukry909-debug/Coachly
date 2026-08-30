@@ -1224,17 +1224,31 @@ function CarryoverForm({parentBatch,batches,onSave,onCancel}){
 function SaveLeftoverForm({parentBatch,onSave,onClose}){
   const mc=MATERIAL_META["WIP Inventory"];
   const [stage,setStage]=useState("Unsorted Plastic"),[mold,setMold]=useState("No Logo"),[color,setColor]=useState(parentBatch.color||""),[company,setCompany]=useState(parentBatch.client||"");
-  const [weightKg,setWeightKg]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
-  const STAGES_WIP=["Unsorted Plastic","Sorted Plastic","Unsorted Assembled","Sorted Assembled"];
+  const [weightKg,setWeightKg]=useState("");
+  const [cartons,setCartons]=useState(""),[bags,setBags]=useState(""),[kg,setKg]=useState("");
+  const [notes,setNotes]=useState(""),[err,setErr]=useState("");
+  const STAGES_WIP=["Unsorted Plastic","Sorted Plastic","Unsorted Assembled","Sorted Assembled","Packed"];
+  const isPacked=stage==="Packed";
+  const bpc=Number(parentBatch.bagsPerCarton)||0,ppb=Number(parentBatch.pcsPerBag)||0;
+  const canCheckPacked=bpc>0&&ppb>0;
   const pieceWt=stage.indexOf("Assembled")>=0?(parentBatch.asmWt||ASM_WT):(parentBatch.capWt||CAP_WT);
-  const wt=Number(weightKg)||0,pcs=kgToPcs(wt,pieceWt);
+  const wt=Number(weightKg)||0;
+  const ct=Number(cartons)||0,bg=Number(bags)||0,kgVal=Number(kg)||0;
+  const packedPcs=canCheckPacked?ct*bpc*ppb+bg*ppb+kgToPcs(kgVal,parentBatch.asmWt||ASM_WT):0;
+  const pcs=isPacked?packedPcs:kgToPcs(wt,pieceWt);
   const save=()=>{
-    if(wt<=0){setErr("Enter the leftover weight in KG.");return;}
+    if(isPacked){
+      if(!canCheckPacked){setErr("Set Bags/Carton and Pcs/Bag on "+parentBatch.batchNo+" first so cartons/bags can convert to pcs.");return;}
+      if(ct<=0&&bg<=0&&kgVal<=0){setErr("Enter cartons, bags, or KG packed.");return;}
+    }else if(wt<=0){setErr("Enter the leftover weight in KG.");return;}
+    const qtyDesc=isPacked
+      ?[ct?ct+" carton"+(ct===1?"":"s"):"",bg?bg+" bag"+(bg===1?"":"s"):"",kgVal?fmt(kgVal)+" KG":""].filter(Boolean).join(" + ")
+      :fmt(wt)+" KG @ "+pieceWt+" g/pc";
     onSave({id:genId(),lotNumber:"WIP-"+parentBatch.batchNo+"-"+genId().slice(-4),plNo:"",date:today(),
       supplier:company.trim(),
       description:stage+" — "+(mold.trim()||"unspecified mold")+" — "+(color.trim()||"any color")+(company.trim()?" — "+company.trim():""),
       qtyReceived:pcs,unit:"Pcs",qtyRemaining:pcs,unitCost:"",status:"In Stock",
-      notes:"From "+parentBatch.batchNo+" — "+fmt(wt)+" KG @ "+pieceWt+" g/pc"+(notes?" — "+notes:""),image:null,usageLog:[]});
+      notes:"From "+parentBatch.batchNo+" — "+qtyDesc+(notes?" — "+notes:""),image:null,usageLog:[]});
   };
   return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:480,maxHeight:"92vh",overflowY:"auto"}}>
@@ -1245,14 +1259,21 @@ function SaveLeftoverForm({parentBatch,onSave,onClose}){
         <div style={{marginBottom:14}}>
           <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>What Is It?</label>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {STAGES_WIP.map(s=>(<div key={s} onClick={()=>setStage(s)} style={{padding:"10px 14px",borderRadius:9,border:"2px solid "+(stage===s?mc.color:"#E2E8F0"),background:stage===s?mc.light:"#fff",cursor:"pointer",fontSize:13,fontWeight:stage===s?700:500,color:stage===s?mc.color:"#444"}}>{s}</div>))}</div></div>
+            {STAGES_WIP.map(s=>(<div key={s} onClick={()=>{setStage(s);setErr("");}} style={{padding:"10px 14px",borderRadius:9,border:"2px solid "+(stage===s?mc.color:"#E2E8F0"),background:stage===s?mc.light:"#fff",cursor:"pointer",fontSize:13,fontWeight:stage===s?700:500,color:stage===s?mc.color:"#444"}}>{s}</div>))}</div></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
           <Field label="Mold / Logo" value={mold} onChange={setMold} ph="e.g. No Logo" accent={mc.accent}/>
           <Field label="Color" value={color} onChange={setColor} ph="e.g. Green" accent={mc.accent}/>
           <Field label="Company" value={company} onChange={setCompany} ph="e.g. Global Napi" accent={mc.accent}/>
-          <Field label="Weight (KG) *" value={weightKg} onChange={v=>{setWeightKg(v);setErr("");}} type="number" ph="e.g. 56" accent={mc.accent}/></div>
-        {wt>0&&<div style={{background:mc.light,borderRadius:8,padding:"9px 12px",marginBottom:14,fontSize:12,color:mc.color}}>
-          ≈ <strong>{fmtN(pcs)} pcs</strong> at {pieceWt} g/pc ({stage.indexOf("Assembled")>=0?"assembled":"plastic"} weight)</div>}
+          {!isPacked&&<Field label="Weight (KG) *" value={weightKg} onChange={v=>{setWeightKg(v);setErr("");}} type="number" ph="e.g. 56" accent={mc.accent}/>}</div>
+        {isPacked&&<div style={{marginBottom:14}}>
+          <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Packed As</label>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+            <Field label="Cartons" value={cartons} onChange={v=>{setCartons(v);setErr("");}} type="number" ph="e.g. 12" accent={mc.accent}/>
+            <Field label="Bags" value={bags} onChange={v=>{setBags(v);setErr("");}} type="number" ph="e.g. 1" accent={mc.accent}/>
+            <Field label="KG (partial)" value={kg} onChange={v=>{setKg(v);setErr("");}} type="number" ph="e.g. 3" accent={mc.accent}/></div>
+          {!canCheckPacked&&<div style={{fontSize:11,color:"#DC3545",marginTop:6,fontWeight:600}}>⚠️ Set Bags/Carton and Pcs/Bag on {parentBatch.batchNo} first so cartons/bags convert to pcs.</div>}</div>}
+        {(pcs>0)&&<div style={{background:mc.light,borderRadius:8,padding:"9px 12px",marginBottom:14,fontSize:12,color:mc.color}}>
+          ≈ <strong>{fmtN(pcs)} pcs</strong>{isPacked?" packed":" at "+pieceWt+" g/pc ("+(stage.indexOf("Assembled")>=0?"assembled":"plastic")+" weight)"}</div>}
         <div style={{marginBottom:18}}><Field label="Notes (optional)" value={notes} onChange={setNotes} accent={mc.accent}/></div>
         {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:mc.accent,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save to WIP Inventory</button>
