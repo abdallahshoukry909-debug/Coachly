@@ -2,6 +2,7 @@
 import {useState,useEffect,useRef} from "react";
 import {useRouter} from "next/navigation";
 import {createClient} from "@/lib/supabase/client";
+import JsBarcode from "jsbarcode";
 
 const SHARED_KEY="eps-inventory-data-v1";
 const NAVY="#1A3C5E",ACCENT="#2D6A9F";
@@ -15,6 +16,11 @@ const ALCAP_WT_KG=0.405,COIL_KG_TO_CAPS=1972.4;
 // are always preferred over this fallback.
 const DEFAULT_LABOR_RATES={sortingCostPerPc:0.015,injectionCostPerShift:519.23,pressCostPerPc:0.003125,usdToEgpFallbackRate:50};
 const ALU_DEN=2700/1e9;
+const COMPANY_NAME="EAST PHARMACEUTICAL SERVICES";
+const COMPANY_CERT="GMP & ISO 9001:2015 CERTIFIED";
+const COMPANY_PHONE="+20 100 208 9590 | +20 111 005 5538 | Factory: 02 3833 6566";
+const COMPANY_EMAIL="neweastpharma@gmail.com | www.eastpharmaceutical.com";
+const COMPANY_ADDRESS="Plot 602, Industrial Zone, 6th of October City, Giza, Egypt";
 
 const MATERIAL_META={
   "Aluminum Coils":{color:"#1A3C5E",accent:"#2D6A9F",light:"#D6E8FA",emoji:"🪙",trackCoils:true},
@@ -1731,7 +1737,9 @@ function Dashboard({data,batches,orders,onSelect,onLogout,onExport,onImportFile,
         <button type="button" onClick={()=>onSection("reports")} style={{background:"#4A1A6E",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🧾 Reports
           <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>For the board</div></button>
         <button type="button" onClick={()=>onSection("finance")} style={{background:"#8B6914",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>💰 Finance
-          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Cost per batch</div></button></div>
+          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Cost per batch</div></button>
+        <button type="button" onClick={()=>onSection("labels")} style={{gridColumn:"1/-1",background:"#5A3E1B",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🏷️ Labels
+          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Batch, carton &amp; bag labels</div></button></div>
       <div onClick={()=>onSelect("Aluminum Caps")} style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:18,cursor:"pointer"}}>
         <div style={{fontSize:11,fontWeight:800,color:"#37474F",textTransform:"uppercase",marginBottom:8}}>🔘 Aluminum Availability</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:8}}>
@@ -1938,6 +1946,107 @@ function ReportsSection({data,batches,orders,onClose}){
           <button type="button" disabled={!pickOrderNo} onClick={()=>{const o=orders.filter(x=>x.orderNo===pickOrderNo)[0];if(o)setDoc({type:"order",report:buildOrderReport(o,batches)});}}
             style={{background:pickOrderNo?NAVY:"#E2E8F0",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,fontSize:13,cursor:pickOrderNo?"pointer":"default",whiteSpace:"nowrap"}}>Generate</button></div>
       </div>
+    </div></div>);
+}
+
+// ══ LABELS ════════════════════════════════════════════════════════════════
+function Barcode({value}){
+  const ref=useRef(null);
+  useEffect(()=>{
+    if(ref.current&&value){
+      try{JsBarcode(ref.current,value,{format:"CODE128",displayValue:true,fontSize:14,height:46,margin:0});}catch{/* invalid chars for CODE128 — skip rendering */}
+    }
+  },[value]);
+  return <svg ref={ref}/>;
+}
+const labelHdStyle={fontSize:10,color:"#666",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.03em"};
+const labelValStyle={fontSize:14,fontWeight:800,color:"#111",marginTop:2};
+function LabelCard({product,client,variantLabel,variantValue,unitLabel,unitText,netQtyText,mfgDate,expDate,serial}){
+  return(<div className="eps-label-card" style={{border:"1.5px dashed #999",borderRadius:10,padding:"18px 20px",width:"100%",maxWidth:640,background:"#fff",breakInside:"avoid",marginBottom:22}}>
+    <div style={{background:"#000",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 14px",marginBottom:14,gap:10}}>
+      <span style={{fontWeight:800,fontSize:14,letterSpacing:"0.02em"}}>{COMPANY_NAME}</span>
+      <span style={{fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{COMPANY_CERT}</span></div>
+    <div style={{fontSize:19,fontWeight:800,color:"#111",marginBottom:14}}>{product}</div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:12}}>
+      <div><div style={labelHdStyle}>{unitLabel}</div><div style={labelValStyle}>{unitText}</div></div>
+      <div><div style={labelHdStyle}>Client</div><div style={labelValStyle}>{client||"—"}</div></div>
+      <div><div style={labelHdStyle}>{variantLabel}</div><div style={labelValStyle}>{variantValue||"—"}</div></div>
+      <div><div style={labelHdStyle}>Serial No.</div><div style={{...labelValStyle,fontFamily:"monospace",fontSize:13}}>{serial}</div></div></div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:16}}>
+      <div><div style={labelHdStyle}>Net Qty</div><div style={labelValStyle}>{netQtyText}</div></div>
+      <div><div style={labelHdStyle}>Mfg. Date</div><div style={labelValStyle}>{mfgDate||"—"}</div></div>
+      <div><div style={labelHdStyle}>Exp. Date</div><div style={labelValStyle}>{expDate||"—"}</div></div></div>
+    <div style={{display:"flex",justifyContent:"center",marginBottom:12}}><Barcode value={serial}/></div>
+    <div style={{borderTop:"1px solid #ddd",paddingTop:8,fontSize:10,color:"#333",lineHeight:1.5}}>
+      <div>{COMPANY_PHONE}</div><div>{COMPANY_EMAIL}</div><div>{COMPANY_ADDRESS}</div></div>
+  </div>);
+}
+// Builds one label per unit for a batch — the whole batch, one per carton, or one per bag —
+// reusing the same real label template at every scale, just changing the counted unit.
+function buildLabels(batch,mode){
+  const meta=PRODUCT_META[batch.product]||{variantLabel:"Variant"};
+  const base={product:batch.product,client:batch.client,variantLabel:meta.variantLabel||"Variant",
+    variantValue:batch.color,mfgDate:batch.mfgDate,expDate:batch.expiryDate||""};
+  const bpc=Number(batch.bagsPerCarton)||0,ppb=Number(batch.pcsPerBag)||0;
+  const fullCartons=Number(batch.cartons)||0,partialBags=Number(batch.partialCartonBags)||0;
+  const totalCartons=fullCartons+(partialBags>0?1:0);
+  const out=[];
+  if(mode==="batch"){
+    out.push(Object.assign({},base,{unitLabel:"Batch No.",unitText:batch.batchNo,
+      netQtyText:fmtN(batch.totalPcs)+" pcs",serial:batch.batchNo}));
+  }else if(mode==="carton"){
+    for(let c=1;c<=totalCartons;c++){
+      const isPartial=c>fullCartons;
+      const bagsInCarton=isPartial?partialBags:bpc;
+      out.push(Object.assign({},base,{unitLabel:"Carton No.",unitText:"Carton "+pad(c,2)+" of "+pad(totalCartons,2),
+        netQtyText:fmtN(bagsInCarton*ppb)+" pcs",serial:batch.batchNo+"-C"+pad(c,2)}));
+    }
+  }else if(mode==="bag"){
+    for(let c=1;c<=totalCartons;c++){
+      const isPartial=c>fullCartons;
+      const bagsInCarton=isPartial?partialBags:bpc;
+      for(let bI=1;bI<=bagsInCarton;bI++){
+        out.push(Object.assign({},base,{unitLabel:"Bag No.",unitText:"Bag "+pad(bI,2)+" of "+pad(bagsInCarton,2)+" (Carton "+pad(c,2)+")",
+          netQtyText:fmtN(ppb)+" pcs",serial:batch.batchNo+"-C"+pad(c,2)+"-B"+pad(bI,2)}));
+      }
+    }
+  }
+  return out;
+}
+function LabelsSection({batches,onClose}){
+  const [pickBatchNo,setPickBatchNo]=useState(""),[mode,setMode]=useState("carton"),[labels,setLabels]=useState(null);
+  const mainBatches=batches.filter(b=>!b.isSubBatch).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
+  const batch=pickBatchNo?mainBatches.filter(b=>b.batchNo===pickBatchNo)[0]:null;
+  const MODES=[["batch","📦 Full Batch","One label for the whole batch"],["carton","🗃️ Per Carton","One label per carton"],["bag","🛍️ Per Bag","One label per bag inside each carton"]];
+  if(labels)return(<div style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
+    <div style={{maxWidth:680,margin:"0 auto"}}>
+      <ReportPrintBar onBack={()=>setLabels(null)} backLabel="Back to Labels"/>
+      <div className="eps-no-print" style={{fontSize:12,color:"#888",marginBottom:14}}>{labels.length} label{labels.length===1?"":"s"} — {batch.batchNo}</div>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
+        {labels.map((l,i)=><LabelCard key={i} {...l}/>)}
+      </div>
+    </div></div>);
+  return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
+    <div style={{background:"linear-gradient(135deg,#0D1F3C,"+NAVY+")",position:"sticky",top:0,zIndex:100}}>
+      <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13}}>← Back</button>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:17}}>🏷️ Labels</div>
+          <div style={{color:"rgba(255,255,255,0.5)",fontSize:11}}>Print carton/bag/batch labels for a batch</div></div></div></div>
+    <div style={{maxWidth:700,margin:"0 auto",padding:16,display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:16}}>
+        <div style={{fontWeight:800,fontSize:14,color:NAVY,marginBottom:2}}>Select Batch</div>
+        <select value={pickBatchNo} onChange={e=>setPickBatchNo(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff",marginTop:10}}>
+          <option value="">— select batch —</option>
+          {mainBatches.map(b=><option key={b.id} value={b.batchNo}>{b.batchNo} · {b.color}{b.client?" · "+b.client:""}</option>)}</select>
+      </div>
+      {batch&&<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:16}}>
+        <div style={{fontWeight:800,fontSize:14,color:NAVY,marginBottom:12}}>Label Type</div>
+        <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:16}}>
+          {MODES.map(m=>(<div key={m[0]} onClick={()=>setMode(m[0])} style={{padding:"12px 14px",borderRadius:9,border:"2px solid "+(mode===m[0]?NAVY:"#E2E8F0"),background:mode===m[0]?"#EBF1F8":"#fff",cursor:"pointer"}}>
+            <div style={{fontWeight:700,fontSize:13,color:mode===m[0]?NAVY:"#333"}}>{m[1]}</div>
+            <div style={{fontSize:11,color:"#888",marginTop:2}}>{m[2]}</div></div>))}</div>
+        <button type="button" onClick={()=>setLabels(buildLabels(batch,mode))} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>🏷️ Generate Labels</button>
+      </div>}
     </div></div>);
 }
 
@@ -2262,6 +2371,7 @@ export default function EpsInventoryApp(){
   if(section==="log")content=<ActivityLog data={data} batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="reports")content=<ReportsSection data={data} batches={batches} orders={orders} onClose={()=>setSection("inventory")}/>;
   else if(section==="finance")content=<FinanceSection data={data} batches={batches} laborRates={laborRates} onSaveLaborRates={setLaborRates} onClose={()=>setSection("inventory")}/>;
+  else if(section==="labels")content=<LabelsSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
     <ProductionSection data={data} batches={batches} orders={orders} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onDeleteSub={deleteSub} onSaveLeftover={lot=>addLot("WIP Inventory",lot)}/></div>;
   else if(section==="orders")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
@@ -2274,7 +2384,7 @@ export default function EpsInventoryApp(){
     onToggleBag={(lid,bid)=>toggleBag(activeMat,lid,bid)} onCreateAlBatch={createAlBatch}/>;
   else content=<Dashboard data={data} batches={batches} orders={orders} onSelect={setActiveMat} onLogout={logout} onExport={exportBackup} onImportFile={importBackup} lastSync={lastSync} onSection={s=>{setSection(s);setActiveMat(null);}}/>;
 
-  const showTabs=section!=="log"&&section!=="reports"&&section!=="finance"&&!activeMat;
+  const showTabs=section!=="log"&&section!=="reports"&&section!=="finance"&&section!=="labels"&&!activeMat;
   return(<div style={{fontFamily:"'Inter',sans-serif"}}>
     {showTabs&&<div style={{background:"#142540",position:"sticky",top:0,zIndex:200,borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
       <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>

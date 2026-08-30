@@ -23,4 +23,7 @@ body {
   body {
     background: #fff !important;
   }
+  .eps-label-card {
+    break-inside: avoid;
+  }
 }
