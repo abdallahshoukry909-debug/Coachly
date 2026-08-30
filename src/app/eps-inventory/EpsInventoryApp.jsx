@@ -2060,112 +2060,118 @@ function LabelsSection({batches,onClose}){
 // Fixed QC spec/test template for Flip-Off Caps — only the header block (batch, qty,
 // mfg date) and the issue date are per-generation; the test results are the company's
 // standard sign-off, not measured per batch, so they're not pulled from batch data.
+// Real letterhead logo from the company's original COA template (COAFO260008.docx),
+// embedded so the generated certificate matches it exactly instead of a plain text header.
+const COA_LOGO_DATA_URI="data:image/jpeg;base64,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dSa8ksNU8CJ/oEETlQbpb1xaiSYlTtsY9wO4gT9SoKzjVs1/X322K+tVno6d0/6/M/QW28a/spfBGC1ltNS8DeFYtYnktLRoZrKwF3JBKYpFG3ZuEcoKOeivwSDxXSn9o34Br8R/+FPt4x8N/wDCVi4+yHw7/aEP9oCcp5gj+z7vM3+WQ2MZxz0r81fCvwJ+M3wlGrTeI/hXpnxEPiPw9qmjW1tPf2wis5Ztf1e+W1uhcRsFs7uG+jlkljDMrBlKN8pGt8M/gH8cvB3xh8VTazoOp/2XrXiK9vbWzsJNJ/sE295p0NsoaV7Y6pHGsilSEmDLgFcKcUquCpOUr1b269/1CGKqJRSp28ux+nfgP4sfDL4pi+Pw28QaPrw02cWt+dJu4rr7PIckLJ5TNjdg7T0bBxnBx6MSB1r8tP2FPgv8ZPhf8Qb6TxV4fl0fw1B4NsdEtBrz2N5rFreWlzIy2FrqFlFFJd6ZFE5ZJLvdMZDnjLZ/UogNyc15uMoRp1HGEro7cNVlOCclYdRRRXMbhRRRQAUUUUAFFFFABRRRQAUUUUAf/9b+/iiiigAooooA/hP/AODhH9hG2/Z++Ptt+1F8PbMw+GPiLcy/20kK4gsvEKKGkPHCi8QGXHGZFkPUnP8AO7vX1H51/q+/F/4KfCr4/wDgmb4c/GbQNM8SaJPNFcSabq0C3EJkhbcj7XHDKehHrj1r5CH/AASb/wCCcOP+SOeB/wDwWxf4V/VnAf0iaOX5bSweY0JVJU1ZNNbLa9+qWh/PHFvgnPGY+picHVjCM9bO+/W1unU/zP8AevqK/qM/4N7P2z9G1G48Qf8ABOv45S2994Z8U2F7deFbTUSHhMs6kalpm1s5juomaVUJxlXwMvX9Go/4JMf8E4B/zR3wN/4LYv8ACup8B/8ABNT9g/4Z+MdN+IHgT4V+ENK1nSLpb3TNRtLCNJ7aePO2SNgMqwycEdKOO/HTJc7y2rgqmEmm9Yu8fdktnv8Af5XHwn4SZnlWOp4uniYtLdWeq6o/hV8a/wDBB/4mW/8AwWBh/YY0K2vo/h9q92/jK08TqjtHa+DBKXlQynIN1AcWQ3HLSMjkbScf6Lvw98BeEfhZ4G0j4c/D+wg0vRNDsINL0vT7ZdsdvbW6BI0UegUdepPJ5rqjbQ+eLkxoZAu0SbRv25zjPXHt0qwvQ5GK/njiHinE5lGlGvtBfe+r/r9T9pyXh+hgXUlSXxP8Ow+iiivmj3QooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooA/9f+/iiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigD/0P7+KKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKAP/Z";
+// Fixed QC spec/test template for Flip-Off Caps, reproduced from the company's real COA
+// (see COAFO260008.docx) — only the header block (batch, qty, mfg date) and the issue date
+// are per-generation; the test results are the standard sign-off, not measured per batch.
 const COA_PRODUCT_NAME="Flip-Off Aluminum–Plastic Vial Seal (20 mm)";
+// item indent level 1 = 0.25in (360 twips), level 2 = 0.5in (720 twips) — matches the
+// original document's sub-grouping of the dimension checks under section 1.
 const COA_SECTIONS=[
   {title:"1. Appearance & Identification",items:[
-    "Visual Appearance: Clean, uniform color; no burrs or cracks — Complies",
-    "Dimensions: 20 mm ± 0.05 mm — Complies",
-    "Total Height: 9.2 mm ± 0.1 mm — Complies",
-    "Aluminum Height: 7.6 mm ± 0.1 mm — Complies",
-    "Flip-Off External Diameter: 22.75 mm ± 0.1 mm — Complies",
-    "Aluminum Diameter: 20.3 mm ± 0.05 mm — Complies",
-    "Aluminum Alloy ID: Confirms 8011 alloy — Pass"]},
+    ["Visual Appearance: Clean, uniform color; no burrs or cracks — Complies",1],
+    ["Dimensions: 20 mm ± 0.05 mm — Complies",1],
+    ["Total Height: 9.2 mm ± 0.1 mm - Complies",2],
+    ["Aluminum Height: 7.6 mm ± 0.1 mm - Complies",2],
+    ["Flip-Off External Diameter: 22.75 mm ± 0.1 mm - Complies",2],
+    ["Aluminum Diameter: 20.3 mm ± 0.05 mm - Complies",2],
+    ["Aluminum Alloy ID: Confirms 8011 alloy — Pass",1]]},
   {title:"2. Functional Tests",items:[
-    "Flip-Off Force: 18–25 N — 22 N",
-    "Crimping Performance: Must seal properly — Pass",
-    "Tamper Evidence: Button detaches clearly — Pass"]},
+    ["Flip-Off Force: 18–25 N — 22 N",1],
+    ["Crimping Performance: Must seal properly — Pass",1],
+    ["Tamper Evidence: Button detaches clearly — Pass",1]]},
   {title:"3. Material Tests",items:[
-    "Aluminum Thickness: 0.23 mm ± 0.01 — 0.23 mm",
-    "Polypropylene Button: Virgin PP — Conforms",
-    "Color Masterbatch: Heavy metal–free — Conforms"]},
+    ["Aluminum Thickness: 0.23 mm ± 0.01 — 0.23 mm",1],
+    ["Polypropylene Button: Virgin PP — Conforms",1],
+    ["Color Masterbatch: Heavy metal–free — Conforms",1]]},
   {title:"4. Chemical & Safety Tests",items:[
-    "Heavy Metals: ≤ EU/USP limits — Pass",
-    "Extractables: Within USP <661.1> — Pass",
-    "TSE/BSE: Free from animal origin — Complies",
-    "ISO 10993: Non-cytotoxic — Pass"]},
+    ["Heavy Metals: ≤ EU/USP limits — Pass",1],
+    ["Extractables: Within USP <661.1> — Pass",1],
+    ["TSE/BSE: Free from animal origin — Complies",1],
+    ["ISO 10993: Non-cytotoxic — Pass",1]]},
   {title:"5. Microbiological Tests",items:[
-    "Bioburden: ≤100 CFU/pcs — <10 CFU",
-    "Yeast & Mold: ≤10 CFU — <1 CFU",
-    "Endotoxin: ≤0.25 EU/mL — Pass"]},
+    ["Bioburden: ≤100 CFU/pcs — <10 CFU",1],
+    ["Yeast & Mold: ≤10 CFU — <1 CFU",1],
+    ["Endotoxin: ≤0.25 EU/mL — Pass",1]]},
   {title:"6. Compliance Statements",items:[
-    "Manufactured under ISO 9001 & GMP"]}];
-// Builds the COA as a real PDF file (vector text, not a screenshot of the page) so it can be
-// downloaded and emailed directly, instead of going through the browser's print dialog.
+    ["Manufactured under ISO 9001 & GMP",1]]}];
+// Builds the COA as a real PDF file (vector text, not a screenshot), laid out to match the
+// original document's own margins, fonts, indents and divider color as closely as jsPDF allows.
 function generateCOAPdf(batch){
   const doc=new jsPDF({unit:"mm",format:"a4"});
-  const pageW=210,marginX=18,maxY=280;
-  let y=20;
-  const ensure=need=>{if(y+need>maxY){doc.addPage();y=20;}};
-  doc.setFont("helvetica","bold");doc.setFontSize(16);doc.setTextColor(26,60,94);
-  doc.text("Certificate of Analysis (COA)",marginX,y); y+=6;
-  doc.setFont("helvetica","normal");doc.setFontSize(9);doc.setTextColor(140,140,140);
-  doc.text("East Pharmaceutical Services · "+batch.batchNo+" · Generated "+today(),marginX,y); y+=4;
-  doc.setDrawColor(26,60,94);doc.setLineWidth(0.6);doc.line(marginX,y,pageW-marginX,y); y+=8;
+  const pageW=210,marginX=21.2,marginTop=12.4,maxY=284.6;
+  let y=marginTop;
+  const ensure=need=>{if(y+need>maxY){doc.addPage();doc.setFont("times","normal");y=marginTop;}};
+  doc.setFont("times","normal");
+  try{doc.addImage(COA_LOGO_DATA_URI,"JPEG",marginX-9,marginTop-6.8,40,17.5);}catch{/* image decode failed — continue without it */}
+  doc.setFontSize(13);
+  doc.text("CERTIFICATE OF ANALYSIS (COA)",pageW/2,y+4,{align:"center"});
+  y+=16;
   doc.setFontSize(11);
-  [["Product:",COA_PRODUCT_NAME],["Batch/Lot Number:",batch.batchNo],
-    ["Quantity:",fmtN(batch.totalPcs)+" pcs"],["Manufacturing Date:",batch.mfgDate||"—"]].forEach(([label,val])=>{
-    ensure(6);
-    doc.setFont("helvetica","bold");doc.setTextColor(30,30,30);doc.text(label,marginX,y);
+  [["Product: ",COA_PRODUCT_NAME],["Batch/Lot Number: ",batch.batchNo],
+    ["Quantity: ",fmtN(batch.totalPcs)+" pcs"],["Manufacturing Date: ",batch.mfgDate||"—"]].forEach(([label,val])=>{
+    ensure(5);
+    doc.setFont("times","bold");doc.text(label,marginX,y);
     const lw=doc.getTextWidth(label);
-    doc.setFont("helvetica","normal");doc.text(val,marginX+lw+1.5,y);
-    y+=6;
+    doc.setFont("times","normal");doc.text(val,marginX+lw,y);
+    y+=5;
   });
-  y+=4;
-  // "≤" isn't in the base14 WinAnsi font jsPDF draws with — it renders as a garbled glyph and
-  // throws off that line's spacing, so swap it for plain ASCII in the PDF only (the on-screen
-  // version keeps the real symbol since browsers render it fine).
+  y+=3;
+  // "≤" isn't in the base14 WinAnsi font jsPDF draws with — swap it for plain ASCII in the
+  // PDF only (the on-screen version keeps the real symbol since browsers render it fine).
   const pdfSafe=s=>s.replace(/≤/g,"<=");
   COA_SECTIONS.forEach(sec=>{
-    ensure(8);
-    doc.setFont("helvetica","bold");doc.setFontSize(11);doc.setTextColor(26,60,94);
-    doc.text(sec.title,marginX,y); y+=6;
-    doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(40,40,40);
-    sec.items.forEach(it=>{
-      doc.splitTextToSize("- "+pdfSafe(it),pageW-marginX*2-4).forEach(ln=>{ensure(5);doc.text(ln,marginX+2,y);y+=5;});
+    ensure(9);
+    y+=2;
+    doc.setFont("times","bold");doc.text(sec.title,marginX,y); y+=5;
+    doc.setFont("times","normal");
+    sec.items.forEach(([text,level])=>{
+      const ind=marginX+(level===2?12.7:6.35);
+      doc.splitTextToSize("-  "+pdfSafe(text),pageW-ind-marginX).forEach(ln=>{ensure(5);doc.text(ln,ind,y);y+=5;});
     });
-    y+=3;
   });
-  ensure(8);
-  doc.setFont("helvetica","bold");doc.setFontSize(11);doc.setTextColor(26,60,94);
-  doc.text("Authorization",marginX,y); y+=6;
-  doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(40,40,40);
-  [["QC Analyst:","Abdallah Shoukry"],["QA Reviewer:","Roger Gendy"],["Date of Issue:",today()]].forEach(([label,val])=>{
-    ensure(5);doc.text(label+" "+val,marginX,y);y+=5;
-  });
-  y+=6;ensure(10);
-  doc.setDrawColor(220,220,220);doc.setLineWidth(0.3);doc.line(marginX,y,pageW-marginX,y); y+=5;
-  doc.setFontSize(8.5);doc.setTextColor(100,100,100);
-  doc.text("Plot number 602 industrial zone 6th October, Giza government",marginX,y); y+=4;
+  y+=4;
+  const authX=marginX+79.4;
+  ensure(24);
+  doc.text("Authorization:",authX,y); y+=5;
+  doc.text("QC Analyst: Abdallah Shoukry",authX,y); y+=5;
+  doc.text("QA Reviewer: Roger Gendy",authX,y); y+=5;
+  doc.text("Date of Issue: "+today(),authX,y); y+=8;
+  ensure(10);
+  doc.setDrawColor(31,56,100);doc.setLineWidth(0.4);doc.line(marginX,y,pageW-marginX,y); y+=6;
+  doc.setFontSize(10);
+  doc.text("Plot number 602 industrial zone 6th October , Giza government",marginX,y); y+=4.5;
   doc.text("neweastpharma@gmail.com   01222442004 - 01110055538",marginX,y);
   doc.save("COA-"+batch.batchNo+".pdf");
 }
 function COADoc({batch,onBack}){
-  return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"'Inter',sans-serif"}}>
-    <div className="eps-no-print" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+  return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"'Times New Roman',Times,serif",color:"#000"}}>
+    <div className="eps-no-print" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,fontFamily:"'Inter',sans-serif"}}>
       <button type="button" onClick={onBack} style={{background:"#F5F7FA",border:"none",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontWeight:700,fontSize:13,color:"#444"}}>← Back to Certificates</button>
       <button type="button" onClick={()=>generateCOAPdf(batch)} style={{background:NAVY,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>📄 Download PDF</button></div>
-    <ReportTitle title="Certificate of Analysis (COA)" subtitle={batch.batchNo}/>
-    <div style={{display:"flex",flexDirection:"column",gap:5,fontSize:13,color:"#222",marginBottom:22}}>
-      <div><strong>Product:</strong> {COA_PRODUCT_NAME}</div>
-      <div><strong>Batch/Lot Number:</strong> {batch.batchNo}</div>
-      <div><strong>Quantity:</strong> {fmtN(batch.totalPcs)} pcs</div>
-      <div><strong>Manufacturing Date:</strong> {batch.mfgDate||"—"}</div>
+    <div style={{position:"relative",marginBottom:20}}>
+      <img src={COA_LOGO_DATA_URI} alt="" style={{position:"absolute",left:-14,top:-22,width:151,height:66}}/>
+      <div style={{textAlign:"center",fontSize:17,paddingTop:6}}>CERTIFICATE OF ANALYSIS (COA)</div>
     </div>
-    {COA_SECTIONS.map(sec=>(<ReportSection key={sec.title} title={sec.title}>
-      <div style={{display:"flex",flexDirection:"column",gap:5,fontSize:13,color:"#333"}}>
-        {sec.items.map((it,i)=><div key={i}>- {it}</div>)}
-      </div></ReportSection>))}
-    <ReportSection title="Authorization">
-      <div style={{display:"flex",flexDirection:"column",gap:5,fontSize:13,color:"#333"}}>
-        <div>QC Analyst: Abdallah Shoukry</div>
-        <div>QA Reviewer: Roger Gendy</div>
-        <div>Date of Issue: {today()}</div>
-      </div>
-    </ReportSection>
-    <div style={{borderTop:"1px solid #eee",paddingTop:10,marginTop:6,fontSize:11,color:"#666"}}>
-      <div>Plot number 602 industrial zone 6th October, Giza government</div>
-      <div>neweastpharma@gmail.com &nbsp; 01222442004 - 01110055538</div>
+    <div style={{fontSize:15,marginBottom:3}}><strong>Product: </strong>{COA_PRODUCT_NAME}</div>
+    <div style={{fontSize:15,marginBottom:3}}><strong>Batch/Lot Number: </strong>{batch.batchNo}</div>
+    <div style={{fontSize:15,marginBottom:3}}><strong>Quantity: </strong>{fmtN(batch.totalPcs)} pcs</div>
+    <div style={{fontSize:15,marginBottom:3}}><strong>Manufacturing Date: </strong>{batch.mfgDate||"—"}</div>
+    {COA_SECTIONS.map(sec=>(<div key={sec.title}>
+      <div style={{fontSize:15,fontWeight:700,marginTop:14,marginBottom:5}}>{sec.title}</div>
+      {sec.items.map((it,i)=><div key={i} style={{fontSize:15,marginLeft:it[1]===2?48:24,marginBottom:3}}>-  {it[0]}</div>)}
+    </div>))}
+    <div style={{marginLeft:300,marginTop:18}}>
+      <div style={{fontSize:15,marginBottom:3}}>Authorization:</div>
+      <div style={{fontSize:15,marginBottom:3}}>QC Analyst: Abdallah Shoukry</div>
+      <div style={{fontSize:15,marginBottom:3}}>QA Reviewer: Roger Gendy</div>
+      <div style={{fontSize:15,marginBottom:3}}>Date of Issue: {today()}</div>
     </div>
+    <div style={{borderBottom:"1.5px solid #1F3864",marginTop:20,marginBottom:12}}/>
+    <div style={{fontSize:13,marginBottom:4}}>Plot number 602 industrial zone 6th October , Giza government</div>
+    <div style={{fontSize:13}}>neweastpharma@gmail.com &nbsp;&nbsp; 01222442004 - 01110055538</div>
   </div>);
 }
 function CertificatesSection({batches,onClose}){
