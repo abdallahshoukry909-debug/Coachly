@@ -307,9 +307,12 @@ function buildBatchCost(batch,batches,data,laborRates){
   // Labor — Injection by how many shifts this batch ran; Plastic Sorting and Press (Assembly)
   // by how many pcs actually went through that stage (sorting handles both accepted and
   // rejected pcs), at the rates set in Finance. All EGP, so these sum with plastic + scrap.
+  // Carryovers (from another batch, or from WIP Inventory stock) are excluded — that material
+  // already had its own sorting/press labor counted wherever it was actually produced, so
+  // counting it again here would double-charge the same labor across two batches.
   const injectionShifts=shifts.filter(s=>s.injections).length;
-  const sortingPcs=shifts.reduce((s,x)=>s+(x.acceptedPcs!=null?(x.acceptedPcs||0)+(x.rejectedPcs||0):0),0);
-  const pressPcs=shifts.reduce((s,x)=>s+(x.assembledPcs||0),0);
+  const sortingPcs=shifts.reduce((s,x)=>x.isCarryover?s:s+(x.acceptedPcs!=null?(x.acceptedPcs||0)+(x.rejectedPcs||0):0),0);
+  const pressPcs=shifts.reduce((s,x)=>x.isCarryover?s:s+(x.assembledPcs||0),0);
   const laborInjectionEGP=injectionShifts*(Number(rates.injectionCostPerShift)||0);
   const laborSortingEGP=sortingPcs*(Number(rates.sortingCostPerPc)||0);
   const laborPressEGP=pressPcs*(Number(rates.pressCostPerPc)||0);
