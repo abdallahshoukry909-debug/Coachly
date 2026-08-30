@@ -23,7 +23,12 @@ body {
   body {
     background: #fff !important;
   }
+  .eps-print-page {
+    background: #fff !important;
+    min-height: 0 !important;
+  }
   .eps-label-card {
     break-inside: avoid;
+    page-break-inside: avoid;
   }
 }

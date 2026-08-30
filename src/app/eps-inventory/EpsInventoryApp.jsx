@@ -1911,7 +1911,7 @@ function ReportsSection({data,batches,orders,onClose}){
   const [monthKey,setMonthKey]=useState(()=>{const d=new Date();return d.getFullYear()+"-"+pad(d.getMonth()+1,2);});
   const [pickBatchNo,setPickBatchNo]=useState(""),[pickOrderNo,setPickOrderNo]=useState("");
   const mainBatches=batches.filter(b=>!b.isSubBatch).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
-  if(doc)return(<div style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
+  if(doc)return(<div className="eps-print-page" style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
     {doc.type==="monthly"&&<MonthlyReportDoc report={doc.report} onBack={()=>setDoc(null)}/>}
     {(doc.type==="batch"||doc.type==="order")&&<BatchOrderReportDoc type={doc.type} report={doc.report} onBack={()=>setDoc(null)}/>}
   </div>);
@@ -1966,7 +1966,7 @@ const labelHdStyle={fontSize:10,color:"#666",fontWeight:700,textTransform:"upper
 const labelValStyle={fontSize:14,fontWeight:800,color:"#111",marginTop:2};
 function LabelCard({product,client,variantLabel,variantValue,unitLabel,unitText,netQtyText,mfgDate,expDate,serial}){
   const showExp=expDate!=null;
-  return(<div className="eps-label-card" style={{border:"1.5px dashed #999",borderRadius:10,padding:"18px 20px",width:"100%",maxWidth:640,background:"#fff",breakInside:"avoid",marginBottom:22}}>
+  return(<div className="eps-label-card" style={{border:"1.5px dashed #999",borderRadius:10,padding:"18px 20px",width:"100%",maxWidth:640,background:"#fff",breakInside:"avoid",pageBreakInside:"avoid",margin:"0 auto 22px"}}>
     <div style={{background:"#000",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 14px",marginBottom:14,gap:10}}>
       <span style={{fontWeight:800,fontSize:14,letterSpacing:"0.02em"}}>{COMPANY_NAME}</span>
       <span style={{fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{COMPANY_CERT}</span></div>
@@ -2024,11 +2024,11 @@ function LabelsSection({batches,onClose}){
   const mainBatches=batches.filter(b=>!b.isSubBatch).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
   const batch=pickBatchNo?mainBatches.filter(b=>b.batchNo===pickBatchNo)[0]:null;
   const MODES=[["batch","📦 Full Batch","One label for the whole batch"],["carton","🗃️ Per Carton","One label per carton"],["bag","🛍️ Per Bag","One label per bag inside each carton"]];
-  if(labels)return(<div style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
+  if(labels)return(<div className="eps-print-page" style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
     <div style={{maxWidth:680,margin:"0 auto"}}>
       <ReportPrintBar onBack={()=>setLabels(null)} backLabel="Back to Labels"/>
       <div className="eps-no-print" style={{fontSize:12,color:"#888",marginBottom:14}}>{labels.length} label{labels.length===1?"":"s"} — {batch.batchNo}</div>
-      <div style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
+      <div>
         {labels.map((l,i)=><LabelCard key={i} {...l}/>)}
       </div>
     </div></div>);
@@ -2172,7 +2172,7 @@ function CertificatesSection({batches,onClose}){
   const [pickBatchNo,setPickBatchNo]=useState(""),[doc,setDoc]=useState(null);
   const mainBatches=batches.filter(b=>!b.isSubBatch&&b.batchNo.indexOf("EPS-FO-")===0).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
   const batch=pickBatchNo?mainBatches.filter(b=>b.batchNo===pickBatchNo)[0]:null;
-  if(doc)return(<div style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}><COADoc batch={doc} onBack={()=>setDoc(null)}/></div>);
+  if(doc)return(<div className="eps-print-page" style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}><COADoc batch={doc} onBack={()=>setDoc(null)}/></div>);
   return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"linear-gradient(135deg,#0D1F3C,"+NAVY+")",position:"sticky",top:0,zIndex:100}}>
       <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
@@ -2271,7 +2271,7 @@ function FinanceSection({data,batches,laborRates,onSaveLaborRates,onClose}){
   const [pickBatchNo,setPickBatchNo]=useState("");
   const [showRates,setShowRates]=useState(false);
   const mainBatches=batches.filter(b=>!b.isSubBatch).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
-  if(doc)return(<div style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
+  if(doc)return(<div className="eps-print-page" style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
     <BatchCostDoc cost={doc} onBack={()=>setDoc(null)}/></div>);
   return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"linear-gradient(135deg,#0D1F3C,"+NAVY+")",position:"sticky",top:0,zIndex:100}}>
