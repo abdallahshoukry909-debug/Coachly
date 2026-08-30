@@ -3,6 +3,7 @@ import {useState,useEffect,useRef} from "react";
 import {useRouter} from "next/navigation";
 import {createClient} from "@/lib/supabase/client";
 import JsBarcode from "jsbarcode";
+import {jsPDF} from "jspdf";
 
 const SHARED_KEY="eps-inventory-data-v1";
 const NAVY="#1A3C5E",ACCENT="#2D6A9F";
@@ -2088,9 +2089,61 @@ const COA_SECTIONS=[
     "Endotoxin: ≤0.25 EU/mL — Pass"]},
   {title:"6. Compliance Statements",items:[
     "Manufactured under ISO 9001 & GMP"]}];
+// Builds the COA as a real PDF file (vector text, not a screenshot of the page) so it can be
+// downloaded and emailed directly, instead of going through the browser's print dialog.
+function generateCOAPdf(batch){
+  const doc=new jsPDF({unit:"mm",format:"a4"});
+  const pageW=210,marginX=18,maxY=280;
+  let y=20;
+  const ensure=need=>{if(y+need>maxY){doc.addPage();y=20;}};
+  doc.setFont("helvetica","bold");doc.setFontSize(16);doc.setTextColor(26,60,94);
+  doc.text("Certificate of Analysis (COA)",marginX,y); y+=6;
+  doc.setFont("helvetica","normal");doc.setFontSize(9);doc.setTextColor(140,140,140);
+  doc.text("East Pharmaceutical Services · "+batch.batchNo+" · Generated "+today(),marginX,y); y+=4;
+  doc.setDrawColor(26,60,94);doc.setLineWidth(0.6);doc.line(marginX,y,pageW-marginX,y); y+=8;
+  doc.setFontSize(11);
+  [["Product:",COA_PRODUCT_NAME],["Batch/Lot Number:",batch.batchNo],
+    ["Quantity:",fmtN(batch.totalPcs)+" pcs"],["Manufacturing Date:",batch.mfgDate||"—"]].forEach(([label,val])=>{
+    ensure(6);
+    doc.setFont("helvetica","bold");doc.setTextColor(30,30,30);doc.text(label,marginX,y);
+    const lw=doc.getTextWidth(label);
+    doc.setFont("helvetica","normal");doc.text(val,marginX+lw+1.5,y);
+    y+=6;
+  });
+  y+=4;
+  // "≤" isn't in the base14 WinAnsi font jsPDF draws with — it renders as a garbled glyph and
+  // throws off that line's spacing, so swap it for plain ASCII in the PDF only (the on-screen
+  // version keeps the real symbol since browsers render it fine).
+  const pdfSafe=s=>s.replace(/≤/g,"<=");
+  COA_SECTIONS.forEach(sec=>{
+    ensure(8);
+    doc.setFont("helvetica","bold");doc.setFontSize(11);doc.setTextColor(26,60,94);
+    doc.text(sec.title,marginX,y); y+=6;
+    doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(40,40,40);
+    sec.items.forEach(it=>{
+      doc.splitTextToSize("- "+pdfSafe(it),pageW-marginX*2-4).forEach(ln=>{ensure(5);doc.text(ln,marginX+2,y);y+=5;});
+    });
+    y+=3;
+  });
+  ensure(8);
+  doc.setFont("helvetica","bold");doc.setFontSize(11);doc.setTextColor(26,60,94);
+  doc.text("Authorization",marginX,y); y+=6;
+  doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(40,40,40);
+  [["QC Analyst:","Abdallah Shoukry"],["QA Reviewer:","Roger Gendy"],["Date of Issue:",today()]].forEach(([label,val])=>{
+    ensure(5);doc.text(label+" "+val,marginX,y);y+=5;
+  });
+  y+=6;ensure(10);
+  doc.setDrawColor(220,220,220);doc.setLineWidth(0.3);doc.line(marginX,y,pageW-marginX,y); y+=5;
+  doc.setFontSize(8.5);doc.setTextColor(100,100,100);
+  doc.text("Plot number 602 industrial zone 6th October, Giza government",marginX,y); y+=4;
+  doc.text("neweastpharma@gmail.com   01222442004 - 01110055538",marginX,y);
+  doc.save("COA-"+batch.batchNo+".pdf");
+}
 function COADoc({batch,onBack}){
   return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"'Inter',sans-serif"}}>
-    <ReportPrintBar onBack={onBack} backLabel="Back to Certificates"/>
+    <div className="eps-no-print" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+      <button type="button" onClick={onBack} style={{background:"#F5F7FA",border:"none",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontWeight:700,fontSize:13,color:"#444"}}>← Back to Certificates</button>
+      <button type="button" onClick={()=>generateCOAPdf(batch)} style={{background:NAVY,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>📄 Download PDF</button></div>
     <ReportTitle title="Certificate of Analysis (COA)" subtitle={batch.batchNo}/>
     <div style={{display:"flex",flexDirection:"column",gap:5,fontSize:13,color:"#222",marginBottom:22}}>
       <div><strong>Product:</strong> {COA_PRODUCT_NAME}</div>
