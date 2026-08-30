@@ -1623,6 +1623,7 @@ function BatchForm({batches,orders,onSave,onCancel}){
   const [variant,setVariant]=useState(""),[line,setLine]=useState(meta.lines?meta.lines[0]:"");
   const [client,setClient]=useState(""),[cartons,setCartons]=useState("4");
   const [bpc,setBpc]=useState("2"),[ppb,setPpb]=useState("5000"),[partial,setPartial]=useState("0");
+  const [partialBagPcs,setPartialBagPcs]=useState("0");
   const [mfgDate,setMfgDate]=useState(new Date().toISOString().split("T")[0]);
   const [expDate,setExpDate]=useState("");
   const [status,setStatus]=useState("Production"),[orderNo,setOrderNo]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
@@ -1631,11 +1632,16 @@ function BatchForm({batches,orders,onSave,onCancel}){
   const isFO=product==="Flip-Off Caps 20mm";
   const preview=nextBatchNo(batches,meta.code);
   const c=Number(cartons)||0,b=Number(bpc)||0,p=Number(ppb)||0,pt=Number(partial)||0;
-  const totalPcs=c*b*p+pt*p;
+  // partialBagPcs overrides the pcs count of just the very last bag (still one physical bag,
+  // counted in cartons/bagsPerCarton same as any other) — for when the last bag of a run
+  // doesn't get filled to a full bag's worth. 0 means "normal", every bag is a full ppb.
+  const pbp=Number(partialBagPcs)||0;
+  const totalBags=c*b+pt;
+  const totalPcs=pbp>0&&totalBags>0?(totalBags-1)*p+pbp:totalBags*p;
   const changeProduct=v=>{const m=PRODUCT_META[v];setProduct(v);setVariant("");setLine(m.lines?m.lines[0]:"");setErr("");};
   const save=()=>{if(!variant.trim()){setErr(meta.variantLabel+" is required.");return;}if(c<1){setErr("At least 1 carton.");return;}
     onSave({id:genId(),batchNo:preview,isSubBatch:false,parentBatchNo:null,product:product,status:status,
-      color:variant.trim(),line:meta.lines?line:"",cartons:c,bagsPerCarton:b,pcsPerBag:p,partialCartonBags:pt,totalPcs:totalPcs,
+      color:variant.trim(),line:meta.lines?line:"",cartons:c,bagsPerCarton:b,pcsPerBag:p,partialCartonBags:pt,partialBagPcs:pbp,totalPcs:totalPcs,
       mfgDate:mfgDate,expiryDate:expDate,client:client.trim(),orderNo:orderNo||null,notes:notes.trim(),createdAt:today(),
       capWt:isFO?(Number(capWt)||CAP_WT):null,asmWt:isFO?(Number(asmWt)||ASM_WT):null,
       wastePerInj:isFO?(Number(wastePerInj)||WASTE_PER_INJ):null});};
@@ -1663,6 +1669,7 @@ function BatchForm({batches,orders,onSave,onCancel}){
         <Field label="Bags per Carton" value={bpc} onChange={setBpc} type="number"/>
         <Field label="Pcs per Bag" value={ppb} onChange={setPpb} type="number"/>
         <Field label="Partial Final Carton (bags)" value={partial} onChange={setPartial} type="number"/>
+        <Field label="Partial Last Bag (pcs, optional)" value={partialBagPcs} onChange={setPartialBagPcs} type="number" ph="0 = normal full bag"/>
         <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Mfg. Date</label>
           <input type="date" value={mfgDate} onChange={e=>setMfgDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
         <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{product==="Flip-Off Caps 20mm"?"Retest Date (optional)":"Expiry Date"}</label>
@@ -1676,7 +1683,7 @@ function BatchForm({batches,orders,onSave,onCancel}){
       <div style={{background:"#EBF1F8",borderRadius:10,padding:"12px 14px",marginBottom:12}}>
         <div style={{fontSize:11,fontWeight:700,color:NAVY,textTransform:"uppercase"}}>Preview</div>
         <div style={{fontFamily:"monospace",fontSize:15,fontWeight:700,color:NAVY}}>{preview}</div>
-        <div style={{fontSize:12,color:"#555",marginTop:3}}>{c} cartons · {b} bags/carton · <strong>{fmtN(totalPcs)} pcs total</strong></div></div>
+        <div style={{fontSize:12,color:"#555",marginTop:3}}>{c} cartons · {b} bags/carton{pt>0?" + "+pt+" bag"+(pt===1?"":"s")+" partial carton":""} · <strong>{fmtN(totalPcs)} pcs total</strong>{pbp>0&&totalBags>0?" (last bag is "+fmtN(pbp)+" pcs, not "+fmtN(p)+")":""}</div></div>
       {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"linear-gradient(135deg,"+NAVY+","+ACCENT+")",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Batch</button>
     </div></div>);
@@ -2208,25 +2215,35 @@ function buildLabels(batch,mode){
   if(!isFO)base.expDate=batch.expiryDate||"";
   const bpc=Number(batch.bagsPerCarton)||0,ppb=Number(batch.pcsPerBag)||0;
   const fullCartons=Number(batch.cartons)||0,partialBags=Number(batch.partialCartonBags)||0;
+  const partialBagPcs=Number(batch.partialBagPcs)||0;
   const totalCartons=fullCartons+(partialBags>0?1:0);
+  const totalBagsOverall=fullCartons*bpc+partialBags;
+  // The very last bag overall may hold fewer pcs than a normal full bag (partialBagPcs), so
+  // labels for that specific bag/carton need to reflect the real count, not just bagCount×ppb.
+  const bagPcsAt=bagNo=>bagNo===totalBagsOverall&&partialBagPcs>0?partialBagPcs:ppb;
   const out=[];
   if(mode==="batch"){
     out.push(Object.assign({},base,{unitLabel:"Batch No.",unitText:batch.batchNo,
       netQtyText:fmtN(batch.totalPcs)+" pcs",serial:batch.batchNo}));
   }else if(mode==="carton"){
+    let bagCounter=0;
     for(let c=1;c<=totalCartons;c++){
       const isPartial=c>fullCartons;
       const bagsInCarton=isPartial?partialBags:bpc;
+      let cartonPcs=0;
+      for(let i=0;i<bagsInCarton;i++){bagCounter++;cartonPcs+=bagPcsAt(bagCounter);}
       out.push(Object.assign({},base,{unitLabel:"Carton No.",unitText:"Carton "+pad(c,2)+" of "+pad(totalCartons,2),
-        netQtyText:fmtN(bagsInCarton*ppb)+" pcs",serial:batch.batchNo+"-C"+pad(c,2)}));
+        netQtyText:fmtN(cartonPcs)+" pcs",serial:batch.batchNo+"-C"+pad(c,2)}));
     }
   }else if(mode==="bag"){
+    let bagCounter=0;
     for(let c=1;c<=totalCartons;c++){
       const isPartial=c>fullCartons;
       const bagsInCarton=isPartial?partialBags:bpc;
       for(let bI=1;bI<=bagsInCarton;bI++){
+        bagCounter++;
         out.push(Object.assign({},base,{unitLabel:"Bag No.",unitText:"Bag "+pad(bI,2)+" of "+pad(bagsInCarton,2)+" (Carton "+pad(c,2)+")",
-          netQtyText:fmtN(ppb)+" pcs",serial:batch.batchNo+"-C"+pad(c,2)+"-B"+pad(bI,2)}));
+          netQtyText:fmtN(bagPcsAt(bagCounter))+" pcs",serial:batch.batchNo+"-C"+pad(c,2)+"-B"+pad(bI,2)}));
       }
     }
   }
