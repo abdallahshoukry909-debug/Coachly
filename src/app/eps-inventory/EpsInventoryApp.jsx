@@ -1369,8 +1369,15 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
   const wFinal=mySubs.reduce((s,b)=>s+(b.finalRejectedKg||0),0);
   // Plastic made so far, independent of assembly/packing — sorted (accepted, ready for
   // Assembly) vs unsorted (injected but not yet through Plastic Sorting) — so it's clear
-  // when enough plastic has been made for the batch and Injection can stop.
-  const sortedPlasticPcs=mySubs.reduce((s,b)=>s+(b.acceptedPcs!=null?b.acceptedPcs:0),0);
+  // when enough plastic has been made for the batch and Injection can stop. A carryover
+  // logged as already-assembled or fully-packed never goes through this batch's Plastic
+  // Sorting at all, but it still counts as sorted plastic here — that pcs count is plastic
+  // that doesn't need a fresh Injection run, so it should reduce how much more is needed.
+  const sortedPlasticPcs=mySubs.reduce((s,b)=>{
+    if(b.acceptedPcs!=null)return s+b.acceptedPcs;
+    if(b.assembledPcs!=null)return s+b.assembledPcs;
+    return s;
+  },0);
   const unsortedPlasticPcs=mySubs.reduce((s,b)=>{
     if(b.acceptedPcs!=null||!b.weightBeforeSorting)return s;
     return s+kgToPcs(b.weightBeforeSorting,b.capWt||CAP_WT);
