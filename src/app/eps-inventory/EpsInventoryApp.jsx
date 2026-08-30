@@ -287,6 +287,12 @@ function buildBatchCost(batch,batches,data,laborRates){
       }else alPcsUncosted+=pcs;
     });
   });
+  // Pcs with no traceable cost (e.g. caps made before costing was tracked) get priced at this
+  // batch's own average rate for the pcs that WERE costed, instead of silently contributing
+  // nothing to the total — closer to the real cost than treating them as free.
+  const avgAlRateEGP=alPcsCosted>0?alCostEGP/alPcsCosted:0;
+  const alPcsAssumed=alPcsUncosted>0&&avgAlRateEGP>0?alPcsUncosted:0;
+  if(alPcsAssumed>0)alCostEGP+=alPcsAssumed*avgAlRateEGP;
 
   let scrapQtySold=0,scrapRevenue=0;
   scrapLots.forEach(lot=>(lot.usageLog||[]).forEach(e=>{
@@ -314,6 +320,7 @@ function buildBatchCost(batch,batches,data,laborRates){
   return {batch:batch,plasticCost:plasticCost,plasticBagsCosted:plasticBagsCosted,plasticBagsUncosted:plasticBagsUncosted,
     regrindKgTotal:regrindKgTotal,alCost:alCost,alPcsCosted:alPcsCosted,alPcsUncosted:alPcsUncosted,
     alCostEGP:alCostEGP,alPcsRealRate:alPcsRealRate,alPcsFallbackRate:alPcsFallbackRate,alPcsNoRate:alPcsNoRate,
+    alPcsAssumed:alPcsAssumed,avgAlRateEGP:avgAlRateEGP,
     scrapKgForBatch:scrapKgForBatch,avgScrapRateEGP:avgScrapRateEGP,scrapRateIsAssumed:scrapRateIsAssumed,estScrapCreditEGP:estScrapCreditEGP,
     injectionShifts:injectionShifts,sortingPcs:sortingPcs,pressPcs:pressPcs,
     laborInjectionEGP:laborInjectionEGP,laborSortingEGP:laborSortingEGP,laborPressEGP:laborPressEGP,laborTotalEGP:laborTotalEGP,
@@ -2356,11 +2363,12 @@ function BatchCostDoc({cost,onBack}){
     </ReportSection>
     <ReportSection title="Aluminum Caps (priced from the coil they were stamped from)">
       <CurrencyLines byCurrency={cost.alCost}/>
-      <div style={{fontSize:12,color:"#666",marginTop:8}}>{fmtN(cost.alPcsCosted)} pcs costed{cost.alPcsUncosted>0?" · "+fmtN(cost.alPcsUncosted)+" pcs from lots with no cost on file (made before costing was tracked)":""}</div>
+      <div style={{fontSize:12,color:"#666",marginTop:8}}>{fmtN(cost.alPcsCosted)} pcs costed{cost.alPcsAssumed>0?" · "+fmtN(cost.alPcsAssumed)+" pcs with no cost on file, counted at this batch's average rate ("+fmt(cost.avgAlRateEGP)+" EGP/pc)":cost.alPcsUncosted>0?" · "+fmtN(cost.alPcsUncosted)+" pcs from lots with no cost on file and no rate to assume (nothing else in this batch was costed)":""}</div>
       {cost.alCostEGP>0&&<div style={{marginTop:10,background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}>
         <div style={{fontSize:16,fontWeight:900,color:NAVY}}>{fmt(cost.alCostEGP)} <span style={{fontSize:12,color:"#888",fontWeight:700}}>EGP (converted)</span></div>
         <div style={{fontSize:11,color:"#999",marginTop:3}}>{fmtN(cost.alPcsRealRate)} pcs at each coil&apos;s actual purchase-time rate
           {cost.alPcsFallbackRate>0?" · "+fmtN(cost.alPcsFallbackRate)+" pcs at Finance's fallback rate":""}
+          {cost.alPcsAssumed>0?" · "+fmtN(cost.alPcsAssumed)+" pcs at this batch's average rate":""}
           {cost.alPcsNoRate>0?" · "+fmtN(cost.alPcsNoRate)+" pcs with no rate available":""}</div></div>}
     </ReportSection>
     <ReportSection title="Aluminum Scrap Credit (estimate)">
