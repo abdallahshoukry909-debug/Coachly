@@ -1957,31 +1957,31 @@ function Barcode({value}){
   const ref=useRef(null);
   useEffect(()=>{
     if(ref.current&&value){
-      try{JsBarcode(ref.current,value,{format:"CODE128",displayValue:true,fontSize:14,height:46,margin:0});}catch{/* invalid chars for CODE128 — skip rendering */}
+      try{JsBarcode(ref.current,value,{format:"CODE128",displayValue:true,fontSize:10,height:28,margin:0});}catch{/* invalid chars for CODE128 — skip rendering */}
     }
   },[value]);
   return <svg ref={ref}/>;
 }
-const labelHdStyle={fontSize:10,color:"#666",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.03em"};
-const labelValStyle={fontSize:14,fontWeight:800,color:"#111",marginTop:2};
+const labelHdStyle={fontSize:8,color:"#666",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.03em"};
+const labelValStyle={fontSize:11,fontWeight:800,color:"#111",marginTop:1};
 function LabelCard({product,client,variantLabel,variantValue,unitLabel,unitText,netQtyText,mfgDate,expDate,serial}){
   const showExp=expDate!=null;
-  return(<div className="eps-label-card" style={{border:"1.5px dashed #999",borderRadius:10,padding:"18px 20px",width:"100%",maxWidth:640,background:"#fff",breakInside:"avoid",pageBreakInside:"avoid",margin:"0 auto 22px"}}>
-    <div style={{background:"#000",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 14px",marginBottom:14,gap:10}}>
-      <span style={{fontWeight:800,fontSize:14,letterSpacing:"0.02em"}}>{COMPANY_NAME}</span>
-      <span style={{fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{COMPANY_CERT}</span></div>
-    <div style={{fontSize:19,fontWeight:800,color:"#111",marginBottom:14}}>{product}</div>
-    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:12}}>
+  return(<div className="eps-label-card" style={{border:"1.5px dashed #999",borderRadius:8,padding:"11px 14px",width:"100%",maxWidth:640,background:"#fff",breakInside:"avoid",pageBreakInside:"avoid",margin:"0 auto 12px"}}>
+    <div style={{background:"#000",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 10px",marginBottom:8,gap:10}}>
+      <span style={{fontWeight:800,fontSize:11,letterSpacing:"0.02em"}}>{COMPANY_NAME}</span>
+      <span style={{fontSize:8,fontWeight:700,whiteSpace:"nowrap"}}>{COMPANY_CERT}</span></div>
+    <div style={{fontSize:14,fontWeight:800,color:"#111",marginBottom:8}}>{product}</div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:8}}>
       <div><div style={labelHdStyle}>{unitLabel}</div><div style={labelValStyle}>{unitText}</div></div>
       <div><div style={labelHdStyle}>Client</div><div style={labelValStyle}>{client||"—"}</div></div>
       <div><div style={labelHdStyle}>{variantLabel}</div><div style={labelValStyle}>{variantValue||"—"}</div></div>
-      <div><div style={labelHdStyle}>Serial No.</div><div style={{...labelValStyle,fontFamily:"monospace",fontSize:13}}>{serial}</div></div></div>
-    <div style={{display:"grid",gridTemplateColumns:"repeat("+(showExp?3:2)+",1fr)",gap:12,marginBottom:16}}>
+      <div><div style={labelHdStyle}>Serial No.</div><div style={{...labelValStyle,fontFamily:"monospace",fontSize:10}}>{serial}</div></div></div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat("+(showExp?3:2)+",1fr)",gap:8,marginBottom:8}}>
       <div><div style={labelHdStyle}>Net Qty</div><div style={labelValStyle}>{netQtyText}</div></div>
       <div><div style={labelHdStyle}>Mfg. Date</div><div style={labelValStyle}>{mfgDate||"—"}</div></div>
       {showExp&&<div><div style={labelHdStyle}>Exp. Date</div><div style={labelValStyle}>{expDate||"—"}</div></div>}</div>
-    <div style={{display:"flex",justifyContent:"center",marginBottom:12}}><Barcode value={serial}/></div>
-    <div style={{borderTop:"1px solid #ddd",paddingTop:8,fontSize:10,color:"#333",lineHeight:1.5}}>
+    <div style={{display:"flex",justifyContent:"center",marginBottom:6}}><Barcode value={serial}/></div>
+    <div style={{borderTop:"1px solid #ddd",paddingTop:5,fontSize:8,color:"#333",lineHeight:1.4}}>
       <div>{COMPANY_PHONE}</div><div>{COMPANY_EMAIL}</div><div>{COMPANY_ADDRESS}</div></div>
   </div>);
 }
