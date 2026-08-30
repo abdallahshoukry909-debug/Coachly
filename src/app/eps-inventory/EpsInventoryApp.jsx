@@ -1418,6 +1418,132 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
     </div>);
 }
 
+// ══ SILICA GEL SHIFTS ═════════════════════════════════════════════════════
+// Sachets/Capsules production doesn't go through Injection→Sorting→Assembly like Flip-Off
+// Caps — it's packed straight from silica gel beads and packaging film rolls in one pass, so
+// each shift just records who ran it, how much came out, and what it used.
+function SilicaShiftForm({parentBatch,batches,data,existing,onSave,onCancel}){
+  const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch);
+  const subNo=existing?existing.batchNo:parentBatch.batchNo+"-"+String.fromCharCode(65+mySubs.length);
+  const e=existing||{};
+  const [date,setDate]=useState(e.mfgDate||new Date().toISOString().split("T")[0]);
+  const [operator,setOperator]=useState(e.operator||"");
+  const [amount,setAmount]=useState(e.amountPcs!=null?String(e.amountPcs):"");
+  const [silicaLotId,setSilicaLotId]=useState(e.silicaLotId||"");
+  const [silicaKg,setSilicaKg]=useState(e.silicaKg!=null?String(e.silicaKg):"");
+  const [rollsLotId,setRollsLotId]=useState(e.rollsLotId||"");
+  const [rollsUsed,setRollsUsed]=useState(e.rollsUsed!=null?String(e.rollsUsed):"");
+  const [notes,setNotes]=useState(e.notes||""),[err,setErr]=useState("");
+  const silicaLots=((data&&data["Silica Gel"]&&data["Silica Gel"].lots)||[]).filter(l=>l.status!=="Out of Stock"||l.id===e.silicaLotId);
+  const rollsLots=((data&&data["Sachets Paper"]&&data["Sachets Paper"].lots)||[]).filter(l=>l.status!=="Out of Stock"||l.id===e.rollsLotId);
+  const selSilica=silicaLotId?silicaLots.filter(l=>l.id===silicaLotId)[0]:null;
+  const selRolls=rollsLotId?rollsLots.filter(l=>l.id===rollsLotId)[0]:null;
+  const amt=Number(amount)||0,sKg=Number(silicaKg)||0,rQty=Number(rollsUsed)||0;
+  const availSilica=selSilica?Number(selSilica.qtyRemaining):0;
+  const availRolls=selRolls?Number(selRolls.qtyRemaining):0;
+  const save=()=>{
+    if(amt<1){setErr("Enter the amount made.");return;}
+    if(!operator.trim()){setErr("Enter the operator's name.");return;}
+    if(sKg>0&&!silicaLotId){setErr("Select which Silica Gel lot was used.");return;}
+    if(selSilica&&!existing&&sKg>availSilica+0.01){setErr("Only "+fmt(availSilica)+" KG available in that lot.");return;}
+    if(rQty>0&&!rollsLotId){setErr("Select which Sachets Paper lot was used.");return;}
+    if(selRolls&&!existing&&rQty>availRolls+0.01){setErr("Only "+availRolls+" rolls available in that lot.");return;}
+    const payload={id:e.id||genId(),batchNo:subNo,isSubBatch:true,parentBatchNo:parentBatch.batchNo,
+      product:parentBatch.product,color:parentBatch.color,client:parentBatch.client,orderNo:parentBatch.orderNo,
+      stage:"Complete",status:"Complete",
+      cartons:0,bagsPerCarton:0,pcsPerBag:0,partialCartonBags:0,totalPcs:0,
+      mfgDate:date,operator:operator.trim(),amountPcs:amt,goodPcs:amt,
+      silicaLotId:silicaLotId||null,silicaLotNo:selSilica?selSilica.lotNumber:null,silicaKg:sKg,
+      rollsLotId:rollsLotId||null,rollsLotNo:selRolls?selRolls.lotNumber:null,rollsUsed:rQty,
+      notes:notes.trim(),createdAt:e.createdAt||today()};
+    onSave(payload,{silicaLotId:silicaLotId||null,silicaKg:sKg,rollsLotId:rollsLotId||null,rollsUsed:rQty});
+  };
+  return(<div style={{maxWidth:640,fontFamily:"'Inter',sans-serif"}}>
+    <div style={{background:"#0E4A2A",borderRadius:"12px 12px 0 0",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>🟡 Shift — {subNo}</div><div style={{color:"rgba(255,255,255,0.65)",fontSize:12}}>{existing?"Editing saved data":"Silica Gel Sachets production"}</div></div>
+      <button type="button" onClick={onCancel} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:13}}>Cancel</button></div>
+    <div style={{background:"#fff",borderRadius:"0 0 12px 12px",border:"1.5px solid #EEF2F7",borderTop:"none",padding:20}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+        <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date of Production</label>
+          <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+        <Field label="Operator" value={operator} onChange={setOperator} ph="Name" accent="#0E4A2A"/></div>
+      <div style={{marginBottom:14}}><Field label="Amount Made (pcs)" value={amount} onChange={v=>{setAmount(v);setErr("");}} type="number" ph="e.g. 25000" accent="#0E4A2A"/></div>
+      <div style={{background:"#D0F0E0",borderRadius:10,padding:14,marginBottom:14}}>
+        <div style={{fontWeight:700,fontSize:13,color:"#0E4A2A",marginBottom:10}}>🟡 Silica Gel Used</div>
+        <div style={{marginBottom:10}}>
+          <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Draw From Lot</label>
+          <select value={silicaLotId} onChange={ev=>{setSilicaLotId(ev.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid "+(silicaLots.length?"#E2E8F0":"#F1948A"),borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+            <option value="">— not specified —</option>
+            {silicaLots.map(l=><option key={l.id} value={l.id}>{l.lotNumber} · {fmtN(l.qtyRemaining)} KG available</option>)}</select>
+          {silicaLots.length===0&&<div style={{fontSize:11,color:"#DC3545",marginTop:5,fontWeight:600}}>⚠️ No Silica Gel lots in inventory — go to Inventory → Silica Gel first.</div>}</div>
+        <Field label="KG Used" value={silicaKg} onChange={v=>{setSilicaKg(v);setErr("");}} type="number" ph="0.00" accent="#1A7A45"/>
+        {selSilica&&<div style={{fontSize:11,color:"#1A7A45",marginTop:6}}>{fmtN(availSilica)} KG available</div>}</div>
+      <div style={{background:"#FEE8D0",borderRadius:10,padding:14,marginBottom:14}}>
+        <div style={{fontWeight:700,fontSize:13,color:"#6B3010",marginBottom:10}}>📄 Rolls Used</div>
+        <div style={{marginBottom:10}}>
+          <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Draw From Lot</label>
+          <select value={rollsLotId} onChange={ev=>{setRollsLotId(ev.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid "+(rollsLots.length?"#E2E8F0":"#F1948A"),borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+            <option value="">— not specified —</option>
+            {rollsLots.map(l=><option key={l.id} value={l.id}>{l.lotNumber} · {fmtN(l.qtyRemaining)} rolls available</option>)}</select>
+          {rollsLots.length===0&&<div style={{fontSize:11,color:"#DC3545",marginTop:5,fontWeight:600}}>⚠️ No Sachets Paper lots in inventory — go to Inventory → Sachets Paper first.</div>}</div>
+        <Field label="Rolls Used" value={rollsUsed} onChange={v=>{setRollsUsed(v);setErr("");}} type="number" ph="e.g. 2" accent="#B85C1A"/>
+        {selRolls&&<div style={{fontSize:11,color:"#B85C1A",marginTop:6}}>{fmtN(availRolls)} rolls available</div>}</div>
+      <div style={{marginBottom:18}}><Field label="Notes (optional)" value={notes} onChange={setNotes} accent="#0E4A2A"/></div>
+      {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
+      <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#0E4A2A",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Shift</button>
+    </div></div>);
+}
+function SilicaShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,onDeleteSub}){
+  const [form,setForm]=useState(null);      // {mode:"new"} | {subId, editing:true}
+  const [confDel,setConfDel]=useState(null);
+  const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch).sort((a,b)=>a.batchNo.localeCompare(b.batchNo));
+  const totalGood=mySubs.reduce((s,b)=>s+(b.goodPcs||0),0);
+  const target=parentBatch.totalPcs||0;
+  const pct=target?Math.min(100,Math.round(totalGood/target*100)):0;
+  const totalSilicaKg=mySubs.reduce((s,b)=>s+(b.silicaKg||0),0);
+  const totalRolls=mySubs.reduce((s,b)=>s+(b.rollsUsed||0),0);
+  const cur=form&&form.subId?mySubs.filter(b=>b.id===form.subId)[0]:null;
+  const close=()=>setForm(null);
+
+  if(form&&form.mode==="new")return <SilicaShiftForm parentBatch={parentBatch} batches={batches} data={data} onSave={(b,m)=>{onCreateSub(b,m);close();}} onCancel={close}/>;
+  if(cur)return <SilicaShiftForm parentBatch={parentBatch} batches={batches} data={data} existing={cur} onSave={(b,m)=>{onUpdateSub(b,m,cur);close();}} onCancel={close}/>;
+
+  return(<div style={{fontFamily:"'Inter',sans-serif"}}>
+    <div style={{background:"#0E4A2A",padding:"14px 18px",borderRadius:"12px 12px 0 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>Shifts — {parentBatch.batchNo}</div>
+        <div style={{color:"rgba(255,255,255,0.6)",fontSize:12,marginTop:2}}>{parentBatch.client} · {parentBatch.color} · Target {target.toLocaleString()} pcs</div></div>
+      <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:13}}>← Back</button></div>
+    <div style={{background:"#fff",borderRadius:"0 0 12px 12px",border:"1.5px solid #EEF2F7",borderTop:"none",padding:16}}>
+      {target>0&&<div style={{background:"#D0F0E0",borderRadius:10,padding:12,marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:6,fontSize:12}}>
+          <span style={{fontWeight:700,color:"#0E4A2A"}}>{totalGood.toLocaleString()} good pcs</span>
+          <span style={{color:"#888"}}>{pct}% · {Math.max(0,target-totalGood).toLocaleString()} remaining</span></div>
+        <div style={{height:8,background:"#B8E0C8",borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:pct>=100?"#22A03A":"#1A7A45",borderRadius:4}}/></div></div>}
+      {mySubs.length>0&&<div style={{display:"flex",gap:14,fontSize:12,color:"#666",marginBottom:12,flexWrap:"wrap"}}>
+        <div>🟡 {fmtN(totalSilicaKg)} KG silica used</div><div>📄 {fmtN(totalRolls)} rolls used</div></div>}
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+        {mySubs.length===0&&<div style={{textAlign:"center",padding:20,color:"#888",fontSize:13}}>No shifts yet — start the first one below</div>}
+        {mySubs.map(sub=>(<div key={sub.id} style={{background:"#FAFBFC",borderRadius:10,border:"1.5px solid #EEF2F7",padding:"10px 14px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+            <div><span style={{fontFamily:"monospace",fontWeight:800,fontSize:14,color:NAVY}}>{sub.batchNo}</span>
+              <span style={{fontSize:11,color:"#888",marginLeft:8}}>{sub.mfgDate}{sub.operator?" · "+sub.operator:""}</span></div>
+            <button type="button" onClick={()=>setForm({subId:sub.id,editing:true})} style={{background:"#fff",border:"1px solid #0E4A2A",color:"#0E4A2A",borderRadius:20,padding:"3px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>✏️ Edit</button></div>
+          <div style={{display:"flex",gap:14,fontSize:11,color:"#666",flexWrap:"wrap",marginTop:8}}>
+            <span style={{fontWeight:700,color:"#1A6B2A"}}>✅ {fmtN(sub.goodPcs)} pcs</span>
+            {sub.silicaKg?<span>🟡 {fmtN(sub.silicaKg)} KG silica</span>:null}
+            {sub.rollsUsed?<span>📄 {sub.rollsUsed} rolls</span>:null}</div>
+          <div style={{marginTop:9,paddingTop:9,borderTop:"1px solid #F0F0F0"}}>
+            {confDel===sub.id?(<div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <span style={{fontSize:11,color:"#8B1A1A",fontWeight:600,flex:1}}>Delete {sub.batchNo}{(sub.silicaLotId||sub.rollsLotId)?" — any material it drew will be returned to stock":""}?</span>
+              <button type="button" onClick={()=>{onDeleteSub(sub);setConfDel(null);}} style={{background:"#DC3545",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11,color:"#fff",fontWeight:800}}>Yes, delete</button>
+              <button type="button" onClick={()=>setConfDel(null)} style={{background:"#E2E8F0",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11}}>Cancel</button></div>)
+            :(<button type="button" onClick={()=>setConfDel(sub.id)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>🗑 Delete this shift</button>)}</div>
+        </div>))}
+      </div>
+      <button type="button" onClick={()=>setForm({mode:"new"})} style={{width:"100%",padding:13,background:"linear-gradient(135deg,#0E4A2A,#1A7A45)",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer"}}>+ New Shift ({String.fromCharCode(65+mySubs.length)})</button>
+    </div></div>);
+}
+
 // ══ BATCH FORM / CARD / PRODUCTION ════════════════════════════════════════
 function BatchForm({batches,orders,onSave,onCancel}){
   const [product,setProduct]=useState("Flip-Off Caps 20mm");
@@ -1506,6 +1632,7 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts,onUp
   const subGood=subs.reduce((s,b)=>s+(b.goodPcs||0),0);
   const subPct=batch.totalPcs?Math.min(100,Math.round(subGood/batch.totalPcs*100)):0;
   const isFO=batch.batchNo.indexOf("EPS-FO-")===0;
+  const isSS=batch.product==="Silica Gel Sachets";
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",overflow:"hidden"}}>
     <div style={{padding:"12px 14px"}}>
       <div style={{display:"flex",alignItems:"flex-start",gap:8,flexWrap:"wrap"}}>
@@ -1521,7 +1648,7 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts,onUp
               <span>{subs.length} shift{subs.length!==1?"s":""} · {subGood.toLocaleString()} good pcs</span><span>{subPct}%</span></div>
             <div style={{height:4,background:"#F0F0F0",borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:subPct+"%",background:subPct>=100?"#22A03A":ACCENT,borderRadius:2}}/></div></div>}</div>
         <div style={{display:"flex",gap:6,flexShrink:0,alignItems:"center"}}>
-          {isFO&&<button type="button" onClick={onManageShifts} style={{background:NAVY,color:"#fff",border:"none",borderRadius:7,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>🏭 Shifts{subs.length?" ("+subs.length+")":""}</button>}
+          {(isFO||isSS)&&<button type="button" onClick={onManageShifts} style={{background:NAVY,color:"#fff",border:"none",borderRadius:7,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>🏭 Shifts{subs.length?" ("+subs.length+")":""}</button>}
           <button type="button" onClick={()=>setExp(!exp)} style={{background:"#F5F7FA",border:"none",borderRadius:7,padding:"8px 11px",cursor:"pointer",fontSize:12,color:"#555"}}>{exp?"▲":"▼"}</button></div>
       </div></div>
     {exp&&<div style={{padding:"0 14px 14px",borderTop:"1px solid #F0F0F0",paddingTop:12}}>
@@ -1542,7 +1669,7 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts,onUp
     {showWeights&&<BatchWeightsModal batch={batch} onSave={u=>{onUpdateBatch(u);setShowWeights(false);}} onClose={()=>setShowWeights(false)}/>}
   </div>);
 }
-function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic,onDeleteSub,onSaveLeftover}){
+function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic,onApplyMaterial,onDeleteSub,onSaveLeftover}){
   const [showForm,setShowForm]=useState(false),[filterSt,setFilterSt]=useState(""),[search,setSearch]=useState(""),[shiftId,setShiftId]=useState(null);
   const all=batches||[];
   const main=all.filter(b=>!b.isSubBatch);
@@ -1551,6 +1678,18 @@ function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDe
   BSTATUSES.forEach(s=>{stats[s]=main.filter(b=>b.status===s).length;});
   const parent=shiftId?main.filter(b=>b.id===shiftId)[0]:null;
 
+  if(parent&&parent.product==="Silica Gel Sachets")return <SilicaShiftManager parentBatch={parent} batches={all} data={data} onClose={()=>setShiftId(null)}
+    onCreateSub={(b,m)=>{onCreateBatch(b);
+      if(m){
+        if(m.silicaKg)onApplyMaterial("Silica Gel",null,0,m.silicaLotId,m.silicaKg,b.batchNo);
+        if(m.rollsUsed)onApplyMaterial("Sachets Paper",null,0,m.rollsLotId,m.rollsUsed,b.batchNo);
+      }}}
+    onUpdateSub={(b,m,old)=>{onUpdateBatch(b);
+      if(m){
+        onApplyMaterial("Silica Gel",old?old.silicaLotId:null,old?(old.silicaKg||0):0,m.silicaLotId,m.silicaKg,b.batchNo);
+        onApplyMaterial("Sachets Paper",old?old.rollsLotId:null,old?(old.rollsUsed||0):0,m.rollsLotId,m.rollsUsed,b.batchNo);
+      }}}
+    onDeleteSub={onDeleteSub}/>;
   if(parent)return <ShiftManager parentBatch={parent} batches={all} data={data} onClose={()=>setShiftId(null)}
     onCreateSub={(b,m)=>{onCreateBatch(b);if(m)onApplyPlastic(null,0,m.plasticLotId,m.plasticBags,b.batchNo);}}
     onUpdateSub={(b,m,old)=>{onUpdateBatch(b);
@@ -2457,6 +2596,8 @@ export default function EpsInventoryApp(){
   const deleteSub=sub=>{
     if(sub.plasticLotId&&sub.virginBags)applyPlastic(sub.plasticLotId,sub.virginBags,null,0,sub.batchNo);
     if(sub.aluminumSelections&&sub.aluminumSelections.length)applyAluminum(sub.aluminumSelections,[]);
+    if(sub.silicaLotId&&sub.silicaKg)applyMaterialQty("Silica Gel",sub.silicaLotId,sub.silicaKg,null,0,sub.batchNo);
+    if(sub.rollsLotId&&sub.rollsUsed)applyMaterialQty("Sachets Paper",sub.rollsLotId,sub.rollsUsed,null,0,sub.batchNo);
     deleteBatch(sub.id);
   };
   const createOrder=o=>{setOrders(p=>[o].concat(p));showToast(o.orderNo+" created ✓");};
@@ -2512,6 +2653,33 @@ export default function EpsInventoryApp(){
       return Object.assign({},d,{"Plastic Material":Object.assign({},pm,{lots:lots})});});
     setTimeout(()=>{if(msg)showToast(msg+" ✓");},0);
   };
+  // Same difference-applying logic as applyPlastic, generalized to any material tracked by a
+  // plain qtyRemaining (KG, Rolls, etc.) — used by Silica Gel Sachets shifts, which draw from
+  // two different materials (Silica Gel and Sachets Paper) instead of just one.
+  const applyMaterialQty=(matName,oldLotId,oldQty,newLotId,newQty,batchNo)=>{
+    const oq=Number(oldQty)||0,nq=Number(newQty)||0;
+    if(oldLotId===newLotId&&oq===nq)return;
+    let msg="";
+    setData(d=>{
+      const m=d[matName];if(!m)return d;
+      const lots=m.lots.map(lot=>{
+        const cur=Number(lot.qtyRemaining)||0;const rcv=Number(lot.qtyReceived)||cur;
+        const st=v=>v<=0?"Out of Stock":v<=rcv*0.15?"Low Stock":"In Stock";
+        if(oldLotId===newLotId&&lot.id===newLotId){
+          const delta=nq-oq;const v=Math.max(0,cur-delta);
+          msg=(delta>0?fmt(delta)+" "+lot.unit+" deducted":fmt(Math.abs(delta))+" "+lot.unit+" returned")+" · "+lot.lotNumber+" → "+fmt(v)+" left";
+          return Object.assign({},lot,{qtyRemaining:v,status:st(v),usageLog:(lot.usageLog||[]).concat([{id:genId(),date:today(),qtyUsed:delta,reason:"Edit "+batchNo,remainingAfter:v}])});}
+        if(lot.id===oldLotId&&oldLotId!==newLotId){
+          const v=cur+oq;
+          return Object.assign({},lot,{qtyRemaining:v,status:st(v),usageLog:(lot.usageLog||[]).concat([{id:genId(),date:today(),qtyUsed:-oq,reason:"Returned from "+batchNo,remainingAfter:v}])});}
+        if(lot.id===newLotId&&oldLotId!==newLotId){
+          const v=Math.max(0,cur-nq);
+          msg=fmt(nq)+" "+lot.unit+" deducted · "+lot.lotNumber+" → "+fmt(v)+" left";
+          return Object.assign({},lot,{qtyRemaining:v,status:st(v),usageLog:(lot.usageLog||[]).concat([{id:genId(),date:today(),qtyUsed:nq,reason:"Shift "+batchNo,remainingAfter:v}])});}
+        return lot;});
+      return Object.assign({},d,{[matName]:Object.assign({},m,{lots:lots})});});
+    setTimeout(()=>{if(msg)showToast(msg+" ✓");},0);
+  };
 
   if(!data)return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#F7F9FC",color:"#888",fontFamily:"sans-serif"}}>Loading inventory…</div>;
 
@@ -2522,7 +2690,7 @@ export default function EpsInventoryApp(){
   else if(section==="labels")content=<LabelsSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="certificates")content=<CertificatesSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
-    <ProductionSection data={data} batches={batches} orders={orders} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onDeleteSub={deleteSub} onSaveLeftover={lot=>addLot("WIP Inventory",lot)}/></div>;
+    <ProductionSection data={data} batches={batches} orders={orders} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onApplyMaterial={applyMaterialQty} onDeleteSub={deleteSub} onSaveLeftover={lot=>addLot("WIP Inventory",lot)}/></div>;
   else if(section==="orders")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
     <OrdersSection batches={batches} orders={orders} onCreateOrder={createOrder} onDeleteOrder={deleteOrder}/></div>;
   else if(activeMat)content=<MaterialView matName={activeMat} matConfig={data[activeMat]} lots={data[activeMat].lots} coils={data[activeMat].coils||[]}
