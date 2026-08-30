@@ -1162,27 +1162,48 @@ function FinalSortingForm({sub,parentBatch,existing,onSave,onCancel}){
 // Logs leftover material from a different (usually earlier) batch of the same color as a
 // shift on THIS batch, dropped in at whichever stage it's already reached — no fresh material
 // draw, since it was already consumed under the original batch.
-function CarryoverForm({parentBatch,batches,onSave,onCancel}){
+function CarryoverForm({parentBatch,batches,data,onSave,onCancel}){
   const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch);
   const priorCarryovers=mySubs.filter(b=>b.isCarryover).length;
   const subNo=parentBatch.batchNo+"-CO"+(priorCarryovers+1);
   const sourceOptions=batches.filter(b=>!b.isSubBatch&&b.batchNo!==parentBatch.batchNo);
+  const wipLots=((data&&data["WIP Inventory"]&&data["WIP Inventory"].lots)||[]).filter(l=>l.status!=="Out of Stock"&&Number(l.qtyRemaining)>0);
+  const [source,setSource]=useState("batch");   // "batch" | "wip"
   const [sourceBatchNo,setSourceBatchNo]=useState(""),[type,setType]=useState("plastic");
+  const [wipLotId,setWipLotId]=useState(""),[wipPcs,setWipPcs]=useState("");
   const [qty,setQty]=useState(""),[cartons,setCartons]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
   const bpc=Number(parentBatch.bagsPerCarton)||0,ppb=Number(parentBatch.pcsPerBag)||0;
   const capWt=parentBatch.capWt||CAP_WT,asmWt=parentBatch.asmWt||ASM_WT;
-  const cartonPcs=type==="finished"?Number(cartons)||0:0;
-  const effectiveQty=cartonPcs>0?cartonPcs*bpc*ppb:Number(qty)||0;
   const TYPES=[["plastic","Sorted plastic — ready for Assembly"],["assembled","Assembled — ready for Final Sorting"],["finished","Finished goods — fully packed, ready to ship"]];
+  // A WIP Inventory lot's description starts with its stage ("Unsorted/Sorted Plastic",
+  // "Unsorted/Sorted Assembled", "Packed") — matched against the carryover type so only
+  // stock that's actually at the right stage shows up as a source.
+  const wipTypeMatch=l=>{
+    const d=l.description||"";
+    if(type==="plastic")return d.indexOf("Plastic")>=0&&d.indexOf("Assembled")<0;
+    if(type==="assembled")return d.indexOf("Assembled")>=0;
+    return d.indexOf("Packed")>=0;
+  };
+  const matchedWipLots=wipLots.filter(wipTypeMatch);
+  const selWip=wipLotId?wipLots.filter(l=>l.id===wipLotId)[0]:null;
+  const wipRemaining=selWip?Number(selWip.qtyRemaining):0;
+  const cartonPcs=type==="finished"?Number(cartons)||0:0;
+  const manualQty=cartonPcs>0?cartonPcs*bpc*ppb:Number(qty)||0;
+  const wipQty=Number(wipPcs)||0;
+  const effectiveQty=source==="wip"?wipQty:manualQty;
   const save=()=>{
-    if(!sourceBatchNo){setErr("Select which batch this carried over from.");return;}
+    if(source==="batch"&&!sourceBatchNo){setErr("Select which batch this carried over from.");return;}
+    if(source==="wip"&&!wipLotId){setErr("Select which WIP Inventory lot this came from.");return;}
     if(effectiveQty<=0){setErr("Enter a quantity.");return;}
+    if(source==="wip"&&wipQty>wipRemaining+0.5){setErr("Only "+fmtN(wipRemaining)+" pcs left in that lot.");return;}
+    const fromLabel=source==="wip"?selWip.lotNumber:sourceBatchNo;
     const base={id:genId(),batchNo:subNo,isSubBatch:true,parentBatchNo:parentBatch.batchNo,product:parentBatch.product,
       color:parentBatch.color,client:parentBatch.client,orderNo:parentBatch.orderNo,
       cartons:0,bagsPerCarton:0,pcsPerBag:0,partialCartonBags:0,
       mfgDate:parentBatch.mfgDate,shift:null,operator:"",
-      isCarryover:true,carryoverFrom:sourceBatchNo,capWt:capWt,asmWt:asmWt,
-      notes:"Carried over from "+sourceBatchNo+(notes?" — "+notes:""),createdAt:today()};
+      isCarryover:true,carryoverFrom:fromLabel,capWt:capWt,asmWt:asmWt,
+      wipLotId:source==="wip"?wipLotId:null,wipLotNo:source==="wip"?selWip.lotNumber:null,wipPcsUsed:source==="wip"?effectiveQty:0,
+      notes:"Carried over from "+fromLabel+(notes?" — "+notes:""),createdAt:today()};
     let payload;
     if(type==="plastic")payload=Object.assign({},base,{stage:"Assembly",status:"Assembly",
       acceptedWeightKg:pcsToKg(effectiveQty,capWt),acceptedPcs:effectiveQty,rejectedWeightKg:0,rejectedPcs:0,sortingDate:today(),aluminumSelections:[]});
@@ -1192,27 +1213,43 @@ function CarryoverForm({parentBatch,batches,onSave,onCancel}){
       assembledWeightKg:pcsToKg(effectiveQty,asmWt),assembledPcs:effectiveQty,assemblyDate:today(),
       finalAcceptedKg:pcsToKg(effectiveQty,asmWt),finalRejectedKg:0,finalAcceptedPcs:effectiveQty,finalRejectedPcs:0,
       finalSortDate:today(),finalSortOperator:"",goodPcs:effectiveQty,totalPcs:effectiveQty});
-    onSave(payload);
+    onSave(payload,source==="wip"?{wipLotId:wipLotId,wipPcsUsed:effectiveQty}:null);
   };
   return(<div style={{maxWidth:640,fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"#4A6741",borderRadius:"12px 12px 0 0",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-      <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>↩️ Log Carryover — {subNo}</div><div style={{color:"rgba(255,255,255,0.65)",fontSize:12}}>Leftover from a previous batch of this color</div></div>
+      <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>↩️ Log Carryover — {subNo}</div><div style={{color:"rgba(255,255,255,0.65)",fontSize:12}}>Leftover from a previous batch, or from saved WIP Inventory stock</div></div>
       <button type="button" onClick={onCancel} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:13}}>Cancel</button></div>
     <div style={{background:"#fff",borderRadius:"0 0 12px 12px",border:"1.5px solid #EEF2F7",borderTop:"none",padding:20}}>
       <div style={{marginBottom:14}}>
-        <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Carried Over From Batch</label>
-        <select value={sourceBatchNo} onChange={e=>{setSourceBatchNo(e.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
-          <option value="">— select batch —</option>
-          {sourceOptions.map(b=><option key={b.id} value={b.batchNo}>{b.batchNo} · {b.color}{b.client?" · "+b.client:""}</option>)}</select></div>
+        <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Where From?</label>
+        <div style={{display:"flex",gap:8}}>
+          {[["batch","Another Batch"],["wip","WIP Inventory Stock"]].map(([k,label])=>(
+            <div key={k} onClick={()=>{setSource(k);setErr("");}} style={{flex:1,padding:"9px 12px",borderRadius:9,border:"2px solid "+(source===k?"#4A6741":"#E2E8F0"),background:source===k?"#EEF3EC":"#fff",cursor:"pointer",textAlign:"center",fontWeight:source===k?700:500,fontSize:13,color:source===k?"#4A6741":"#444"}}>{label}</div>))}</div></div>
       <div style={{marginBottom:14}}>
         <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>What Stage Is It At?</label>
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {TYPES.map(t=>(<div key={t[0]} onClick={()=>{setType(t[0]);setErr("");}} style={{padding:"10px 14px",borderRadius:9,border:"2px solid "+(type===t[0]?"#4A6741":"#E2E8F0"),background:type===t[0]?"#EEF3EC":"#fff",cursor:"pointer",fontSize:13,fontWeight:type===t[0]?700:500,color:type===t[0]?"#4A6741":"#444"}}>{t[1]}</div>))}</div></div>
-      {type==="finished"?(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
-        <Field label="Cartons" value={cartons} onChange={v=>{setCartons(v);setErr("");}} type="number" ph="e.g. 6" accent="#4A6741"/>
-        <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>= Pcs</label>
-          <div style={{padding:"9px 12px",background:"#F7F9FC",borderRadius:8,fontSize:13,color:"#555"}}>{bpc&&ppb?fmtN(cartonPcs*bpc*ppb):"set cartons/bags/pcs on "+parentBatch.batchNo+" first"}</div></div></div>)
-      :(<div style={{marginBottom:14}}><Field label="Quantity (Pcs) *" value={qty} onChange={v=>{setQty(v);setErr("");}} type="number" ph="e.g. 15000" accent="#4A6741"/></div>)}
+          {TYPES.map(t=>(<div key={t[0]} onClick={()=>{setType(t[0]);setWipLotId("");setWipPcs("");setErr("");}} style={{padding:"10px 14px",borderRadius:9,border:"2px solid "+(type===t[0]?"#4A6741":"#E2E8F0"),background:type===t[0]?"#EEF3EC":"#fff",cursor:"pointer",fontSize:13,fontWeight:type===t[0]?700:500,color:type===t[0]?"#4A6741":"#444"}}>{t[1]}</div>))}</div></div>
+      {source==="batch"?(<>
+        <div style={{marginBottom:14}}>
+          <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Carried Over From Batch</label>
+          <select value={sourceBatchNo} onChange={e=>{setSourceBatchNo(e.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+            <option value="">— select batch —</option>
+            {sourceOptions.map(b=><option key={b.id} value={b.batchNo}>{b.batchNo} · {b.color}{b.client?" · "+b.client:""}</option>)}</select></div>
+        {type==="finished"?(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+          <Field label="Cartons" value={cartons} onChange={v=>{setCartons(v);setErr("");}} type="number" ph="e.g. 6" accent="#4A6741"/>
+          <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>= Pcs</label>
+            <div style={{padding:"9px 12px",background:"#F7F9FC",borderRadius:8,fontSize:13,color:"#555"}}>{bpc&&ppb?fmtN(cartonPcs*bpc*ppb):"set cartons/bags/pcs on "+parentBatch.batchNo+" first"}</div></div></div>)
+        :(<div style={{marginBottom:14}}><Field label="Quantity (Pcs) *" value={qty} onChange={v=>{setQty(v);setErr("");}} type="number" ph="e.g. 15000" accent="#4A6741"/></div>)}
+      </>):(<div style={{marginBottom:14}}>
+        <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>WIP Inventory Lot</label>
+        <select value={wipLotId} onChange={e=>{setWipLotId(e.target.value);setWipPcs("");setErr("");}} style={{width:"100%",border:"1.5px solid "+(matchedWipLots.length?"#E2E8F0":"#F1948A"),borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+          <option value="">— select lot —</option>
+          {matchedWipLots.map(l=><option key={l.id} value={l.id}>{l.lotNumber} · {fmtN(l.qtyRemaining)} pcs · {l.description}</option>)}</select>
+        {matchedWipLots.length===0&&<div style={{fontSize:11,color:"#DC3545",marginTop:5,fontWeight:600}}>⚠️ No WIP Inventory stock at this stage yet — change the stage above, or save leftover stock from a batch first.</div>}
+        {selWip&&<div style={{marginTop:10}}>
+          <Field label="Pcs to Use" value={wipPcs} onChange={v=>{setWipPcs(v);setErr("");}} type="number" ph={"up to "+fmtN(wipRemaining)} accent="#4A6741"/>
+          <div style={{fontSize:11,color:"#4A6741",marginTop:4}}>{fmtN(wipRemaining)} pcs available <button type="button" onClick={()=>setWipPcs(String(wipRemaining))} style={{marginLeft:8,background:"none",border:"none",color:"#4A6741",textDecoration:"underline",cursor:"pointer",fontSize:11,padding:0}}>use all</button></div></div>}
+      </div>)}
       <div style={{marginBottom:18}}><Field label="Notes (optional)" value={notes} onChange={setNotes} accent="#4A6741"/></div>
       {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#4A6741",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Log Carryover</button>
@@ -1355,7 +1392,7 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
   const close=()=>setForm(null);
 
   if(form&&form.mode==="new")return <InjectionForm parentBatch={parentBatch} batches={batches} data={data} onSave={(b,m)=>{onCreateSub(b,m);close();}} onCancel={close}/>;
-  if(form&&form.mode==="carryover")return <CarryoverForm parentBatch={parentBatch} batches={batches} onSave={b=>{onCreateSub(b);close();}} onCancel={close}/>;
+  if(form&&form.mode==="carryover")return <CarryoverForm parentBatch={parentBatch} batches={batches} data={data} onSave={(b,m)=>{onCreateSub(b,m);close();}} onCancel={close}/>;
   if(cur&&form.stage==="Injection")return <InjectionForm parentBatch={parentBatch} batches={batches} data={data} existing={cur} onSave={(b,m)=>{onUpdateSub(b,m,cur);close();}} onCancel={close}/>;
   if(cur&&form.stage==="Plastic Sorting")return <PlasticSortingForm sub={cur} existing={form.editing} onSave={u=>{onUpdateSub(u,null,cur);close();}} onCancel={close}/>;
   if(cur&&form.stage==="Assembly")return <AssemblyForm sub={cur} data={data} existing={form.editing} onSave={(u,m)=>{onUpdateSub(u,m,cur);close();}} onCancel={close}/>;
@@ -1719,7 +1756,9 @@ function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDe
       }}}
     onDeleteSub={onDeleteSub}/>;
   if(parent)return <ShiftManager parentBatch={parent} batches={all} data={data} onClose={()=>setShiftId(null)}
-    onCreateSub={(b,m)=>{onCreateBatch(b);if(m)onApplyPlastic(null,0,m.plasticLotId,m.plasticBags,b.batchNo);}}
+    onCreateSub={(b,m)=>{onCreateBatch(b);
+      if(m&&m.plasticLotId!==undefined)onApplyPlastic(null,0,m.plasticLotId,m.plasticBags,b.batchNo);
+      if(m&&m.wipLotId)onApplyMaterial("WIP Inventory",null,0,m.wipLotId,m.wipPcsUsed,b.batchNo);}}
     onUpdateSub={(b,m,old)=>{onUpdateBatch(b);
       if(m&&m.plasticLotId!==undefined)onApplyPlastic(old?old.plasticLotId:null,old?(old.virginBags||0):0,m.plasticLotId,m.plasticBags,b.batchNo);
       if(m&&m.selections)onApplyAluminum(old?(old.aluminumSelections||[]):[],m.selections);}}
@@ -2620,13 +2659,15 @@ export default function EpsInventoryApp(){
   const updateBatch=u=>{setBatches(p=>p.map(b=>b.id===u.id?u:b));showToast("Updated ✓");};
   const deleteBatch=id=>{setBatches(p=>p.filter(b=>b.id!==id));showToast("Deleted","error");};
   // Deletes a shift/carryover, first returning whatever material it actually drew (plastic
-  // bags, aluminum caps bags) — a carryover never drew fresh material, so those fields are
-  // simply absent and nothing is reversed for it.
+  // bags, aluminum caps bags, WIP Inventory stock) — a carryover from another batch (rather
+  // than from WIP stock) never drew fresh material, so those fields are simply absent and
+  // nothing is reversed for it.
   const deleteSub=sub=>{
     if(sub.plasticLotId&&sub.virginBags)applyPlastic(sub.plasticLotId,sub.virginBags,null,0,sub.batchNo);
     if(sub.aluminumSelections&&sub.aluminumSelections.length)applyAluminum(sub.aluminumSelections,[]);
     if(sub.silicaLotId&&sub.silicaKg)applyMaterialQty("Silica Gel",sub.silicaLotId,sub.silicaKg,null,0,sub.batchNo);
     if(sub.rollsLotId&&sub.rollsUsed)applyMaterialQty("Sachets Paper",sub.rollsLotId,sub.rollsUsed,null,0,sub.batchNo);
+    if(sub.wipLotId&&sub.wipPcsUsed)applyMaterialQty("WIP Inventory",sub.wipLotId,sub.wipPcsUsed,null,0,sub.batchNo);
     deleteBatch(sub.id);
   };
   const createOrder=o=>{setOrders(p=>[o].concat(p));showToast(o.orderNo+" created ✓");};
