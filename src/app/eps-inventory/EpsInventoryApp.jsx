@@ -236,73 +236,104 @@ function deriveCapsCost(lot,coilLots){
   }
   return null;
 }
-// Material cost for one batch: plastic (virgin bags only — regrind is reused material with
-// no new purchase cost) priced from the Plastic Material lot each shift actually drew from,
-// and aluminum caps priced from the coil they were stamped from. Costs are kept split by
-// currency rather than guessing an exchange rate.
+// Material cost for one batch. Flip-Off Caps and Silica Gel Sachets are entirely different
+// materials, priced completely separately — Flip-Off from Plastic Material + Aluminum Caps
+// (via the coil each lot was stamped from); Silica Gel Sachets from the Silica Gel + Sachets
+// Paper (rolls) lots each shift actually drew from. Costs are kept split by currency rather
+// than guessing an exchange rate.
 function buildBatchCost(batch,batches,data,laborRates){
   const rates=Object.assign({},DEFAULT_LABOR_RATES,laborRates);
   const shifts=batches.filter(b=>b.isSubBatch&&b.parentBatchNo===batch.batchNo);
+  const isSilica=batch.product==="Silica Gel Sachets";
   const plasticLots=(data["Plastic Material"]&&data["Plastic Material"].lots)||[];
   const capsLots=(data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[];
   const coilLots=(data["Aluminum Coils"]&&data["Aluminum Coils"].lots)||[];
   const scrapLots=(data["Aluminum Scrap"]&&data["Aluminum Scrap"].lots)||[];
+  const silicaGelLots=(data["Silica Gel"]&&data["Silica Gel"].lots)||[];
+  const rollsLots=(data["Sachets Paper"]&&data["Sachets Paper"].lots)||[];
 
   const plasticCost={};let plasticBagsCosted=0,plasticBagsUncosted=0,regrindKgTotal=0;
-  shifts.forEach(s=>{
-    regrindKgTotal+=s.regrindKg||0;
-    const bags=s.virginBags||0;if(bags<=0)return;
-    const lot=s.plasticLotId?plasticLots.filter(l=>l.id===s.plasticLotId)[0]:null;
-    if(lot&&lot.unitCost){
-      const cur=lot.unitCostCurrency||"EGP";
-      plasticCost[cur]=(plasticCost[cur]||0)+bags*Number(lot.unitCost);
-      plasticBagsCosted+=bags;
-    }else plasticBagsUncosted+=bags;
-  });
-
-  // alCostEGP converts non-EGP aluminum cost using each coil's own purchase-time rate when
-  // set, falling back to Finance's fallback rate otherwise — tracked separately so it's clear
-  // which pcs got a real rate vs the fallback, rather than blending them silently.
   const alCost={};let alPcsCosted=0,alPcsUncosted=0,scrapKgForBatch=0;
-  let alCostEGP=0,alPcsRealRate=0,alPcsFallbackRate=0,alPcsNoRate=0;
-  const fallbackRate=Number(rates.usdToEgpFallbackRate)||0;
-  shifts.forEach(s=>{
-    (s.aluminumSelections||[]).forEach(sel=>{
-      const lot=capsLots.filter(l=>l.lotNumber===sel.lotNo)[0];
-      const pcs=sel.pcs||0;
-      const derived=lot?deriveCapsCost(lot,coilLots):null;
-      if(derived){
-        const cur=derived.currency;
-        const lineCost=pcs*derived.costPerPc;
-        alCost[cur]=(alCost[cur]||0)+lineCost;
-        alPcsCosted+=pcs;
-        if(derived.scrapKg){
-          const lotPcs=capsLotTotalPcs(lot);
-          if(lotPcs>0)scrapKgForBatch+=derived.scrapKg*(pcs/lotPcs);
-        }
-        if(cur==="EGP"){alCostEGP+=lineCost;alPcsRealRate+=pcs;}
-        else if(derived.usdToEgpRate){alCostEGP+=lineCost*derived.usdToEgpRate;alPcsRealRate+=pcs;}
-        else if(fallbackRate>0){alCostEGP+=lineCost*fallbackRate;alPcsFallbackRate+=pcs;}
-        else alPcsNoRate+=pcs;
-      }else alPcsUncosted+=pcs;
+  let alCostEGP=0,alPcsRealRate=0,alPcsFallbackRate=0,alPcsNoRate=0,avgAlRateEGP=0,alPcsAssumed=0;
+  const silicaCost={};let silicaKgCosted=0,silicaKgUncosted=0;
+  const rollsCost={};let rollsCosted=0,rollsUncosted=0;
+
+  if(isSilica){
+    shifts.forEach(s=>{
+      const kg=s.silicaKg||0;
+      if(kg>0){
+        const lot=s.silicaLotId?silicaGelLots.filter(l=>l.id===s.silicaLotId)[0]:null;
+        if(lot&&lot.unitCost){
+          const cur=lot.unitCostCurrency||"EGP";
+          silicaCost[cur]=(silicaCost[cur]||0)+kg*Number(lot.unitCost);
+          silicaKgCosted+=kg;
+        }else silicaKgUncosted+=kg;
+      }
+      const rolls=s.rollsUsed||0;
+      if(rolls>0){
+        const lot=s.rollsLotId?rollsLots.filter(l=>l.id===s.rollsLotId)[0]:null;
+        if(lot&&lot.unitCost){
+          const cur=lot.unitCostCurrency||"EGP";
+          rollsCost[cur]=(rollsCost[cur]||0)+rolls*Number(lot.unitCost);
+          rollsCosted+=rolls;
+        }else rollsUncosted+=rolls;
+      }
     });
-  });
-  // Pcs with no traceable cost (e.g. caps made before costing was tracked) get priced at this
-  // batch's own average rate for the pcs that WERE costed, instead of silently contributing
-  // nothing to the total — closer to the real cost than treating them as free.
-  const avgAlRateEGP=alPcsCosted>0?alCostEGP/alPcsCosted:0;
-  const alPcsAssumed=alPcsUncosted>0&&avgAlRateEGP>0?alPcsUncosted:0;
-  if(alPcsAssumed>0)alCostEGP+=alPcsAssumed*avgAlRateEGP;
+  }else{
+    shifts.forEach(s=>{
+      regrindKgTotal+=s.regrindKg||0;
+      const bags=s.virginBags||0;if(bags<=0)return;
+      const lot=s.plasticLotId?plasticLots.filter(l=>l.id===s.plasticLotId)[0]:null;
+      if(lot&&lot.unitCost){
+        const cur=lot.unitCostCurrency||"EGP";
+        plasticCost[cur]=(plasticCost[cur]||0)+bags*Number(lot.unitCost);
+        plasticBagsCosted+=bags;
+      }else plasticBagsUncosted+=bags;
+    });
+
+    // alCostEGP converts non-EGP aluminum cost using each coil's own purchase-time rate when
+    // set, falling back to Finance's fallback rate otherwise — tracked separately so it's clear
+    // which pcs got a real rate vs the fallback, rather than blending them silently.
+    const fallbackRate=Number(rates.usdToEgpFallbackRate)||0;
+    shifts.forEach(s=>{
+      (s.aluminumSelections||[]).forEach(sel=>{
+        const lot=capsLots.filter(l=>l.lotNumber===sel.lotNo)[0];
+        const pcs=sel.pcs||0;
+        const derived=lot?deriveCapsCost(lot,coilLots):null;
+        if(derived){
+          const cur=derived.currency;
+          const lineCost=pcs*derived.costPerPc;
+          alCost[cur]=(alCost[cur]||0)+lineCost;
+          alPcsCosted+=pcs;
+          if(derived.scrapKg){
+            const lotPcs=capsLotTotalPcs(lot);
+            if(lotPcs>0)scrapKgForBatch+=derived.scrapKg*(pcs/lotPcs);
+          }
+          if(cur==="EGP"){alCostEGP+=lineCost;alPcsRealRate+=pcs;}
+          else if(derived.usdToEgpRate){alCostEGP+=lineCost*derived.usdToEgpRate;alPcsRealRate+=pcs;}
+          else if(fallbackRate>0){alCostEGP+=lineCost*fallbackRate;alPcsFallbackRate+=pcs;}
+          else alPcsNoRate+=pcs;
+        }else alPcsUncosted+=pcs;
+      });
+    });
+    // Pcs with no traceable cost (e.g. caps made before costing was tracked) get priced at this
+    // batch's own average rate for the pcs that WERE costed, instead of silently contributing
+    // nothing to the total — closer to the real cost than treating them as free.
+    avgAlRateEGP=alPcsCosted>0?alCostEGP/alPcsCosted:0;
+    alPcsAssumed=alPcsUncosted>0&&avgAlRateEGP>0?alPcsUncosted:0;
+    if(alPcsAssumed>0)alCostEGP+=alPcsAssumed*avgAlRateEGP;
+  }
 
   let scrapQtySold=0,scrapRevenue=0;
   scrapLots.forEach(lot=>(lot.usageLog||[]).forEach(e=>{
     if(e.qtyUsed>0&&e.saleRevenue!=null){scrapQtySold+=Number(e.qtyUsed);scrapRevenue+=Number(e.saleRevenue);}
   }));
   // Fall back to a stated assumed rate when there's no real sale history yet, so the credit
-  // isn't just blank — clearly flagged so it isn't mistaken for a measured figure.
+  // isn't just blank — clearly flagged so it isn't mistaken for a measured figure. Scrap is an
+  // aluminum-only concept, so it never applies to Silica Gel Sachets batches.
   const scrapRateIsAssumed=scrapQtySold<=0;
   const avgScrapRateEGP=scrapRateIsAssumed?DEFAULT_SCRAP_RATE_EGP:scrapRevenue/scrapQtySold;
-  const estScrapCreditEGP=scrapKgForBatch*avgScrapRateEGP;
+  const estScrapCreditEGP=isSilica?0:scrapKgForBatch*avgScrapRateEGP;
 
   // Labor — Injection by how many shifts this batch ran; Plastic Sorting and Press (Assembly)
   // by how many pcs actually went through that stage (sorting handles both accepted and
@@ -318,7 +349,7 @@ function buildBatchCost(batch,batches,data,laborRates){
   const laborPressEGP=pressPcs*(Number(rates.pressCostPerPc)||0);
   const laborTotalEGP=laborInjectionEGP+laborSortingEGP+laborPressEGP;
 
-  const netEGP=(plasticCost.EGP||0)+laborTotalEGP+alCostEGP-estScrapCreditEGP;
+  const netEGP=(plasticCost.EGP||0)+(silicaCost.EGP||0)+(rollsCost.EGP||0)+laborTotalEGP+alCostEGP-estScrapCreditEGP;
 
   // Revenue/profit — priced per good pc actually produced (not the batch's static target),
   // same basis the cost side already uses. sellPricePerPc is set manually per batch since
@@ -329,10 +360,12 @@ function buildBatchCost(batch,batches,data,laborRates){
   const profitEGP=revenueEGP-netEGP;
   const marginPct=revenueEGP>0?profitEGP/revenueEGP*100:null;
 
-  return {batch:batch,plasticCost:plasticCost,plasticBagsCosted:plasticBagsCosted,plasticBagsUncosted:plasticBagsUncosted,
+  return {batch:batch,isSilica:isSilica,plasticCost:plasticCost,plasticBagsCosted:plasticBagsCosted,plasticBagsUncosted:plasticBagsUncosted,
     regrindKgTotal:regrindKgTotal,alCost:alCost,alPcsCosted:alPcsCosted,alPcsUncosted:alPcsUncosted,
     alCostEGP:alCostEGP,alPcsRealRate:alPcsRealRate,alPcsFallbackRate:alPcsFallbackRate,alPcsNoRate:alPcsNoRate,
     alPcsAssumed:alPcsAssumed,avgAlRateEGP:avgAlRateEGP,
+    silicaCost:silicaCost,silicaKgCosted:silicaKgCosted,silicaKgUncosted:silicaKgUncosted,
+    rollsCost:rollsCost,rollsCosted:rollsCosted,rollsUncosted:rollsUncosted,
     scrapKgForBatch:scrapKgForBatch,avgScrapRateEGP:avgScrapRateEGP,scrapRateIsAssumed:scrapRateIsAssumed,estScrapCreditEGP:estScrapCreditEGP,
     injectionShifts:injectionShifts,sortingPcs:sortingPcs,pressPcs:pressPcs,
     laborInjectionEGP:laborInjectionEGP,laborSortingEGP:laborSortingEGP,laborPressEGP:laborPressEGP,laborTotalEGP:laborTotalEGP,
@@ -2507,44 +2540,56 @@ function BatchCostDoc({cost,onBack,onSaveSellPrice}){
   return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"'Inter',sans-serif"}}>
     <ReportPrintBar onBack={onBack} backLabel="Back to Finance"/>
     <ReportTitle title={"Batch Cost — "+b.batchNo} subtitle={(b.client||"")+(b.color?" · "+b.color:"")}/>
-    <ReportSection title="Plastic (virgin only — regrind is reused, no added cost)">
-      <CurrencyLines byCurrency={cost.plasticCost}/>
-      <div style={{fontSize:12,color:"#666",marginTop:8}}>{fmtN(cost.plasticBagsCosted)} bags costed{cost.plasticBagsUncosted>0?" · "+fmtN(cost.plasticBagsUncosted)+" bags with no lot cost on file":""}
-        {cost.regrindKgTotal>0?" · "+fmt(cost.regrindKgTotal)+" KG regrind used (not costed)":""}</div>
-    </ReportSection>
-    <ReportSection title="Aluminum Caps (priced from the coil they were stamped from)">
-      <CurrencyLines byCurrency={cost.alCost}/>
-      <div style={{fontSize:12,color:"#666",marginTop:8}}>{fmtN(cost.alPcsCosted)} pcs costed{cost.alPcsAssumed>0?" · "+fmtN(cost.alPcsAssumed)+" pcs with no cost on file, counted at this batch's average rate ("+fmt(cost.avgAlRateEGP)+" EGP/pc)":cost.alPcsUncosted>0?" · "+fmtN(cost.alPcsUncosted)+" pcs from lots with no cost on file and no rate to assume (nothing else in this batch was costed)":""}</div>
-      {cost.alCostEGP>0&&<div style={{marginTop:10,background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}>
-        <div style={{fontSize:16,fontWeight:900,color:NAVY}}>{fmt(cost.alCostEGP)} <span style={{fontSize:12,color:"#888",fontWeight:700}}>EGP (converted)</span></div>
-        <div style={{fontSize:11,color:"#999",marginTop:3}}>{fmtN(cost.alPcsRealRate)} pcs at each coil&apos;s actual purchase-time rate
-          {cost.alPcsFallbackRate>0?" · "+fmtN(cost.alPcsFallbackRate)+" pcs at Finance's fallback rate":""}
-          {cost.alPcsAssumed>0?" · "+fmtN(cost.alPcsAssumed)+" pcs at this batch's average rate":""}
-          {cost.alPcsNoRate>0?" · "+fmtN(cost.alPcsNoRate)+" pcs with no rate available":""}</div></div>}
-    </ReportSection>
-    <ReportSection title="Aluminum Scrap Credit (estimate)">
-      <div style={{fontSize:12,color:"#666",marginBottom:8}}>Scrap generated from the coils behind this batch&apos;s caps: <strong>{fmt(cost.scrapKgForBatch)} KG</strong></div>
-      {cost.scrapKgForBatch>0?(<>
-        <div style={{fontSize:20,fontWeight:900,color:"#1A6B2A"}}>{fmt(cost.estScrapCreditEGP)} <span style={{fontSize:12,color:"#888",fontWeight:700}}>EGP (estimated credit)</span></div>
-        <div style={{fontSize:11,color:"#999",marginTop:4}}>{cost.scrapRateIsAssumed
-          ?"Based on an assumed rate of "+fmt(cost.avgScrapRateEGP)+" EGP/KG (no scrap sales recorded yet to measure a real rate)."
-          :"Based on your average realized scrap sale rate ("+fmt(cost.avgScrapRateEGP)+" EGP/KG)."} Scrap is sold from a shared pool, not tracked per batch, so this is an estimate, not an exact figure.</div></>)
-      :<div style={{color:"#888",fontSize:12}}>No scrap traceable to this batch&apos;s caps yet.</div>}
-    </ReportSection>
+    {cost.isSilica?(<>
+      <ReportSection title="Silica Gel Material">
+        <CurrencyLines byCurrency={cost.silicaCost}/>
+        <div style={{fontSize:12,color:"#666",marginTop:8}}>{fmtN(cost.silicaKgCosted)} KG costed{cost.silicaKgUncosted>0?" · "+fmtN(cost.silicaKgUncosted)+" KG with no lot cost on file":""}</div>
+      </ReportSection>
+      <ReportSection title="Packaging Rolls (Sachets Paper)">
+        <CurrencyLines byCurrency={cost.rollsCost}/>
+        <div style={{fontSize:12,color:"#666",marginTop:8}}>{fmtN(cost.rollsCosted)} rolls costed{cost.rollsUncosted>0?" · "+fmtN(cost.rollsUncosted)+" rolls with no lot cost on file":""}</div>
+      </ReportSection>
+    </>):(<>
+      <ReportSection title="Plastic (virgin only — regrind is reused, no added cost)">
+        <CurrencyLines byCurrency={cost.plasticCost}/>
+        <div style={{fontSize:12,color:"#666",marginTop:8}}>{fmtN(cost.plasticBagsCosted)} bags costed{cost.plasticBagsUncosted>0?" · "+fmtN(cost.plasticBagsUncosted)+" bags with no lot cost on file":""}
+          {cost.regrindKgTotal>0?" · "+fmt(cost.regrindKgTotal)+" KG regrind used (not costed)":""}</div>
+      </ReportSection>
+      <ReportSection title="Aluminum Caps (priced from the coil they were stamped from)">
+        <CurrencyLines byCurrency={cost.alCost}/>
+        <div style={{fontSize:12,color:"#666",marginTop:8}}>{fmtN(cost.alPcsCosted)} pcs costed{cost.alPcsAssumed>0?" · "+fmtN(cost.alPcsAssumed)+" pcs with no cost on file, counted at this batch's average rate ("+fmt(cost.avgAlRateEGP)+" EGP/pc)":cost.alPcsUncosted>0?" · "+fmtN(cost.alPcsUncosted)+" pcs from lots with no cost on file and no rate to assume (nothing else in this batch was costed)":""}</div>
+        {cost.alCostEGP>0&&<div style={{marginTop:10,background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}>
+          <div style={{fontSize:16,fontWeight:900,color:NAVY}}>{fmt(cost.alCostEGP)} <span style={{fontSize:12,color:"#888",fontWeight:700}}>EGP (converted)</span></div>
+          <div style={{fontSize:11,color:"#999",marginTop:3}}>{fmtN(cost.alPcsRealRate)} pcs at each coil&apos;s actual purchase-time rate
+            {cost.alPcsFallbackRate>0?" · "+fmtN(cost.alPcsFallbackRate)+" pcs at Finance's fallback rate":""}
+            {cost.alPcsAssumed>0?" · "+fmtN(cost.alPcsAssumed)+" pcs at this batch's average rate":""}
+            {cost.alPcsNoRate>0?" · "+fmtN(cost.alPcsNoRate)+" pcs with no rate available":""}</div></div>}
+      </ReportSection>
+      <ReportSection title="Aluminum Scrap Credit (estimate)">
+        <div style={{fontSize:12,color:"#666",marginBottom:8}}>Scrap generated from the coils behind this batch&apos;s caps: <strong>{fmt(cost.scrapKgForBatch)} KG</strong></div>
+        {cost.scrapKgForBatch>0?(<>
+          <div style={{fontSize:20,fontWeight:900,color:"#1A6B2A"}}>{fmt(cost.estScrapCreditEGP)} <span style={{fontSize:12,color:"#888",fontWeight:700}}>EGP (estimated credit)</span></div>
+          <div style={{fontSize:11,color:"#999",marginTop:4}}>{cost.scrapRateIsAssumed
+            ?"Based on an assumed rate of "+fmt(cost.avgScrapRateEGP)+" EGP/KG (no scrap sales recorded yet to measure a real rate)."
+            :"Based on your average realized scrap sale rate ("+fmt(cost.avgScrapRateEGP)+" EGP/KG)."} Scrap is sold from a shared pool, not tracked per batch, so this is an estimate, not an exact figure.</div></>)
+        :<div style={{color:"#888",fontSize:12}}>No scrap traceable to this batch&apos;s caps yet.</div>}
+      </ReportSection>
+    </>)}
     <ReportSection title="Labor (rates set in Finance — edit any time under Labor Rates)">
       <div style={{display:"flex",flexDirection:"column",gap:6,fontSize:12,color:"#666",marginBottom:8}}>
         <div>Injection — {cost.injectionShifts} shift{cost.injectionShifts===1?"":"s"}: <strong>{fmt(cost.laborInjectionEGP)} EGP</strong></div>
         <div>Plastic Sorting — {fmtN(cost.sortingPcs)} pcs: <strong>{fmt(cost.laborSortingEGP)} EGP</strong></div>
         <div>Press (Assembly) — {fmtN(cost.pressPcs)} pcs: <strong>{fmt(cost.laborPressEGP)} EGP</strong></div></div>
       <div style={{fontSize:20,fontWeight:900,color:NAVY}}>{fmt(cost.laborTotalEGP)} <span style={{fontSize:12,color:"#888",fontWeight:700}}>EGP labor total</span></div>
+      {cost.isSilica&&<div style={{fontSize:11,color:"#999",marginTop:6}}>Labor here is Flip-Off Caps-specific (Injection/Sorting/Press) and isn&apos;t tracked for Silica Gel Sachets yet, so this will show 0.</div>}
     </ReportSection>
     <div style={{background:"#EBF1F8",borderRadius:10,padding:16,marginBottom:16}}>
-      <div style={{fontSize:11,fontWeight:800,color:NAVY,textTransform:"uppercase",marginBottom:6}}>Net EGP (Plastic + Aluminum + Labor − Scrap Credit)</div>
+      <div style={{fontSize:11,fontWeight:800,color:NAVY,textTransform:"uppercase",marginBottom:6}}>Net EGP ({cost.isSilica?"Silica Gel + Rolls + Labor":"Plastic + Aluminum + Labor − Scrap Credit"})</div>
       <div style={{fontSize:26,fontWeight:900,color:NAVY}}>{fmt(cost.netEGP)} <span style={{fontSize:13,color:"#888",fontWeight:700}}>EGP</span></div>
-      <div style={{fontSize:11,color:"#888",marginTop:4}}>Aluminum is converted to EGP using each coil&apos;s purchase-time rate where set, otherwise Finance&apos;s fallback rate.</div>
+      <div style={{fontSize:11,color:"#888",marginTop:4}}>{cost.isSilica?"Silica Gel and rolls priced in USD aren't converted to EGP yet — only amounts already in EGP count toward this total.":"Aluminum is converted to EGP using each coil's purchase-time rate where set, otherwise Finance's fallback rate."}</div>
     </div>
     <div style={{background:"#F7F9FC",borderRadius:10,padding:14,fontSize:12,color:"#666",marginBottom:16}}>
-      This covers plastic, aluminum, and labor cost — no overhead applied yet. Add more cost inputs over time to make this more accurate.</div>
+      This covers {cost.isSilica?"silica gel, rolls, and labor":"plastic, aluminum, and labor"} cost — no overhead applied yet. Add more cost inputs over time to make this more accurate.</div>
     <ReportSection title="Selling Price & Profit">
       <div className="eps-no-print" style={{marginBottom:10}}>
         <button type="button" onClick={()=>setShowPrice(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ {cost.sellPricePerPc>0?"Edit":"Set"} Selling Price</button></div>
