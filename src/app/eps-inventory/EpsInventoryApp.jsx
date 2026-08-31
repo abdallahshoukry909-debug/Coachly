@@ -1895,8 +1895,25 @@ function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDe
 }
 
 // ══ ORDERS ════════════════════════════════════════════════════════════════
-function OrderRow({order,linked,allBatches,onDelete}){
+function OrderFinanceModal({order,onSave,onClose}){
+  const [price,setPrice]=useState(order.sellPricePerPc?String(order.sellPricePerPc):"");
+  const [cost,setCost]=useState(order.estCostEGP?String(order.estCostEGP):"");
+  const save=()=>onSave({sellPricePerPc:Number(price)||0,estCostEGP:Number(cost)||0});
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:400,overflow:"hidden"}}>
+      <div style={{background:"#1A6B2A",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>💰 Sale Price &amp; Cost</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>{order.orderNo}</div></div>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
+      <div style={{padding:24}}>
+        <div style={{marginBottom:14}}><Field label="Sold For (EGP per Pc)" value={price} onChange={setPrice} type="number" ph="e.g. 0.85"/></div>
+        <div style={{marginBottom:18}}><Field label="Estimated Total Cost (EGP)" value={cost} onChange={setCost} type="number" ph="e.g. 150000"/>
+          <div style={{fontSize:11,color:"#999",marginTop:4}}>A rough total — material + labor + anything else this order cost you.</div></div>
+        <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#1A6B2A",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save</button>
+      </div></div></div>);
+}
+function OrderRow({order,linked,allBatches,onDelete,onUpdateOrder}){
   const [confDel,setConfDel]=useState(false);
+  const [showFin,setShowFin]=useState(false);
   const linkedNos=linked.map(b=>b.batchNo);
   const shifts=(allBatches||[]).filter(b=>b.isSubBatch&&linkedNos.indexOf(b.parentBatchNo)>=0);
   const ref=linked.filter(b=>Number(b.bagsPerCarton)>0&&Number(b.pcsPerBag)>0)[0];
@@ -1916,6 +1933,11 @@ function OrderRow({order,linked,allBatches,onDelete}){
   const pct=cartonsMode?(targetCartons?Math.min(100,Math.round(producedCartons/targetCartons*100)):0)
     :(order.targetQty?Math.min(100,Math.round(produced/order.targetQty*100)):0);
   const cfg=BST[order.status]||BST.Production;
+  const sellPricePerPc=Number(order.sellPricePerPc)||0;
+  const estCostEGP=Number(order.estCostEGP)||0;
+  const revenueEGP=sellPricePerPc*(Number(order.targetQty)||0);
+  const profitEGP=revenueEGP-estCostEGP;
+  const marginPct=revenueEGP>0?profitEGP/revenueEGP*100:null;
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14}}>
     <div style={{display:"flex",alignItems:"flex-start",gap:8,flexWrap:"wrap"}}>
       <div style={{flex:1,minWidth:0}}>
@@ -1929,14 +1951,21 @@ function OrderRow({order,linked,allBatches,onDelete}){
             <span>{cartonsMode?fmt(producedCartons)+" of "+fmt(targetCartons)+" cartons":fmtN(produced)+" pcs produced"}</span><span>{pct}%</span></div>
           <div style={{height:6,background:"#F0F0F0",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:pct>=100?"#22A03A":ACCENT,borderRadius:3}}/></div>
           {cartonsMode&&<div style={{fontSize:11,color:"#888",marginTop:3}}>{fmt(Math.max(0,targetCartons-producedCartons))} cartons left</div>}</div>
-        {linked.length>0&&<div style={{fontSize:11,color:"#888"}}>{linked.length} batches: {linked.map(b=><span key={b.id} style={{fontFamily:"monospace",marginRight:8,color:NAVY}}>{b.batchNo}</span>)}</div>}</div>
+        {linked.length>0&&<div style={{fontSize:11,color:"#888",marginBottom:6}}>{linked.length} batches: {linked.map(b=><span key={b.id} style={{fontFamily:"monospace",marginRight:8,color:NAVY}}>{b.batchNo}</span>)}</div>}
+        <button type="button" onClick={()=>setShowFin(true)} style={{padding:"5px 10px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,marginBottom:sellPricePerPc>0||estCostEGP>0?8:0}}>💰 {sellPricePerPc>0||estCostEGP>0?"Edit":"Set"} Sale Price &amp; Cost</button>
+        {(sellPricePerPc>0||estCostEGP>0)&&(<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(90px,1fr))",gap:8}}>
+          <div style={{background:"#F7F9FC",borderRadius:8,padding:"7px 10px"}}><div style={{fontSize:9,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Revenue</div><div style={{fontSize:14,fontWeight:900,color:NAVY,marginTop:1}}>{fmt(revenueEGP)}</div></div>
+          <div style={{background:"#F7F9FC",borderRadius:8,padding:"7px 10px"}}><div style={{fontSize:9,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Est. Cost</div><div style={{fontSize:14,fontWeight:900,color:NAVY,marginTop:1}}>{fmt(estCostEGP)}</div></div>
+          <div style={{background:profitEGP>=0?"#EAF7EC":"#FFF0F0",borderRadius:8,padding:"7px 10px"}}><div style={{fontSize:9,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Profit</div><div style={{fontSize:14,fontWeight:900,color:profitEGP>=0?"#1A6B2A":"#DC3545",marginTop:1}}>{fmt(profitEGP)}{marginPct!=null?" ("+marginPct.toFixed(0)+"%)":""}</div></div></div>)}</div>
       {confDel?(<div style={{display:"flex",gap:6,flexShrink:0}}>
         <button type="button" onClick={onDelete} style={{padding:"5px 12px",background:"#DC3545",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700}}>Yes</button>
         <button type="button" onClick={()=>setConfDel(false)} style={{padding:"5px 12px",border:"1.5px solid #E2E8F0",borderRadius:6,background:"#fff",cursor:"pointer",fontSize:11}}>Cancel</button></div>)
       :(<button type="button" onClick={()=>setConfDel(true)} style={{padding:"5px 10px",border:"1px solid #F1948A",color:"#DC3545",background:"#FFF0F0",borderRadius:6,cursor:"pointer",fontSize:11,flexShrink:0}}>Delete</button>)}
-    </div></div>);
+    </div>
+    {showFin&&<OrderFinanceModal order={order} onSave={f=>{onUpdateOrder(Object.assign({},order,f));setShowFin(false);}} onClose={()=>setShowFin(false)}/>}
+    </div>);
 }
-function OrdersSection({batches,orders,onCreateOrder,onDeleteOrder,onDeleteAllOrders}){
+function OrdersSection({batches,orders,onCreateOrder,onDeleteOrder,onDeleteAllOrders,onUpdateOrder}){
   const [showForm,setShowForm]=useState(false),[search,setSearch]=useState("");
   const [confDelAll,setConfDelAll]=useState(false);
   const [client,setClient]=useState(""),[color,setColor]=useState(""),[tq,setTq]=useState("1000000"),[delivery,setDelivery]=useState(""),[status,setStatus]=useState("Production"),[err,setErr]=useState("");
@@ -1975,7 +2004,7 @@ function OrdersSection({batches,orders,onCreateOrder,onDeleteOrder,onDeleteAllOr
     {filtered.length===0?(<div style={{textAlign:"center",padding:40,background:"#fff",borderRadius:12,border:"2px dashed #E2E8F0"}}>
       <div style={{fontSize:32,marginBottom:8}}>📋</div><div style={{fontWeight:700,color:"#333"}}>No orders</div></div>)
     :(<div style={{display:"flex",flexDirection:"column",gap:8}}>
-      {filtered.map(o=><OrderRow key={o.id} order={o} linked={batches.filter(b=>b.orderNo===o.orderNo&&!b.isSubBatch)} allBatches={batches} onDelete={()=>onDeleteOrder(o.id)}/>)}</div>)}
+      {filtered.map(o=><OrderRow key={o.id} order={o} linked={batches.filter(b=>b.orderNo===o.orderNo&&!b.isSubBatch)} allBatches={batches} onDelete={()=>onDeleteOrder(o.id)} onUpdateOrder={onUpdateOrder}/>)}</div>)}
   </div>);
 }
 
@@ -2538,8 +2567,8 @@ function CurrencyLines({byCurrency}){
   return <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>{curs.map(c=>(
     <div key={c} style={{fontSize:20,fontWeight:900,color:NAVY}}>{fmt(byCurrency[c])} <span style={{fontSize:12,color:"#888",fontWeight:700}}>{c}</span></div>))}</div>;
 }
-function SellingPriceModal({batch,onSave,onClose}){
-  const [price,setPrice]=useState(batch.sellPricePerPc?String(batch.sellPricePerPc):"");
+function SellingPriceModal({batch,orderPrice,onSave,onClose}){
+  const [price,setPrice]=useState(batch.sellPricePerPc?String(batch.sellPricePerPc):(orderPrice?String(orderPrice):""));
   const save=()=>onSave(Number(price)||0);
   return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:400,overflow:"hidden"}}>
@@ -2547,13 +2576,16 @@ function SellingPriceModal({batch,onSave,onClose}){
         <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>💰 Selling Price</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>{batch.batchNo}</div></div>
         <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
       <div style={{padding:24}}>
-        <div style={{marginBottom:18}}><Field label="Selling Price per Pc (EGP)" value={price} onChange={setPrice} type="number" ph="e.g. 0.85"/></div>
+        <div style={{marginBottom:18}}><Field label="Selling Price per Pc (EGP)" value={price} onChange={setPrice} type="number" ph="e.g. 0.85"/>
+          {orderPrice>0&&!batch.sellPricePerPc&&<div style={{fontSize:11,color:"#999",marginTop:4}}>Pre-filled from this batch&apos;s order ({fmt(orderPrice)} EGP/pc) — edit if this batch sold for a different price.</div>}</div>
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#1A6B2A",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Price</button>
       </div></div></div>);
 }
-function BatchCostDoc({cost,onBack,onSaveSellPrice}){
+function BatchCostDoc({cost,orders,onBack,onSaveSellPrice}){
   const [showPrice,setShowPrice]=useState(false);
   const b=cost.batch;
+  const linkedOrder=(orders||[]).filter(o=>b.orderNo&&o.orderNo===b.orderNo)[0]||null;
+  const orderPrice=linkedOrder?Number(linkedOrder.sellPricePerPc)||0:0;
   return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"'Inter',sans-serif"}}>
     <ReportPrintBar onBack={onBack} backLabel="Back to Finance"/>
     <ReportTitle title={"Batch Cost — "+b.batchNo} subtitle={(b.client||"")+(b.color?" · "+b.color:"")}/>
@@ -2620,7 +2652,7 @@ function BatchCostDoc({cost,onBack,onSaveSellPrice}){
         {cost.marginPct!=null&&<div style={{fontSize:12,color:"#666"}}>Margin: <strong style={{color:cost.profitEGP>=0?"#1A6B2A":"#DC3545"}}>{cost.marginPct.toFixed(1)}%</strong></div>}
       </>):(<div style={{color:"#888",fontSize:12}}>No selling price set yet for this batch.</div>)}
     </ReportSection>
-    {showPrice&&<SellingPriceModal batch={b} onSave={p=>{onSaveSellPrice(p);setShowPrice(false);}} onClose={()=>setShowPrice(false)}/>}
+    {showPrice&&<SellingPriceModal batch={b} orderPrice={orderPrice} onSave={p=>{onSaveSellPrice(p);setShowPrice(false);}} onClose={()=>setShowPrice(false)}/>}
   </div>);
 }
 function LaborRatesModal({rates,onSave,onClose}){
@@ -2649,13 +2681,13 @@ function LaborRatesModal({rates,onSave,onClose}){
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Settings</button>
       </div></div></div>);
 }
-function FinanceSection({data,batches,laborRates,onSaveLaborRates,onUpdateBatch,onClose}){
+function FinanceSection({data,batches,orders,laborRates,onSaveLaborRates,onUpdateBatch,onClose}){
   const [doc,setDoc]=useState(null);
   const [pickBatchNo,setPickBatchNo]=useState("");
   const [showRates,setShowRates]=useState(false);
   const mainBatches=batches.filter(b=>!b.isSubBatch).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
   if(doc)return(<div className="eps-print-page" style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
-    <BatchCostDoc cost={doc} onBack={()=>setDoc(null)}
+    <BatchCostDoc cost={doc} orders={orders} onBack={()=>setDoc(null)}
       onSaveSellPrice={price=>{
         const updated=Object.assign({},doc.batch,{sellPricePerPc:price});
         onUpdateBatch(updated);
@@ -2862,6 +2894,7 @@ export default function EpsInventoryApp(){
   const createOrder=o=>{setOrders(p=>[o].concat(p));showToast(o.orderNo+" created ✓");};
   const deleteOrder=id=>{setOrders(p=>p.filter(o=>o.id!==id));showToast("Deleted","error");};
   const deleteAllOrders=()=>{setOrders([]);showToast("All orders deleted","error");};
+  const updateOrder=updated=>{setOrders(p=>p.map(o=>o.id===updated.id?updated:o));showToast("Order updated ✓");};
   // Applies the DIFFERENCE between the previously recorded aluminum selection and the new one.
   // Bags dropped from the selection are released back to stock; newly added bags are marked used.
   const applyAluminum=(oldSels,newSels)=>{
@@ -2946,13 +2979,13 @@ export default function EpsInventoryApp(){
   let content;
   if(section==="log")content=<ActivityLog data={data} batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="reports")content=<ReportsSection data={data} batches={batches} orders={orders} onClose={()=>setSection("inventory")}/>;
-  else if(section==="finance")content=<FinanceSection data={data} batches={batches} laborRates={laborRates} onSaveLaborRates={setLaborRates} onUpdateBatch={updateBatch} onClose={()=>setSection("inventory")}/>;
+  else if(section==="finance")content=<FinanceSection data={data} batches={batches} orders={orders} laborRates={laborRates} onSaveLaborRates={setLaborRates} onUpdateBatch={updateBatch} onClose={()=>setSection("inventory")}/>;
   else if(section==="labels")content=<LabelsSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="certificates")content=<CertificatesSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
     <ProductionSection data={data} batches={batches} orders={orders} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onApplyMaterial={applyMaterialQty} onDeleteSub={deleteSub} onSaveLeftover={lot=>addLot("WIP Inventory",lot)}/></div>;
   else if(section==="orders")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
-    <OrdersSection batches={batches} orders={orders} onCreateOrder={createOrder} onDeleteOrder={deleteOrder} onDeleteAllOrders={deleteAllOrders}/></div>;
+    <OrdersSection batches={batches} orders={orders} onCreateOrder={createOrder} onDeleteOrder={deleteOrder} onDeleteAllOrders={deleteAllOrders} onUpdateOrder={updateOrder}/></div>;
   else if(activeMat)content=<MaterialView matName={activeMat} matConfig={data[activeMat]} lots={data[activeMat].lots} coils={data[activeMat].coils||[]}
     coilLots={(data["Aluminum Coils"]&&data["Aluminum Coils"].lots)||[]}
     onUpdate={l=>updateLot(activeMat,l)} onDelete={id=>deleteLot(activeMat,id)} onAdd={l=>addLot(activeMat,l)} onBack={()=>setActiveMat(null)}
