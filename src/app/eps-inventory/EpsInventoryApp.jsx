@@ -15,7 +15,12 @@ const ALCAP_WT_KG=0.405,COIL_KG_TO_CAPS=1972.4;
 // usdToEgpFallbackRate converts aluminum coil cost to EGP when the coil itself has no rate
 // recorded from when it was actually bought — real purchase-time rates (set on the coil lot)
 // are always preferred over this fallback.
-const DEFAULT_LABOR_RATES={sortingCostPerPc:0.015,injectionCostPerShift:519.23,pressCostPerPc:0.003125,usdToEgpFallbackRate:50};
+// Press (stamps aluminum coil into aluminum caps) and Assembly (combines sorted plastic +
+// aluminum caps into a finished cap) are two different machines/people, paid differently —
+// Press: 12,000 EGP/month salary, ~18 visits/month, 240,000 pcs/visit; Assembly: 500 EGP paid
+// per visit, ~160,000 pcs/visit. Keeping the "pressCostPerPc" key for its real meaning (Press)
+// and adding assemblyCostPerPc for what used to be lumped in under that same name.
+const DEFAULT_LABOR_RATES={sortingCostPerPc:0.015,injectionCostPerShift:519.23,pressCostPerPc:12000/(18*240000),assemblyCostPerPc:500/160000,usdToEgpFallbackRate:50};
 const ALU_DEN=2700/1e9;
 const COMPANY_NAME="EAST PHARMACEUTICAL SERVICES";
 const COMPANY_CERT="GMP & ISO 9001:2015 CERTIFIED";
@@ -335,19 +340,23 @@ function buildBatchCost(batch,batches,data,laborRates){
   const avgScrapRateEGP=scrapRateIsAssumed?DEFAULT_SCRAP_RATE_EGP:scrapRevenue/scrapQtySold;
   const estScrapCreditEGP=isSilica?0:scrapKgForBatch*avgScrapRateEGP;
 
-  // Labor — Injection by how many shifts this batch ran; Plastic Sorting and Press (Assembly)
-  // by how many pcs actually went through that stage (sorting handles both accepted and
-  // rejected pcs), at the rates set in Finance. All EGP, so these sum with plastic + scrap.
-  // Carryovers (from another batch, or from WIP Inventory stock) are excluded — that material
-  // already had its own sorting/press labor counted wherever it was actually produced, so
-  // counting it again here would double-charge the same labor across two batches.
+  // Labor — Injection by how many shifts this batch ran; Plastic Sorting and Assembly by how
+  // many pcs actually went through that stage (sorting handles both accepted and rejected
+  // pcs); Press by how many pcs of aluminum caps this batch actually consumed (Press stamps
+  // the coil into caps — a different machine/person than Assembly) — at the rates set in
+  // Finance. All EGP, so these sum with plastic + scrap. Carryovers (from another batch, or
+  // from WIP Inventory stock) are excluded from sorting/assembly — that material already had
+  // its own labor counted wherever it was actually produced, so counting it again here would
+  // double-charge the same labor across two batches.
   const injectionShifts=shifts.filter(s=>s.injections).length;
   const sortingPcs=shifts.reduce((s,x)=>x.isCarryover?s:s+(x.acceptedPcs!=null?(x.acceptedPcs||0)+(x.rejectedPcs||0):0),0);
-  const pressPcs=shifts.reduce((s,x)=>x.isCarryover?s:s+(x.assembledPcs||0),0);
+  const assemblyPcs=shifts.reduce((s,x)=>x.isCarryover?s:s+(x.assembledPcs||0),0);
+  const pressPcs=alPcsCosted+alPcsUncosted;
   const laborInjectionEGP=injectionShifts*(Number(rates.injectionCostPerShift)||0);
   const laborSortingEGP=sortingPcs*(Number(rates.sortingCostPerPc)||0);
+  const laborAssemblyEGP=assemblyPcs*(Number(rates.assemblyCostPerPc)||0);
   const laborPressEGP=pressPcs*(Number(rates.pressCostPerPc)||0);
-  const laborTotalEGP=laborInjectionEGP+laborSortingEGP+laborPressEGP;
+  const laborTotalEGP=laborInjectionEGP+laborSortingEGP+laborAssemblyEGP+laborPressEGP;
 
   const netEGP=(plasticCost.EGP||0)+(silicaCost.EGP||0)+(rollsCost.EGP||0)+laborTotalEGP+alCostEGP-estScrapCreditEGP;
 
@@ -367,8 +376,8 @@ function buildBatchCost(batch,batches,data,laborRates){
     silicaCost:silicaCost,silicaKgCosted:silicaKgCosted,silicaKgUncosted:silicaKgUncosted,
     rollsCost:rollsCost,rollsCosted:rollsCosted,rollsUncosted:rollsUncosted,
     scrapKgForBatch:scrapKgForBatch,avgScrapRateEGP:avgScrapRateEGP,scrapRateIsAssumed:scrapRateIsAssumed,estScrapCreditEGP:estScrapCreditEGP,
-    injectionShifts:injectionShifts,sortingPcs:sortingPcs,pressPcs:pressPcs,
-    laborInjectionEGP:laborInjectionEGP,laborSortingEGP:laborSortingEGP,laborPressEGP:laborPressEGP,laborTotalEGP:laborTotalEGP,
+    injectionShifts:injectionShifts,sortingPcs:sortingPcs,assemblyPcs:assemblyPcs,pressPcs:pressPcs,
+    laborInjectionEGP:laborInjectionEGP,laborSortingEGP:laborSortingEGP,laborAssemblyEGP:laborAssemblyEGP,laborPressEGP:laborPressEGP,laborTotalEGP:laborTotalEGP,
     netEGP:netEGP,goodPcsTotal:goodPcsTotal,sellPricePerPc:sellPricePerPc,revenueEGP:revenueEGP,profitEGP:profitEGP,marginPct:marginPct};
 }
 
@@ -2579,9 +2588,10 @@ function BatchCostDoc({cost,onBack,onSaveSellPrice}){
       <div style={{display:"flex",flexDirection:"column",gap:6,fontSize:12,color:"#666",marginBottom:8}}>
         <div>Injection — {cost.injectionShifts} shift{cost.injectionShifts===1?"":"s"}: <strong>{fmt(cost.laborInjectionEGP)} EGP</strong></div>
         <div>Plastic Sorting — {fmtN(cost.sortingPcs)} pcs: <strong>{fmt(cost.laborSortingEGP)} EGP</strong></div>
-        <div>Press (Assembly) — {fmtN(cost.pressPcs)} pcs: <strong>{fmt(cost.laborPressEGP)} EGP</strong></div></div>
+        <div>Press (stamps coil into caps) — {fmtN(cost.pressPcs)} pcs: <strong>{fmt(cost.laborPressEGP)} EGP</strong></div>
+        <div>Assembly (plastic + caps) — {fmtN(cost.assemblyPcs)} pcs: <strong>{fmt(cost.laborAssemblyEGP)} EGP</strong></div></div>
       <div style={{fontSize:20,fontWeight:900,color:NAVY}}>{fmt(cost.laborTotalEGP)} <span style={{fontSize:12,color:"#888",fontWeight:700}}>EGP labor total</span></div>
-      {cost.isSilica&&<div style={{fontSize:11,color:"#999",marginTop:6}}>Labor here is Flip-Off Caps-specific (Injection/Sorting/Press) and isn&apos;t tracked for Silica Gel Sachets yet, so this will show 0.</div>}
+      {cost.isSilica&&<div style={{fontSize:11,color:"#999",marginTop:6}}>Labor here is Flip-Off Caps-specific (Injection/Sorting/Press/Assembly) and isn&apos;t tracked for Silica Gel Sachets yet, so this will show 0.</div>}
     </ReportSection>
     <div style={{background:"#EBF1F8",borderRadius:10,padding:16,marginBottom:16}}>
       <div style={{fontSize:11,fontWeight:800,color:NAVY,textTransform:"uppercase",marginBottom:6}}>Net EGP ({cost.isSilica?"Silica Gel + Rolls + Labor":"Plastic + Aluminum + Labor − Scrap Credit"})</div>
@@ -2609,8 +2619,9 @@ function LaborRatesModal({rates,onSave,onClose}){
   const [sorting,setSorting]=useState(String(rates.sortingCostPerPc));
   const [injection,setInjection]=useState(String(rates.injectionCostPerShift));
   const [press,setPress]=useState(String(rates.pressCostPerPc));
+  const [assembly,setAssembly]=useState(String(rates.assemblyCostPerPc));
   const [fxRate,setFxRate]=useState(String(rates.usdToEgpFallbackRate));
-  const save=()=>onSave({sortingCostPerPc:Number(sorting)||0,injectionCostPerShift:Number(injection)||0,pressCostPerPc:Number(press)||0,usdToEgpFallbackRate:Number(fxRate)||0});
+  const save=()=>onSave({sortingCostPerPc:Number(sorting)||0,injectionCostPerShift:Number(injection)||0,pressCostPerPc:Number(press)||0,assemblyCostPerPc:Number(assembly)||0,usdToEgpFallbackRate:Number(fxRate)||0});
   return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:440,overflow:"hidden"}}>
       <div style={{background:NAVY,padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -2621,8 +2632,10 @@ function LaborRatesModal({rates,onSave,onClose}){
           <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 10 girls × 300 EGP/day ÷ 200,000 pcs sorted/day</div></div>
         <div style={{marginBottom:14}}><Field label="Injection (EGP per shift)" value={injection} onChange={setInjection} type="number" ph="519.23"/>
           <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 27,000 EGP ÷ 26 days ÷ 2 x 12h shifts/day</div></div>
-        <div style={{marginBottom:14}}><Field label="Press / Assembly (EGP per pc)" value={press} onChange={setPress} type="number" ph="0.003125"/>
-          <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 12,000 EGP ÷ 16 shifts ÷ 240,000 pcs/shift</div></div>
+        <div style={{marginBottom:14}}><Field label="Press — stamps coil into caps (EGP per pc)" value={press} onChange={setPress} type="number" ph="0.0027778"/>
+          <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 12,000 EGP salary ÷ 18 visits/month ÷ 240,000 pcs/visit</div></div>
+        <div style={{marginBottom:14}}><Field label="Assembly — plastic + caps (EGP per pc)" value={assembly} onChange={setAssembly} type="number" ph="0.003125"/>
+          <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 500 EGP paid per visit ÷ 160,000 pcs/visit</div></div>
         <div style={{marginBottom:18}}><Field label="USD → EGP Fallback Rate" value={fxRate} onChange={setFxRate} type="number" ph="50"/>
           <div style={{fontSize:11,color:"#999",marginTop:3}}>Used only when a coil lot doesn&apos;t have its own purchase-time rate set.</div></div>
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Settings</button>
@@ -2700,7 +2713,15 @@ export default function EpsInventoryApp(){
         bs=sb.concat(INITIAL_BATCHES.filter(b=>!nos[b.batchNo]));
         const so=p._orders||[];const ons={};so.forEach(o=>{ons[o.orderNo]=1;});
         os=so.concat(INITIAL_ORDERS.filter(o=>!ons[o.orderNo]));
-        lr=p._laborRates?Object.assign({},DEFAULT_LABOR_RATES,p._laborRates):DEFAULT_LABOR_RATES;
+        // pressCostPerPc used to mean the combined "Press/Assembly" rate before they were split
+        // into two real machines — a saved rate under that old key is really the Assembly rate,
+        // so carry it forward under the new assemblyCostPerPc key instead of misapplying it to
+        // the (differently-priced) Press machine, and let Press pick up its own fresh default.
+        let savedLr=p._laborRates;
+        if(savedLr&&savedLr.pressCostPerPc!=null&&savedLr.assemblyCostPerPc==null){
+          savedLr=Object.assign({},savedLr,{assemblyCostPerPc:savedLr.pressCostPerPc,pressCostPerPc:DEFAULT_LABOR_RATES.pressCostPerPc});
+        }
+        lr=savedLr?Object.assign({},DEFAULT_LABOR_RATES,savedLr):DEFAULT_LABOR_RATES;
         setLastSync(today());
       } else {
         Object.keys(MATERIAL_META).forEach(k=>{merged[k]=Object.assign({},MATERIAL_META[k],{lots:INITIAL_LOTS[k],coils:INITIAL_COILS[k]||[]});});
@@ -2755,7 +2776,13 @@ export default function EpsInventoryApp(){
         const p=JSON.parse(ev.target.result);
         if(!p||typeof p!=="object"||!p.data||!Array.isArray(p.batches)||!Array.isArray(p.orders))throw new Error("bad shape");
         setData(p.data);setBatches(p.batches);setOrders(p.orders);
-        if(p.laborRates)setLaborRates(Object.assign({},DEFAULT_LABOR_RATES,p.laborRates));
+        if(p.laborRates){
+          let lr2=p.laborRates;
+          if(lr2.pressCostPerPc!=null&&lr2.assemblyCostPerPc==null){
+            lr2=Object.assign({},lr2,{assemblyCostPerPc:lr2.pressCostPerPc,pressCostPerPc:DEFAULT_LABOR_RATES.pressCostPerPc});
+          }
+          setLaborRates(Object.assign({},DEFAULT_LABOR_RATES,lr2));
+        }
         showToast("Backup restored ✓ — review, then it will auto-save");
       }catch(e){console.error("Import failed",e);showToast("⚠️ That file doesn't look like a valid backup","error");}
     };
