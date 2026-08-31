@@ -362,11 +362,15 @@ function buildBatchCost(batch,batches,data,laborRates){
 
   // Revenue/profit — priced by the batch's own set quantity (totalPcs), not by however
   // many pcs actually came out of production. sellPricePerPc is set manually per batch.
+  // Cost defaults to the auto-computed netEGP above, but can be overridden per batch with
+  // a manual estimate (estCostEGP) — useful when material/labor tracking is incomplete.
   const goodPcsTotal=shifts.reduce((s,x)=>s+(x.goodPcs||0),0);
   const revenuePcs=Number(batch.totalPcs)||0;
   const sellPricePerPc=Number(batch.sellPricePerPc)||0;
   const revenueEGP=sellPricePerPc*revenuePcs;
-  const profitEGP=revenueEGP-netEGP;
+  const estCostEGP=Number(batch.estCostEGP)||0;
+  const costEGP=estCostEGP>0?estCostEGP:netEGP;
+  const profitEGP=revenueEGP-costEGP;
   const marginPct=revenueEGP>0?profitEGP/revenueEGP*100:null;
 
   return {batch:batch,isSilica:isSilica,plasticCost:plasticCost,plasticBagsCosted:plasticBagsCosted,plasticBagsUncosted:plasticBagsUncosted,
@@ -379,7 +383,7 @@ function buildBatchCost(batch,batches,data,laborRates){
     injectionShifts:injectionShifts,sortingPcs:sortingPcs,assemblyPcs:assemblyPcs,pressPcs:pressPcs,
     laborInjectionEGP:laborInjectionEGP,laborSortingEGP:laborSortingEGP,laborAssemblyEGP:laborAssemblyEGP,laborPressEGP:laborPressEGP,laborTotalEGP:laborTotalEGP,
     netEGP:netEGP,goodPcsTotal:goodPcsTotal,revenuePcs:revenuePcs,
-    sellPricePerPc:sellPricePerPc,revenueEGP:revenueEGP,profitEGP:profitEGP,marginPct:marginPct};
+    sellPricePerPc:sellPricePerPc,revenueEGP:revenueEGP,estCostEGP:estCostEGP,costEGP:costEGP,profitEGP:profitEGP,marginPct:marginPct};
 }
 
 const PRODUCT_META={
@@ -2567,18 +2571,21 @@ function CurrencyLines({byCurrency}){
   return <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>{curs.map(c=>(
     <div key={c} style={{fontSize:20,fontWeight:900,color:NAVY}}>{fmt(byCurrency[c])} <span style={{fontSize:12,color:"#888",fontWeight:700}}>{c}</span></div>))}</div>;
 }
-function SellingPriceModal({batch,orderPrice,onSave,onClose}){
+function SellingPriceModal({batch,orderPrice,autoCostEGP,onSave,onClose}){
   const [price,setPrice]=useState(batch.sellPricePerPc?String(batch.sellPricePerPc):(orderPrice?String(orderPrice):""));
-  const save=()=>onSave(Number(price)||0);
+  const [cost,setCost]=useState(batch.estCostEGP?String(batch.estCostEGP):"");
+  const save=()=>onSave({sellPricePerPc:Number(price)||0,estCostEGP:Number(cost)||0});
   return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:400,overflow:"hidden"}}>
       <div style={{background:"#1A6B2A",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>💰 Selling Price</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>{batch.batchNo}</div></div>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>💰 Selling Price &amp; Cost</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>{batch.batchNo}</div></div>
         <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
       <div style={{padding:24}}>
-        <div style={{marginBottom:18}}><Field label="Selling Price per Pc (EGP)" value={price} onChange={setPrice} type="number" ph="e.g. 0.85"/>
+        <div style={{marginBottom:14}}><Field label="Selling Price per Pc (EGP)" value={price} onChange={setPrice} type="number" ph="e.g. 0.85"/>
           {orderPrice>0&&!batch.sellPricePerPc&&<div style={{fontSize:11,color:"#999",marginTop:4}}>Pre-filled from this batch&apos;s order ({fmt(orderPrice)} EGP/pc) — edit if this batch sold for a different price.</div>}</div>
-        <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#1A6B2A",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Price</button>
+        <div style={{marginBottom:18}}><Field label="Estimated Cost Override (EGP)" value={cost} onChange={setCost} type="number" ph="e.g. 150000"/>
+          <div style={{fontSize:11,color:"#999",marginTop:4}}>Auto-computed from materials/labor: {fmt(autoCostEGP)} EGP. Leave blank to use that, or write your own estimate to use instead.</div></div>
+        <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#1A6B2A",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save</button>
       </div></div></div>);
 }
 function BatchCostDoc({cost,orders,onBack,onSaveSellPrice}){
@@ -2642,17 +2649,18 @@ function BatchCostDoc({cost,orders,onBack,onSaveSellPrice}){
       This covers {cost.isSilica?"silica gel, rolls, and labor":"plastic, aluminum, and labor"} cost — no overhead applied yet. Add more cost inputs over time to make this more accurate.</div>
     <ReportSection title="Selling Price & Profit">
       <div className="eps-no-print" style={{marginBottom:10}}>
-        <button type="button" onClick={()=>setShowPrice(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ {cost.sellPricePerPc>0?"Edit":"Set"} Selling Price</button></div>
+        <button type="button" onClick={()=>setShowPrice(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ {cost.sellPricePerPc>0||cost.estCostEGP>0?"Edit":"Set"} Selling Price &amp; Cost</button></div>
       {cost.sellPricePerPc>0?(<>
         <div style={{fontSize:12,color:"#666",marginBottom:10}}>{fmt(cost.sellPricePerPc)} EGP/pc × {fmtN(cost.revenuePcs)} pcs (batch quantity — actual produced: {fmtN(cost.goodPcsTotal)} pcs)</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:10}}>
           <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Revenue</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(cost.revenueEGP)}</div></div>
-          <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Cost</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(cost.netEGP)}</div></div>
+          <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Cost</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(cost.costEGP)}</div></div>
           <div style={{background:cost.profitEGP>=0?"#EAF7EC":"#FFF0F0",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Profit</div><div style={{fontSize:17,fontWeight:900,color:cost.profitEGP>=0?"#1A6B2A":"#DC3545",marginTop:2}}>{fmt(cost.profitEGP)}</div></div></div>
+        <div style={{fontSize:11,color:"#999",marginBottom:6}}>{cost.estCostEGP>0?"Cost is your own estimate ("+fmt(cost.estCostEGP)+" EGP) — auto-computed materials/labor came to "+fmt(cost.netEGP)+" EGP.":"Cost is auto-computed from materials + labor above."}</div>
         {cost.marginPct!=null&&<div style={{fontSize:12,color:"#666"}}>Margin: <strong style={{color:cost.profitEGP>=0?"#1A6B2A":"#DC3545"}}>{cost.marginPct.toFixed(1)}%</strong></div>}
       </>):(<div style={{color:"#888",fontSize:12}}>No selling price set yet for this batch.</div>)}
     </ReportSection>
-    {showPrice&&<SellingPriceModal batch={b} orderPrice={orderPrice} onSave={p=>{onSaveSellPrice(p);setShowPrice(false);}} onClose={()=>setShowPrice(false)}/>}
+    {showPrice&&<SellingPriceModal batch={b} orderPrice={orderPrice} autoCostEGP={cost.netEGP} onSave={f=>{onSaveSellPrice(f);setShowPrice(false);}} onClose={()=>setShowPrice(false)}/>}
   </div>);
 }
 function LaborRatesModal({rates,onSave,onClose}){
@@ -2688,8 +2696,8 @@ function FinanceSection({data,batches,orders,laborRates,onSaveLaborRates,onUpdat
   const mainBatches=batches.filter(b=>!b.isSubBatch).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
   if(doc)return(<div className="eps-print-page" style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
     <BatchCostDoc cost={doc} orders={orders} onBack={()=>setDoc(null)}
-      onSaveSellPrice={price=>{
-        const updated=Object.assign({},doc.batch,{sellPricePerPc:price});
+      onSaveSellPrice={f=>{
+        const updated=Object.assign({},doc.batch,{sellPricePerPc:f.sellPricePerPc,estCostEGP:f.estCostEGP});
         onUpdateBatch(updated);
         setDoc(buildBatchCost(updated,batches,data,laborRates));
       }}/></div>);
