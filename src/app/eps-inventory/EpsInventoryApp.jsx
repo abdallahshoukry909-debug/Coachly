@@ -246,7 +246,7 @@ function deriveCapsCost(lot,coilLots){
 // (via the coil each lot was stamped from); Silica Gel Sachets from the Silica Gel + Sachets
 // Paper (rolls) lots each shift actually drew from. Costs are kept split by currency rather
 // than guessing an exchange rate.
-function buildBatchCost(batch,batches,data,laborRates){
+function buildBatchCost(batch,batches,data,laborRates,orders){
   const rates=Object.assign({},DEFAULT_LABOR_RATES,laborRates);
   const shifts=batches.filter(b=>b.isSubBatch&&b.parentBatchNo===batch.batchNo);
   const isSilica=batch.product==="Silica Gel Sachets";
@@ -360,12 +360,15 @@ function buildBatchCost(batch,batches,data,laborRates){
 
   const netEGP=(plasticCost.EGP||0)+(silicaCost.EGP||0)+(rollsCost.EGP||0)+laborTotalEGP+alCostEGP-estScrapCreditEGP;
 
-  // Revenue/profit — priced per good pc actually produced (not the batch's static target),
-  // same basis the cost side already uses. sellPricePerPc is set manually per batch since
-  // there's no order-pricing data to derive it from yet.
+  // Revenue/profit — priced by the quantity ordered up front (the order's targetQty, set
+  // when the order was created), not by however many pcs actually came out of production.
+  // Falls back to the batch's own planned totalPcs when it isn't linked to an order.
+  // sellPricePerPc is set manually per batch since there's no order-pricing data yet.
   const goodPcsTotal=shifts.reduce((s,x)=>s+(x.goodPcs||0),0);
+  const linkedOrder=(orders||[]).filter(o=>batch.orderNo&&o.orderNo===batch.orderNo)[0]||null;
+  const revenuePcs=linkedOrder?Number(linkedOrder.targetQty)||0:Number(batch.totalPcs)||0;
   const sellPricePerPc=Number(batch.sellPricePerPc)||0;
-  const revenueEGP=sellPricePerPc*goodPcsTotal;
+  const revenueEGP=sellPricePerPc*revenuePcs;
   const profitEGP=revenueEGP-netEGP;
   const marginPct=revenueEGP>0?profitEGP/revenueEGP*100:null;
 
@@ -378,7 +381,8 @@ function buildBatchCost(batch,batches,data,laborRates){
     scrapKgForBatch:scrapKgForBatch,avgScrapRateEGP:avgScrapRateEGP,scrapRateIsAssumed:scrapRateIsAssumed,estScrapCreditEGP:estScrapCreditEGP,
     injectionShifts:injectionShifts,sortingPcs:sortingPcs,assemblyPcs:assemblyPcs,pressPcs:pressPcs,
     laborInjectionEGP:laborInjectionEGP,laborSortingEGP:laborSortingEGP,laborAssemblyEGP:laborAssemblyEGP,laborPressEGP:laborPressEGP,laborTotalEGP:laborTotalEGP,
-    netEGP:netEGP,goodPcsTotal:goodPcsTotal,sellPricePerPc:sellPricePerPc,revenueEGP:revenueEGP,profitEGP:profitEGP,marginPct:marginPct};
+    netEGP:netEGP,goodPcsTotal:goodPcsTotal,linkedOrder:linkedOrder,revenuePcs:revenuePcs,
+    sellPricePerPc:sellPricePerPc,revenueEGP:revenueEGP,profitEGP:profitEGP,marginPct:marginPct};
 }
 
 const PRODUCT_META={
@@ -2604,7 +2608,7 @@ function BatchCostDoc({cost,onBack,onSaveSellPrice}){
       <div className="eps-no-print" style={{marginBottom:10}}>
         <button type="button" onClick={()=>setShowPrice(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ {cost.sellPricePerPc>0?"Edit":"Set"} Selling Price</button></div>
       {cost.sellPricePerPc>0?(<>
-        <div style={{fontSize:12,color:"#666",marginBottom:10}}>{fmt(cost.sellPricePerPc)} EGP/pc × {fmtN(cost.goodPcsTotal)} good pcs produced</div>
+        <div style={{fontSize:12,color:"#666",marginBottom:10}}>{fmt(cost.sellPricePerPc)} EGP/pc × {fmtN(cost.revenuePcs)} pcs {cost.linkedOrder?"ordered (Order "+cost.linkedOrder.orderNo+")":"planned for this batch (no linked order — actual produced: "+fmtN(cost.goodPcsTotal)+" pcs)"}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:10}}>
           <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Revenue</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(cost.revenueEGP)}</div></div>
           <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Cost</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(cost.netEGP)}</div></div>
@@ -2641,7 +2645,7 @@ function LaborRatesModal({rates,onSave,onClose}){
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Settings</button>
       </div></div></div>);
 }
-function FinanceSection({data,batches,laborRates,onSaveLaborRates,onUpdateBatch,onClose}){
+function FinanceSection({data,batches,orders,laborRates,onSaveLaborRates,onUpdateBatch,onClose}){
   const [doc,setDoc]=useState(null);
   const [pickBatchNo,setPickBatchNo]=useState("");
   const [showRates,setShowRates]=useState(false);
@@ -2651,7 +2655,7 @@ function FinanceSection({data,batches,laborRates,onSaveLaborRates,onUpdateBatch,
       onSaveSellPrice={price=>{
         const updated=Object.assign({},doc.batch,{sellPricePerPc:price});
         onUpdateBatch(updated);
-        setDoc(buildBatchCost(updated,batches,data,laborRates));
+        setDoc(buildBatchCost(updated,batches,data,laborRates,orders));
       }}/></div>);
   return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"linear-gradient(135deg,#0D1F3C,"+NAVY+")",position:"sticky",top:0,zIndex:100}}>
@@ -2668,7 +2672,7 @@ function FinanceSection({data,batches,laborRates,onSaveLaborRates,onUpdateBatch,
           <select value={pickBatchNo} onChange={e=>setPickBatchNo(e.target.value)} style={{flex:1,border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
             <option value="">— select batch —</option>
             {mainBatches.map(b=><option key={b.id} value={b.batchNo}>{b.batchNo} · {b.color}{b.client?" · "+b.client:""}</option>)}</select>
-          <button type="button" disabled={!pickBatchNo} onClick={()=>{const b=mainBatches.filter(x=>x.batchNo===pickBatchNo)[0];if(b)setDoc(buildBatchCost(b,batches,data,laborRates));}}
+          <button type="button" disabled={!pickBatchNo} onClick={()=>{const b=mainBatches.filter(x=>x.batchNo===pickBatchNo)[0];if(b)setDoc(buildBatchCost(b,batches,data,laborRates,orders));}}
             style={{background:pickBatchNo?NAVY:"#E2E8F0",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,fontSize:13,cursor:pickBatchNo?"pointer":"default",whiteSpace:"nowrap"}}>Generate</button></div>
       {showRates&&<LaborRatesModal rates={laborRates} onClose={()=>setShowRates(false)} onSave={r=>{onSaveLaborRates(r);setShowRates(false);}}/>}
       </div>
@@ -2937,7 +2941,7 @@ export default function EpsInventoryApp(){
   let content;
   if(section==="log")content=<ActivityLog data={data} batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="reports")content=<ReportsSection data={data} batches={batches} orders={orders} onClose={()=>setSection("inventory")}/>;
-  else if(section==="finance")content=<FinanceSection data={data} batches={batches} laborRates={laborRates} onSaveLaborRates={setLaborRates} onUpdateBatch={updateBatch} onClose={()=>setSection("inventory")}/>;
+  else if(section==="finance")content=<FinanceSection data={data} batches={batches} orders={orders} laborRates={laborRates} onSaveLaborRates={setLaborRates} onUpdateBatch={updateBatch} onClose={()=>setSection("inventory")}/>;
   else if(section==="labels")content=<LabelsSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="certificates")content=<CertificatesSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
