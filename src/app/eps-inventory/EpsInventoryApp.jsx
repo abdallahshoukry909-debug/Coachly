@@ -1505,7 +1505,7 @@ function SilicaShiftForm({parentBatch,batches,data,existing,onSave,onCancel}){
   const [operator,setOperator]=useState(e.operator||"");
   const [amount,setAmount]=useState(e.amountPcs!=null?String(e.amountPcs):"");
   const [silicaLotId,setSilicaLotId]=useState(e.silicaLotId||"");
-  const [silicaKg,setSilicaKg]=useState(e.silicaKg!=null?String(e.silicaKg):"");
+  const [silicaBags,setSilicaBags]=useState(e.silicaKg!=null?String(e.silicaKg/BAG_KG):"");
   const [rollsLotId,setRollsLotId]=useState(e.rollsLotId||"");
   const [rollsUsed,setRollsUsed]=useState(e.rollsUsed!=null?String(e.rollsUsed):"");
   const [notes,setNotes]=useState(e.notes||""),[err,setErr]=useState("");
@@ -1513,14 +1513,17 @@ function SilicaShiftForm({parentBatch,batches,data,existing,onSave,onCancel}){
   const rollsLots=((data&&data["Sachets Paper"]&&data["Sachets Paper"].lots)||[]).filter(l=>l.status!=="Out of Stock"||l.id===e.rollsLotId);
   const selSilica=silicaLotId?silicaLots.filter(l=>l.id===silicaLotId)[0]:null;
   const selRolls=rollsLotId?rollsLots.filter(l=>l.id===rollsLotId)[0]:null;
-  const amt=Number(amount)||0,sKg=Number(silicaKg)||0,rQty=Number(rollsUsed)||0;
-  const availSilica=selSilica?Number(selSilica.qtyRemaining):0;
+  // Silica Gel is stocked and used in 25 KG bags (matches the inventory lot itself, e.g.
+  // "Silica Gel Beaded Type A – 25 KG/bag") — simpler to enter bags than raw KG.
+  const amt=Number(amount)||0,sBags=Number(silicaBags)||0,sKg=sBags*BAG_KG,rQty=Number(rollsUsed)||0;
+  const availSilicaKg=selSilica?Number(selSilica.qtyRemaining):0;
+  const availSilicaBags=availSilicaKg/BAG_KG;
   const availRolls=selRolls?Number(selRolls.qtyRemaining):0;
   const save=()=>{
     if(amt<1){setErr("Enter the amount made.");return;}
     if(!operator.trim()){setErr("Enter the operator's name.");return;}
-    if(sKg>0&&!silicaLotId){setErr("Select which Silica Gel lot was used.");return;}
-    if(selSilica&&!existing&&sKg>availSilica+0.01){setErr("Only "+fmt(availSilica)+" KG available in that lot.");return;}
+    if(sBags>0&&!silicaLotId){setErr("Select which Silica Gel lot was used.");return;}
+    if(selSilica&&!existing&&sBags>availSilicaBags+0.01){setErr("Only "+fmt(availSilicaBags)+" bags available in that lot.");return;}
     if(rQty>0&&!rollsLotId){setErr("Select which Sachets Paper lot was used.");return;}
     if(selRolls&&!existing&&rQty>availRolls+0.01){setErr("Only "+availRolls+" rolls available in that lot.");return;}
     const payload={id:e.id||genId(),batchNo:subNo,isSubBatch:true,parentBatchNo:parentBatch.batchNo,
@@ -1549,10 +1552,10 @@ function SilicaShiftForm({parentBatch,batches,data,existing,onSave,onCancel}){
           <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Draw From Lot</label>
           <select value={silicaLotId} onChange={ev=>{setSilicaLotId(ev.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid "+(silicaLots.length?"#E2E8F0":"#F1948A"),borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
             <option value="">— not specified —</option>
-            {silicaLots.map(l=><option key={l.id} value={l.id}>{l.lotNumber} · {fmtN(l.qtyRemaining)} KG available</option>)}</select>
+            {silicaLots.map(l=><option key={l.id} value={l.id}>{l.lotNumber} · {fmtN(Number(l.qtyRemaining)/BAG_KG)} bags available</option>)}</select>
           {silicaLots.length===0&&<div style={{fontSize:11,color:"#DC3545",marginTop:5,fontWeight:600}}>⚠️ No Silica Gel lots in inventory — go to Inventory → Silica Gel first.</div>}</div>
-        <Field label="KG Used" value={silicaKg} onChange={v=>{setSilicaKg(v);setErr("");}} type="number" ph="0.00" accent="#1A7A45"/>
-        {selSilica&&<div style={{fontSize:11,color:"#1A7A45",marginTop:6}}>{fmtN(availSilica)} KG available</div>}</div>
+        <Field label={"Bags Used (1 bag = "+BAG_KG+" KG)"} value={silicaBags} onChange={v=>{setSilicaBags(v);setErr("");}} type="number" ph="e.g. 2" accent="#1A7A45"/>
+        {selSilica&&<div style={{fontSize:11,color:"#1A7A45",marginTop:6}}>{fmtN(availSilicaBags)} bags ({fmtN(availSilicaKg)} KG) available{sBags>0?" · using "+fmt(sKg)+" KG":""}</div>}</div>
       <div style={{background:"#FEE8D0",borderRadius:10,padding:14,marginBottom:14}}>
         <div style={{fontWeight:700,fontSize:13,color:"#6B3010",marginBottom:10}}>📄 Rolls Used</div>
         <div style={{marginBottom:10}}>
@@ -1595,7 +1598,7 @@ function SilicaShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpda
           <span style={{color:"#888"}}>{pct}% · {Math.max(0,target-totalGood).toLocaleString()} remaining</span></div>
         <div style={{height:8,background:"#B8E0C8",borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:pct>=100?"#22A03A":"#1A7A45",borderRadius:4}}/></div></div>}
       {mySubs.length>0&&<div style={{display:"flex",gap:14,fontSize:12,color:"#666",marginBottom:12,flexWrap:"wrap"}}>
-        <div>🟡 {fmtN(totalSilicaKg)} KG silica used</div><div>📄 {fmtN(totalRolls)} rolls used</div></div>}
+        <div>🟡 {fmtN(totalSilicaKg/BAG_KG)} bags silica used ({fmtN(totalSilicaKg)} KG)</div><div>📄 {fmtN(totalRolls)} rolls used</div></div>}
       <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
         {mySubs.length===0&&<div style={{textAlign:"center",padding:20,color:"#888",fontSize:13}}>No shifts yet — start the first one below</div>}
         {mySubs.map(sub=>(<div key={sub.id} style={{background:"#FAFBFC",borderRadius:10,border:"1.5px solid #EEF2F7",padding:"10px 14px"}}>
@@ -1605,7 +1608,7 @@ function SilicaShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpda
             <button type="button" onClick={()=>setForm({subId:sub.id,editing:true})} style={{background:"#fff",border:"1px solid #0E4A2A",color:"#0E4A2A",borderRadius:20,padding:"3px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>✏️ Edit</button></div>
           <div style={{display:"flex",gap:14,fontSize:11,color:"#666",flexWrap:"wrap",marginTop:8}}>
             <span style={{fontWeight:700,color:"#1A6B2A"}}>✅ {fmtN(sub.goodPcs)} pcs</span>
-            {sub.silicaKg?<span>🟡 {fmtN(sub.silicaKg)} KG silica</span>:null}
+            {sub.silicaKg?<span>🟡 {fmtN(sub.silicaKg/BAG_KG)} bags silica</span>:null}
             {sub.rollsUsed?<span>📄 {sub.rollsUsed} rolls</span>:null}</div>
           <div style={{marginTop:9,paddingTop:9,borderTop:"1px solid #F0F0F0"}}>
             {confDel===sub.id?(<div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -1707,8 +1710,44 @@ function BatchWeightsModal({batch,onSave,onClose}){
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Weights</button>
       </div></div></div>);
 }
+// Lets the cartons/bags/pcs spec set at Create Batch be corrected afterward — e.g. the last
+// bag or last carton of a real run turned out to be a different amount than planned — without
+// forcing a delete-and-recreate. Reuses the exact same math as Create Batch's own fields.
+function BatchQuantityModal({batch,onSave,onClose}){
+  const [cartons,setCartons]=useState(String(batch.cartons||0));
+  const [bpc,setBpc]=useState(String(batch.bagsPerCarton||0));
+  const [ppb,setPpb]=useState(String(batch.pcsPerBag||0));
+  const [partial,setPartial]=useState(String(batch.partialCartonBags||0));
+  const [partialBagPcs,setPartialBagPcs]=useState(String(batch.partialBagPcs||0));
+  const [err,setErr]=useState("");
+  const c=Number(cartons)||0,b=Number(bpc)||0,p=Number(ppb)||0,pt=Number(partial)||0,pbp=Number(partialBagPcs)||0;
+  const totalBags=c*b+pt;
+  const totalPcs=pbp>0&&totalBags>0?(totalBags-1)*p+pbp:totalBags*p;
+  const save=()=>{
+    if(c<1){setErr("At least 1 carton.");return;}
+    onSave(Object.assign({},batch,{cartons:c,bagsPerCarton:b,pcsPerBag:p,partialCartonBags:pt,partialBagPcs:pbp,totalPcs:totalPcs}));
+  };
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:440,overflow:"hidden"}}>
+      <div style={{background:NAVY,padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>🔢 Edit Amount</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>{batch.batchNo}</div></div>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
+      <div style={{padding:24}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+          <Field label="Cartons" value={cartons} onChange={v=>{setCartons(v);setErr("");}} type="number"/>
+          <Field label="Bags per Carton" value={bpc} onChange={setBpc} type="number"/>
+          <Field label="Pcs per Bag" value={ppb} onChange={setPpb} type="number"/>
+          <Field label="Partial Final Carton (bags)" value={partial} onChange={setPartial} type="number"/>
+          <Field label="Partial Last Bag (pcs, optional)" value={partialBagPcs} onChange={setPartialBagPcs} type="number" ph="0 = normal full bag"/>
+        </div>
+        <div style={{background:"#EBF1F8",borderRadius:10,padding:"10px 12px",marginBottom:18,fontSize:12,color:"#555"}}>
+          {c} cartons · {b} bags/carton{pt>0?" + "+pt+" bag"+(pt===1?"":"s")+" partial carton":""} · <strong>{fmtN(totalPcs)} pcs total</strong>{pbp>0&&totalBags>0?" (last bag is "+fmtN(pbp)+" pcs, not "+fmtN(p)+")":""}</div>
+        {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
+        <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Amount</button>
+      </div></div></div>);
+}
 function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts,onUpdateBatch}){
-  const [exp,setExp]=useState(false),[confDel,setConfDel]=useState(false),[showWeights,setShowWeights]=useState(false);
+  const [exp,setExp]=useState(false),[confDel,setConfDel]=useState(false),[showWeights,setShowWeights]=useState(false),[showQty,setShowQty]=useState(false);
   const cfg=BST[batch.status]||BST.Production;
   const subs=subBatches||[];
   const subGood=subs.reduce((s,b)=>s+(b.goodPcs||0),0);
@@ -1742,6 +1781,7 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts,onUp
         {batch.mfgDate&&<div><strong>Mfg:</strong> {batch.mfgDate}</div>}
         {isFO&&<div><strong>Weights:</strong> {batch.capWt||CAP_WT} g/cap plastic · {batch.asmWt||ASM_WT} g/cap assembled · {batch.wastePerInj||WASTE_PER_INJ} g/shot waste</div>}
         {batch.notes&&<div><strong>Notes:</strong> {batch.notes}</div>}</div>
+      <button type="button" onClick={()=>setShowQty(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:10,marginRight:8}}>🔢 Edit Amount</button>
       {isFO&&<button type="button" onClick={()=>setShowWeights(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:10,marginRight:8}}>⚖️ Edit Weights</button>}
       {confDel?(<div style={{display:"flex",gap:8}}>
         <button type="button" onClick={()=>{onDelete();setConfDel(false);}} style={{padding:"6px 14px",background:"#DC3545",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700}}>Yes, delete</button>
@@ -1749,6 +1789,7 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts,onUp
       :(<button type="button" onClick={()=>setConfDel(true)} style={{padding:"6px 14px",border:"1.5px solid #F1948A",color:"#DC3545",background:"#FFF0F0",borderRadius:6,cursor:"pointer",fontSize:12}}>Delete batch</button>)}
     </div>}
     {showWeights&&<BatchWeightsModal batch={batch} onSave={u=>{onUpdateBatch(u);setShowWeights(false);}} onClose={()=>setShowWeights(false)}/>}
+    {showQty&&<BatchQuantityModal batch={batch} onSave={u=>{onUpdateBatch(u);setShowQty(false);}} onClose={()=>setShowQty(false)}/>}
   </div>);
 }
 function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic,onApplyMaterial,onDeleteSub,onSaveLeftover}){
