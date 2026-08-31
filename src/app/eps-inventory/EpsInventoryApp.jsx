@@ -1689,6 +1689,7 @@ function BatchForm({batches,orders,onSave,onCancel}){
   const [mfgDate,setMfgDate]=useState(new Date().toISOString().split("T")[0]);
   const [expDate,setExpDate]=useState("");
   const [status,setStatus]=useState("Production"),[orderNo,setOrderNo]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
+  const [isSample,setIsSample]=useState(false);
   const [capWt,setCapWt]=useState(String(CAP_WT)),[asmWt,setAsmWt]=useState(String(ASM_WT));
   const [wastePerInj,setWastePerInj]=useState(String(WASTE_PER_INJ));
   const isFO=product==="Flip-Off Caps 20mm";
@@ -1704,7 +1705,7 @@ function BatchForm({batches,orders,onSave,onCancel}){
   const save=()=>{if(!variant.trim()){setErr(meta.variantLabel+" is required.");return;}if(c<1){setErr("At least 1 carton.");return;}
     onSave({id:genId(),batchNo:preview,isSubBatch:false,parentBatchNo:null,product:product,status:status,
       color:variant.trim(),line:meta.lines?line:"",cartons:c,bagsPerCarton:b,pcsPerBag:p,partialCartonBags:pt,partialBagPcs:pbp,totalPcs:totalPcs,
-      mfgDate:mfgDate,expiryDate:expDate,client:client.trim(),orderNo:orderNo||null,notes:notes.trim(),createdAt:today(),
+      mfgDate:mfgDate,expiryDate:expDate,client:client.trim(),orderNo:orderNo||null,notes:notes.trim(),createdAt:today(),isSample:isSample,
       capWt:isFO?(Number(capWt)||CAP_WT):null,asmWt:isFO?(Number(asmWt)||ASM_WT):null,
       wastePerInj:isFO?(Number(wastePerInj)||WASTE_PER_INJ):null});};
   return(<div style={{maxWidth:700,fontFamily:"'Inter',sans-serif"}}>
@@ -1741,7 +1742,11 @@ function BatchForm({batches,orders,onSave,onCancel}){
         <div style={{gridColumn:"1/-1"}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Link to Order</label>
           <select value={orderNo} onChange={e=>setOrderNo(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
             <option value="">— none —</option>{orders.map(o=><option key={o.id} value={o.orderNo}>{o.orderNo} · {o.client}</option>)}</select></div>
-        <div style={{gridColumn:"1/-1"}}><Field label="Notes" value={notes} onChange={setNotes}/></div></div>
+        <div style={{gridColumn:"1/-1"}}><Field label="Notes" value={notes} onChange={setNotes}/></div>
+        <div style={{gridColumn:"1/-1"}}>
+          <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"#555",cursor:"pointer"}}>
+            <input type="checkbox" checked={isSample} onChange={e=>setIsSample(e.target.checked)} style={{width:16,height:16}}/>
+            🎁 This is a free sample (no charge — excluded from revenue)</label></div></div>
       <div style={{background:"#EBF1F8",borderRadius:10,padding:"12px 14px",marginBottom:12}}>
         <div style={{fontSize:11,fontWeight:700,color:NAVY,textTransform:"uppercase"}}>Preview</div>
         <div style={{fontFamily:"monospace",fontSize:15,fontWeight:700,color:NAVY}}>{preview}</div>
@@ -1817,7 +1822,8 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts,onUp
           <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap",marginBottom:4}}>
             <span style={{fontFamily:"monospace",fontWeight:700,fontSize:14,color:NAVY}}>{batch.batchNo}</span>
             <span style={{display:"inline-flex",alignItems:"center",gap:4,background:cfg.bg,color:cfg.text,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700}}>
-              <span style={{width:6,height:6,borderRadius:"50%",background:cfg.dot}}/>{batch.status}</span></div>
+              <span style={{width:6,height:6,borderRadius:"50%",background:cfg.dot}}/>{batch.status}</span>
+            {batch.isSample&&<span style={{background:"#FFF3CD",color:"#8A6D00",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700}}>🎁 Sample</span>}</div>
           <div style={{fontSize:12,color:"#666"}}>{batch.product&&batch.product!=="Flip-Off Caps 20mm"?batch.product+" · ":""}{batch.color?batch.color+" · ":""}{batch.line?batch.line+" · ":""}{batch.cartons} cartons · <strong>{fmtN(batch.totalPcs)} pcs</strong>{batch.client?" · "+batch.client:""}</div>
           {batch.orderNo&&<div style={{fontSize:11,color:"#888",marginTop:2}}>Order: <span style={{fontFamily:"monospace",color:NAVY}}>{batch.orderNo}</span></div>}
           {subs.length>0&&<div style={{marginTop:6}}>
@@ -1848,8 +1854,9 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts,onUp
     {showQty&&<BatchQuantityModal batch={batch} onSave={u=>{onUpdateBatch(u);setShowQty(false);}} onClose={()=>setShowQty(false)}/>}
   </div>);
 }
-function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic,onApplyMaterial,onDeleteSub,onSaveLeftover}){
+function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic,onApplyMaterial,onDeleteSub,onSaveLeftover,onMarkUnpricedSamples}){
   const [showForm,setShowForm]=useState(false),[filterSt,setFilterSt]=useState(""),[search,setSearch]=useState(""),[shiftId,setShiftId]=useState(null);
+  const [confSamples,setConfSamples]=useState(false);
   const all=batches||[];
   const main=all.filter(b=>!b.isSubBatch);
   const filtered=main.filter(b=>(!filterSt||b.status===filterSt)&&(!search||b.batchNo.toLowerCase().indexOf(search)>=0||((b.color||"")+(b.client||"")).toLowerCase().indexOf(search)>=0));
@@ -1889,7 +1896,12 @@ function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDe
       <input value={search} onChange={e=>setSearch(e.target.value.toLowerCase())} placeholder="Search…" style={{flex:1,minWidth:150,border:"1.5px solid #E2E8F0",borderRadius:8,padding:"8px 12px",fontSize:13,outline:"none"}}/>
       <select value={filterSt} onChange={e=>setFilterSt(e.target.value)} style={{border:"1.5px solid #E2E8F0",borderRadius:8,padding:"8px 12px",fontSize:13,background:"#fff"}}>
         <option value="">All statuses</option>{BSTATUSES.map(s=><option key={s}>{s}</option>)}</select>
-      <button type="button" onClick={()=>setShowForm(true)} style={{background:NAVY,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>+ New Batch</button></div>
+      <button type="button" onClick={()=>setShowForm(true)} style={{background:NAVY,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}>+ New Batch</button>
+      {confSamples?(<div style={{display:"flex",gap:6,alignItems:"center",background:"#FFF3CD",border:"1px solid #E6C200",borderRadius:8,padding:"6px 10px"}}>
+        <span style={{fontSize:11,color:"#8A6D00",fontWeight:600}}>Mark all batches with no price/cost on record as free samples?</span>
+        <button type="button" onClick={()=>{onMarkUnpricedSamples();setConfSamples(false);}} style={{padding:"5px 10px",background:"#8A6D00",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700}}>Yes</button>
+        <button type="button" onClick={()=>setConfSamples(false)} style={{padding:"5px 10px",border:"1.5px solid #E2E8F0",borderRadius:6,background:"#fff",cursor:"pointer",fontSize:11}}>Cancel</button></div>)
+      :(<button type="button" onClick={()=>setConfSamples(true)} style={{padding:"8px 12px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>🎁 Mark Un-priced as Samples</button>)}</div>
     {filtered.length===0?(<div style={{textAlign:"center",padding:40,background:"#fff",borderRadius:12,border:"2px dashed #E2E8F0"}}>
       <div style={{fontSize:32,marginBottom:8}}>🏭</div><div style={{fontWeight:700,color:"#333"}}>No batches</div></div>)
     :(<div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -1899,6 +1911,14 @@ function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDe
 }
 
 // ══ ORDERS ════════════════════════════════════════════════════════════════
+function orderFinance(order){
+  const sellPricePerPc=Number(order.sellPricePerPc)||0;
+  const estCostEGP=Number(order.estCostEGP)||0;
+  const revenueEGP=sellPricePerPc*(Number(order.targetQty)||0);
+  const profitEGP=revenueEGP-estCostEGP;
+  const marginPct=revenueEGP>0?profitEGP/revenueEGP*100:null;
+  return {sellPricePerPc:sellPricePerPc,estCostEGP:estCostEGP,revenueEGP:revenueEGP,profitEGP:profitEGP,marginPct:marginPct};
+}
 function OrderFinanceModal({order,onSave,onClose}){
   const [price,setPrice]=useState(order.sellPricePerPc?String(order.sellPricePerPc):"");
   const [cost,setCost]=useState(order.estCostEGP?String(order.estCostEGP):"");
@@ -1937,11 +1957,7 @@ function OrderRow({order,linked,allBatches,onDelete,onUpdateOrder}){
   const pct=cartonsMode?(targetCartons?Math.min(100,Math.round(producedCartons/targetCartons*100)):0)
     :(order.targetQty?Math.min(100,Math.round(produced/order.targetQty*100)):0);
   const cfg=BST[order.status]||BST.Production;
-  const sellPricePerPc=Number(order.sellPricePerPc)||0;
-  const estCostEGP=Number(order.estCostEGP)||0;
-  const revenueEGP=sellPricePerPc*(Number(order.targetQty)||0);
-  const profitEGP=revenueEGP-estCostEGP;
-  const marginPct=revenueEGP>0?profitEGP/revenueEGP*100:null;
+  const {sellPricePerPc,estCostEGP,revenueEGP,profitEGP,marginPct}=orderFinance(order);
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14}}>
     <div style={{display:"flex",alignItems:"flex-start",gap:8,flexWrap:"wrap"}}>
       <div style={{flex:1,minWidth:0}}>
@@ -1949,13 +1965,13 @@ function OrderRow({order,linked,allBatches,onDelete,onUpdateOrder}){
           <span style={{fontFamily:"monospace",fontWeight:700,fontSize:14,color:NAVY}}>{order.orderNo}</span>
           <span style={{display:"inline-flex",alignItems:"center",gap:4,background:cfg.bg,color:cfg.text,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700}}>
             <span style={{width:6,height:6,borderRadius:"50%",background:cfg.dot}}/>{order.status}</span></div>
-        <div style={{fontSize:12,color:"#666",marginBottom:6}}>{order.client} · {order.color||"any"} · Target {fmtN(order.targetQty)} pcs{cartonsMode?" ("+fmt(targetCartons)+" cartons)":""}</div>
+        <div style={{fontSize:12,color:"#666",marginBottom:6}}>{order.product&&order.product!=="Flip-Off Caps 20mm"?order.product+" · ":""}{order.client} · {order.color||"any"} · Target {fmtN(order.targetQty)} pcs{cartonsMode?" ("+fmt(targetCartons)+" cartons)":""}</div>
         <div style={{marginBottom:6}}>
           <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#888",marginBottom:3}}>
             <span>{cartonsMode?fmt(producedCartons)+" of "+fmt(targetCartons)+" cartons":fmtN(produced)+" pcs produced"}</span><span>{pct}%</span></div>
           <div style={{height:6,background:"#F0F0F0",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:pct>=100?"#22A03A":ACCENT,borderRadius:3}}/></div>
           {cartonsMode&&<div style={{fontSize:11,color:"#888",marginTop:3}}>{fmt(Math.max(0,targetCartons-producedCartons))} cartons left</div>}</div>
-        {linked.length>0&&<div style={{fontSize:11,color:"#888",marginBottom:6}}>{linked.length} batches: {linked.map(b=><span key={b.id} style={{fontFamily:"monospace",marginRight:8,color:NAVY}}>{b.batchNo}</span>)}</div>}
+        {linked.length>0&&<div style={{fontSize:11,color:"#888",marginBottom:6}}>{linked.length} batches: {linked.map(b=><span key={b.id} style={{fontFamily:"monospace",marginRight:8,color:NAVY}}>{b.batchNo}{b.isSample?" 🎁":""}</span>)}</div>}
         <button type="button" onClick={()=>setShowFin(true)} style={{padding:"5px 10px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,marginBottom:sellPricePerPc>0||estCostEGP>0?8:0}}>💰 {sellPricePerPc>0||estCostEGP>0?"Edit":"Set"} Sale Price &amp; Cost</button>
         {(sellPricePerPc>0||estCostEGP>0)&&(<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(90px,1fr))",gap:8}}>
           <div style={{background:"#F7F9FC",borderRadius:8,padding:"7px 10px"}}><div style={{fontSize:9,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Revenue</div><div style={{fontSize:14,fontWeight:900,color:NAVY,marginTop:1}}>{fmt(revenueEGP)}</div></div>
@@ -1973,10 +1989,11 @@ function OrdersSection({batches,orders,onCreateOrder,onDeleteOrder,onDeleteAllOr
   const [showForm,setShowForm]=useState(false),[search,setSearch]=useState("");
   const [confDelAll,setConfDelAll]=useState(false);
   const [client,setClient]=useState(""),[color,setColor]=useState(""),[tq,setTq]=useState("1000000"),[delivery,setDelivery]=useState(""),[status,setStatus]=useState("Production"),[err,setErr]=useState("");
+  const [product,setProduct]=useState("Flip-Off Caps 20mm");
   const filtered=orders.filter(o=>!search||(o.orderNo+o.client+(o.color||"")).toLowerCase().indexOf(search.toLowerCase())>=0);
   const preview=nextOrdNo(orders);
   const save=()=>{if(!client.trim()){setErr("Client required.");return;}
-    onCreateOrder({id:genId(),orderNo:preview,client:client.trim(),product:"Flip-Off Caps 20mm",color:color.trim(),targetQty:Number(tq)||0,deliveryDate:delivery,status:status,notes:"",createdAt:today()});
+    onCreateOrder({id:genId(),orderNo:preview,client:client.trim(),product:product,color:color.trim(),targetQty:Number(tq)||0,deliveryDate:delivery,status:status,notes:"",createdAt:today()});
     setClient("");setColor("");setTq("1000000");setDelivery("");setShowForm(false);};
   if(showForm)return(<div style={{maxWidth:600,fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:NAVY,borderRadius:"12px 12px 0 0",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -1984,8 +2001,11 @@ function OrdersSection({batches,orders,onCreateOrder,onDeleteOrder,onDeleteAllOr
       <button type="button" onClick={()=>setShowForm(false)} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:13}}>Cancel</button></div>
     <div style={{background:"#fff",borderRadius:"0 0 12px 12px",border:"1.5px solid #EEF2F7",borderTop:"none",padding:20}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+        <div style={{gridColumn:"1/-1"}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Product</label>
+          <select value={product} onChange={e=>setProduct(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+            {PRODUCTS.map(pr=><option key={pr}>{pr}</option>)}</select></div>
         <Field label="Client *" value={client} onChange={v=>{setClient(v);setErr("");}} ph="e.g. Pharco"/>
-        <Field label="Cap Color" value={color} onChange={setColor} ph="e.g. Blue"/>
+        <Field label={product==="Flip-Off Caps 20mm"?"Cap Color":"Variant"} value={color} onChange={setColor} ph="e.g. Blue"/>
         <Field label="Target Quantity (pcs)" value={tq} onChange={setTq} type="number"/>
         <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Delivery Date</label>
           <input type="date" value={delivery} onChange={e=>setDelivery(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
@@ -2689,8 +2709,61 @@ function LaborRatesModal({rates,onSave,onClose}){
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Settings</button>
       </div></div></div>);
 }
+const isSilicaProduct=p=>p==="Silica Gel Sachets"||p==="Silica Gel Capsules";
+function OrdersProfitReport({orders,onBack}){
+  const [filter,setFilter]=useState("all");
+  const matches=o=>filter==="all"?true:filter==="silica"?isSilicaProduct(o.product):!isSilicaProduct(o.product);
+  const list=orders.filter(matches).map(o=>Object.assign({order:o},orderFinance(o))).sort((a,b)=>b.order.orderNo.localeCompare(a.order.orderNo));
+  const priced=list.filter(x=>x.sellPricePerPc>0||x.estCostEGP>0);
+  const totalRevenue=list.reduce((s,x)=>s+x.revenueEGP,0);
+  const totalCost=list.reduce((s,x)=>s+x.estCostEGP,0);
+  const totalProfit=totalRevenue-totalCost;
+  const totalMargin=totalRevenue>0?totalProfit/totalRevenue*100:null;
+  const maxAbsProfit=Math.max(1,...priced.map(x=>Math.abs(x.profitEGP)));
+  return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"'Inter',sans-serif"}}>
+    <ReportPrintBar onBack={onBack} backLabel="Back to Finance"/>
+    <ReportTitle title="Orders Profit Overview" subtitle="Revenue, cost, and profit across every order"/>
+    <div className="eps-no-print" style={{display:"flex",gap:8,marginBottom:18,flexWrap:"wrap"}}>
+      {[["all","All"],["fo","Flip-Off Caps"],["silica","Silica Gel"]].map(([k,label])=>(
+        <button key={k} type="button" onClick={()=>setFilter(k)} style={{padding:"6px 14px",borderRadius:20,border:"1.5px solid "+(filter===k?NAVY:"#E2E8F0"),background:filter===k?NAVY:"#fff",color:filter===k?"#fff":"#555",fontSize:12,fontWeight:700,cursor:"pointer"}}>{label}</button>))}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:22}}>
+      <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Revenue</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(totalRevenue)}</div></div>
+      <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Cost</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(totalCost)}</div></div>
+      <div style={{background:totalProfit>=0?"#EAF7EC":"#FFF0F0",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Profit</div><div style={{fontSize:17,fontWeight:900,color:totalProfit>=0?"#1A6B2A":"#DC3545",marginTop:2}}>{fmt(totalProfit)}</div></div>
+      {totalMargin!=null&&<div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Margin</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{totalMargin.toFixed(1)}%</div></div>}
+    </div>
+    {priced.length===0?(<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No orders with a sale price or cost entered yet.</div>):(<>
+      <div style={{fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",marginBottom:10}}>Profit by Order</div>
+      <div style={{display:"flex",flexDirection:"column",gap:9,marginBottom:24}}>
+        {priced.map(x=>(<div key={x.order.id}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#666",marginBottom:3}}>
+            <span style={{fontFamily:"monospace"}}>{x.order.orderNo} · {x.order.client}</span>
+            <span style={{fontWeight:700,color:x.profitEGP>=0?"#1A6B2A":"#DC3545"}}>{fmt(x.profitEGP)} EGP</span></div>
+          <div style={{height:8,background:"#F0F0F0",borderRadius:4,overflow:"hidden"}}>
+            <div style={{height:"100%",width:Math.max(2,Math.abs(x.profitEGP)/maxAbsProfit*100)+"%",background:x.profitEGP>=0?"#22A03A":"#DC3545",borderRadius:4}}/></div>
+        </div>))}
+      </div>
+    </>)}
+    <div style={{fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",marginBottom:10}}>All Orders</div>
+    {list.length===0?(<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No orders in this filter.</div>):(
+    <div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+        <thead><tr style={{textAlign:"left",color:"#999",fontSize:10,textTransform:"uppercase"}}>
+          <th style={{padding:"6px 8px"}}>Order</th><th style={{padding:"6px 8px"}}>Client</th><th style={{padding:"6px 8px"}}>Revenue</th><th style={{padding:"6px 8px"}}>Cost</th><th style={{padding:"6px 8px"}}>Profit</th></tr></thead>
+        <tbody>{list.map(x=>(<tr key={x.order.id} style={{borderTop:"1px solid #F0F0F0"}}>
+          <td style={{padding:"6px 8px",fontFamily:"monospace"}}>{x.order.orderNo}</td>
+          <td style={{padding:"6px 8px"}}>{x.order.client||"—"}</td>
+          <td style={{padding:"6px 8px"}}>{x.revenueEGP>0?fmt(x.revenueEGP):"—"}</td>
+          <td style={{padding:"6px 8px"}}>{x.estCostEGP>0?fmt(x.estCostEGP):"—"}</td>
+          <td style={{padding:"6px 8px",fontWeight:700,color:x.profitEGP>=0?"#1A6B2A":"#DC3545"}}>{(x.sellPricePerPc>0||x.estCostEGP>0)?fmt(x.profitEGP):"—"}</td></tr>))}</tbody>
+      </table>
+    </div>)}
+  </div>);
+}
 function FinanceSection({data,batches,orders,laborRates,onSaveLaborRates,onUpdateBatch,onClose}){
   const [doc,setDoc]=useState(null);
+  const [showOrdersReport,setShowOrdersReport]=useState(false);
   const [pickBatchNo,setPickBatchNo]=useState("");
   const [showRates,setShowRates]=useState(false);
   const mainBatches=batches.filter(b=>!b.isSubBatch).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
@@ -2701,6 +2774,8 @@ function FinanceSection({data,batches,orders,laborRates,onSaveLaborRates,onUpdat
         onUpdateBatch(updated);
         setDoc(buildBatchCost(updated,batches,data,laborRates));
       }}/></div>);
+  if(showOrdersReport)return(<div className="eps-print-page" style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
+    <OrdersProfitReport orders={orders} onBack={()=>setShowOrdersReport(false)}/></div>);
   return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"linear-gradient(135deg,#0D1F3C,"+NAVY+")",position:"sticky",top:0,zIndex:100}}>
       <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
@@ -2715,10 +2790,15 @@ function FinanceSection({data,batches,orders,laborRates,onSaveLaborRates,onUpdat
         <div style={{display:"flex",gap:8}}>
           <select value={pickBatchNo} onChange={e=>setPickBatchNo(e.target.value)} style={{flex:1,border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
             <option value="">— select batch —</option>
-            {mainBatches.map(b=><option key={b.id} value={b.batchNo}>{b.batchNo} · {b.color}{b.client?" · "+b.client:""}</option>)}</select>
+            {mainBatches.map(b=><option key={b.id} value={b.batchNo}>{b.batchNo} · {b.color}{b.client?" · "+b.client:""}{b.isSample?" · 🎁 Sample":""}</option>)}</select>
           <button type="button" disabled={!pickBatchNo} onClick={()=>{const b=mainBatches.filter(x=>x.batchNo===pickBatchNo)[0];if(b)setDoc(buildBatchCost(b,batches,data,laborRates));}}
             style={{background:pickBatchNo?NAVY:"#E2E8F0",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,fontSize:13,cursor:pickBatchNo?"pointer":"default",whiteSpace:"nowrap"}}>Generate</button></div>
       {showRates&&<LaborRatesModal rates={laborRates} onClose={()=>setShowRates(false)} onSave={r=>{onSaveLaborRates(r);setShowRates(false);}}/>}
+      </div>
+      <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:16}}>
+        <div style={{fontWeight:800,fontSize:14,color:NAVY,marginBottom:2}}>📊 Orders Profit Overview</div>
+        <div style={{fontSize:12,color:"#888",marginBottom:12}}>Revenue, cost, and profit across every order — see it all, or split Flip-Off from Silica Gel.</div>
+        <button type="button" onClick={()=>setShowOrdersReport(true)} style={{background:NAVY,color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,fontSize:13,cursor:"pointer"}}>View Report</button>
       </div>
     </div></div>);
 }
@@ -2886,6 +2966,21 @@ export default function EpsInventoryApp(){
   const finishCoil=mat=>{setData(d=>Object.assign({},d,{[mat]:Object.assign({},d[mat],{coils:(d[mat].coils||[]).map(c=>c.status==="active"?Object.assign({},c,{status:"finished"}):c)})}));showToast("Coil finished");};
   const createBatch=b=>{setBatches(p=>[b].concat(p));showToast(b.batchNo+" created ✓");};
   const updateBatch=u=>{setBatches(p=>p.map(b=>b.id===u.id?u:b));showToast("Updated ✓");};
+  // One-time backfill: batches with no price/cost on record (their own or their linked
+  // order's) are free samples that just never had money entered — label them as such.
+  const markUnpricedAsSamples=()=>{
+    const eligible=batches.filter(b=>{
+      if(b.isSubBatch||b.isSample)return false;
+      if(b.sellPricePerPc||b.estCostEGP)return false;
+      const ord=orders.filter(o=>b.orderNo&&o.orderNo===b.orderNo)[0];
+      if(ord&&(ord.sellPricePerPc||ord.estCostEGP))return false;
+      return true;
+    });
+    if(!eligible.length){showToast("No un-priced batches found","error");return;}
+    const ids=new Set(eligible.map(b=>b.id));
+    setBatches(p=>p.map(b=>ids.has(b.id)?Object.assign({},b,{isSample:true}):b));
+    showToast(eligible.length+" batches marked as samples ✓");
+  };
   const deleteBatch=id=>{setBatches(p=>p.filter(b=>b.id!==id));showToast("Deleted","error");};
   // Deletes a shift/carryover, first returning whatever material it actually drew (plastic
   // bags, aluminum caps bags, WIP Inventory stock) — a carryover from another batch (rather
@@ -2991,7 +3086,7 @@ export default function EpsInventoryApp(){
   else if(section==="labels")content=<LabelsSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="certificates")content=<CertificatesSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
-    <ProductionSection data={data} batches={batches} orders={orders} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onApplyMaterial={applyMaterialQty} onDeleteSub={deleteSub} onSaveLeftover={lot=>addLot("WIP Inventory",lot)}/></div>;
+    <ProductionSection data={data} batches={batches} orders={orders} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onApplyMaterial={applyMaterialQty} onDeleteSub={deleteSub} onSaveLeftover={lot=>addLot("WIP Inventory",lot)} onMarkUnpricedSamples={markUnpricedAsSamples}/></div>;
   else if(section==="orders")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
     <OrdersSection batches={batches} orders={orders} onCreateOrder={createOrder} onDeleteOrder={deleteOrder} onDeleteAllOrders={deleteAllOrders} onUpdateOrder={updateOrder}/></div>;
   else if(activeMat)content=<MaterialView matName={activeMat} matConfig={data[activeMat]} lots={data[activeMat].lots} coils={data[activeMat].coils||[]}
