@@ -320,6 +320,15 @@ function buildBatchCost(batch,batches,data,laborRates){
 
   const netEGP=(plasticCost.EGP||0)+laborTotalEGP+alCostEGP-estScrapCreditEGP;
 
+  // Revenue/profit — priced per good pc actually produced (not the batch's static target),
+  // same basis the cost side already uses. sellPricePerPc is set manually per batch since
+  // there's no order-pricing data to derive it from yet.
+  const goodPcsTotal=shifts.reduce((s,x)=>s+(x.goodPcs||0),0);
+  const sellPricePerPc=Number(batch.sellPricePerPc)||0;
+  const revenueEGP=sellPricePerPc*goodPcsTotal;
+  const profitEGP=revenueEGP-netEGP;
+  const marginPct=revenueEGP>0?profitEGP/revenueEGP*100:null;
+
   return {batch:batch,plasticCost:plasticCost,plasticBagsCosted:plasticBagsCosted,plasticBagsUncosted:plasticBagsUncosted,
     regrindKgTotal:regrindKgTotal,alCost:alCost,alPcsCosted:alPcsCosted,alPcsUncosted:alPcsUncosted,
     alCostEGP:alCostEGP,alPcsRealRate:alPcsRealRate,alPcsFallbackRate:alPcsFallbackRate,alPcsNoRate:alPcsNoRate,
@@ -327,7 +336,7 @@ function buildBatchCost(batch,batches,data,laborRates){
     scrapKgForBatch:scrapKgForBatch,avgScrapRateEGP:avgScrapRateEGP,scrapRateIsAssumed:scrapRateIsAssumed,estScrapCreditEGP:estScrapCreditEGP,
     injectionShifts:injectionShifts,sortingPcs:sortingPcs,pressPcs:pressPcs,
     laborInjectionEGP:laborInjectionEGP,laborSortingEGP:laborSortingEGP,laborPressEGP:laborPressEGP,laborTotalEGP:laborTotalEGP,
-    netEGP:netEGP};
+    netEGP:netEGP,goodPcsTotal:goodPcsTotal,sellPricePerPc:sellPricePerPc,revenueEGP:revenueEGP,profitEGP:profitEGP,marginPct:marginPct};
 }
 
 const PRODUCT_META={
@@ -2479,7 +2488,21 @@ function CurrencyLines({byCurrency}){
   return <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>{curs.map(c=>(
     <div key={c} style={{fontSize:20,fontWeight:900,color:NAVY}}>{fmt(byCurrency[c])} <span style={{fontSize:12,color:"#888",fontWeight:700}}>{c}</span></div>))}</div>;
 }
-function BatchCostDoc({cost,onBack}){
+function SellingPriceModal({batch,onSave,onClose}){
+  const [price,setPrice]=useState(batch.sellPricePerPc?String(batch.sellPricePerPc):"");
+  const save=()=>onSave(Number(price)||0);
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:400,overflow:"hidden"}}>
+      <div style={{background:"#1A6B2A",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>💰 Selling Price</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>{batch.batchNo}</div></div>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
+      <div style={{padding:24}}>
+        <div style={{marginBottom:18}}><Field label="Selling Price per Pc (EGP)" value={price} onChange={setPrice} type="number" ph="e.g. 0.85"/></div>
+        <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#1A6B2A",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Price</button>
+      </div></div></div>);
+}
+function BatchCostDoc({cost,onBack,onSaveSellPrice}){
+  const [showPrice,setShowPrice]=useState(false);
   const b=cost.batch;
   return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"'Inter',sans-serif"}}>
     <ReportPrintBar onBack={onBack} backLabel="Back to Finance"/>
@@ -2520,8 +2543,21 @@ function BatchCostDoc({cost,onBack}){
       <div style={{fontSize:26,fontWeight:900,color:NAVY}}>{fmt(cost.netEGP)} <span style={{fontSize:13,color:"#888",fontWeight:700}}>EGP</span></div>
       <div style={{fontSize:11,color:"#888",marginTop:4}}>Aluminum is converted to EGP using each coil&apos;s purchase-time rate where set, otherwise Finance&apos;s fallback rate.</div>
     </div>
-    <div style={{background:"#F7F9FC",borderRadius:10,padding:14,fontSize:12,color:"#666"}}>
+    <div style={{background:"#F7F9FC",borderRadius:10,padding:14,fontSize:12,color:"#666",marginBottom:16}}>
       This covers plastic, aluminum, and labor cost — no overhead applied yet. Add more cost inputs over time to make this more accurate.</div>
+    <ReportSection title="Selling Price & Profit">
+      <div className="eps-no-print" style={{marginBottom:10}}>
+        <button type="button" onClick={()=>setShowPrice(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ {cost.sellPricePerPc>0?"Edit":"Set"} Selling Price</button></div>
+      {cost.sellPricePerPc>0?(<>
+        <div style={{fontSize:12,color:"#666",marginBottom:10}}>{fmt(cost.sellPricePerPc)} EGP/pc × {fmtN(cost.goodPcsTotal)} good pcs produced</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:10}}>
+          <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Revenue</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(cost.revenueEGP)}</div></div>
+          <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Cost</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(cost.netEGP)}</div></div>
+          <div style={{background:cost.profitEGP>=0?"#EAF7EC":"#FFF0F0",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Profit</div><div style={{fontSize:17,fontWeight:900,color:cost.profitEGP>=0?"#1A6B2A":"#DC3545",marginTop:2}}>{fmt(cost.profitEGP)}</div></div></div>
+        {cost.marginPct!=null&&<div style={{fontSize:12,color:"#666"}}>Margin: <strong style={{color:cost.profitEGP>=0?"#1A6B2A":"#DC3545"}}>{cost.marginPct.toFixed(1)}%</strong></div>}
+      </>):(<div style={{color:"#888",fontSize:12}}>No selling price set yet for this batch.</div>)}
+    </ReportSection>
+    {showPrice&&<SellingPriceModal batch={b} onSave={p=>{onSaveSellPrice(p);setShowPrice(false);}} onClose={()=>setShowPrice(false)}/>}
   </div>);
 }
 function LaborRatesModal({rates,onSave,onClose}){
@@ -2547,13 +2583,18 @@ function LaborRatesModal({rates,onSave,onClose}){
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Settings</button>
       </div></div></div>);
 }
-function FinanceSection({data,batches,laborRates,onSaveLaborRates,onClose}){
+function FinanceSection({data,batches,laborRates,onSaveLaborRates,onUpdateBatch,onClose}){
   const [doc,setDoc]=useState(null);
   const [pickBatchNo,setPickBatchNo]=useState("");
   const [showRates,setShowRates]=useState(false);
   const mainBatches=batches.filter(b=>!b.isSubBatch).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
   if(doc)return(<div className="eps-print-page" style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
-    <BatchCostDoc cost={doc} onBack={()=>setDoc(null)}/></div>);
+    <BatchCostDoc cost={doc} onBack={()=>setDoc(null)}
+      onSaveSellPrice={price=>{
+        const updated=Object.assign({},doc.batch,{sellPricePerPc:price});
+        onUpdateBatch(updated);
+        setDoc(buildBatchCost(updated,batches,data,laborRates));
+      }}/></div>);
   return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"linear-gradient(135deg,#0D1F3C,"+NAVY+")",position:"sticky",top:0,zIndex:100}}>
       <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
@@ -2824,7 +2865,7 @@ export default function EpsInventoryApp(){
   let content;
   if(section==="log")content=<ActivityLog data={data} batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="reports")content=<ReportsSection data={data} batches={batches} orders={orders} onClose={()=>setSection("inventory")}/>;
-  else if(section==="finance")content=<FinanceSection data={data} batches={batches} laborRates={laborRates} onSaveLaborRates={setLaborRates} onClose={()=>setSection("inventory")}/>;
+  else if(section==="finance")content=<FinanceSection data={data} batches={batches} laborRates={laborRates} onSaveLaborRates={setLaborRates} onUpdateBatch={updateBatch} onClose={()=>setSection("inventory")}/>;
   else if(section==="labels")content=<LabelsSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="certificates")content=<CertificatesSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
