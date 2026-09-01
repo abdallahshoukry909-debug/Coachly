@@ -20,7 +20,7 @@ const ALCAP_WT_KG=0.405,COIL_KG_TO_CAPS=1972.4;
 // Press: 12,000 EGP/month salary, ~18 visits/month, 240,000 pcs/visit; Assembly: 500 EGP paid
 // per visit, ~160,000 pcs/visit. Keeping the "pressCostPerPc" key for its real meaning (Press)
 // and adding assemblyCostPerPc for what used to be lumped in under that same name.
-const DEFAULT_LABOR_RATES={sortingCostPerPc:0.015,injectionCostPerShift:519.23,pressCostPerPc:12000/(18*240000),assemblyCostPerPc:500/160000,usdToEgpFallbackRate:50};
+const DEFAULT_LABOR_RATES={sortingCostPerPc:0.015,injectionCostPerShift:519.23,pressCostPerPc:12000/(18*240000),assemblyCostPerPc:500/160000,silicaLaborCostPerShift:461,usdToEgpFallbackRate:50};
 const ALU_DEN=2700/1e9;
 const COMPANY_NAME="EAST PHARMACEUTICAL SERVICES";
 const COMPANY_CERT="GMP & ISO 9001:2015 CERTIFIED";
@@ -262,16 +262,24 @@ function buildBatchCost(batch,batches,data,laborRates){
   let alCostEGP=0,alPcsRealRate=0,alPcsFallbackRate=0,alPcsNoRate=0,avgAlRateEGP=0,alPcsAssumed=0;
   const silicaCost={};let silicaKgCosted=0,silicaKgUncosted=0;
   const rollsCost={};let rollsCosted=0,rollsUncosted=0;
+  let silicaCostEGP=0,rollsCostEGP=0;
 
   if(isSilica){
+    // Silica Gel / Sachets Paper priced in USD convert to EGP the same way Aluminum does:
+    // the lot's own purchase-time rate when set, otherwise Finance's fallback rate.
+    const fallbackRate=Number(rates.usdToEgpFallbackRate)||0;
     shifts.forEach(s=>{
       const kg=s.silicaKg||0;
       if(kg>0){
         const lot=s.silicaLotId?silicaGelLots.filter(l=>l.id===s.silicaLotId)[0]:null;
         if(lot&&lot.unitCost){
           const cur=lot.unitCostCurrency||"EGP";
-          silicaCost[cur]=(silicaCost[cur]||0)+kg*Number(lot.unitCost);
+          const lineCost=kg*Number(lot.unitCost);
+          silicaCost[cur]=(silicaCost[cur]||0)+lineCost;
           silicaKgCosted+=kg;
+          if(cur==="EGP")silicaCostEGP+=lineCost;
+          else if(lot.usdToEgpRate)silicaCostEGP+=lineCost*Number(lot.usdToEgpRate);
+          else if(fallbackRate>0)silicaCostEGP+=lineCost*fallbackRate;
         }else silicaKgUncosted+=kg;
       }
       const rolls=s.rollsUsed||0;
@@ -279,8 +287,12 @@ function buildBatchCost(batch,batches,data,laborRates){
         const lot=s.rollsLotId?rollsLots.filter(l=>l.id===s.rollsLotId)[0]:null;
         if(lot&&lot.unitCost){
           const cur=lot.unitCostCurrency||"EGP";
-          rollsCost[cur]=(rollsCost[cur]||0)+rolls*Number(lot.unitCost);
+          const lineCost=rolls*Number(lot.unitCost);
+          rollsCost[cur]=(rollsCost[cur]||0)+lineCost;
           rollsCosted+=rolls;
+          if(cur==="EGP")rollsCostEGP+=lineCost;
+          else if(lot.usdToEgpRate)rollsCostEGP+=lineCost*Number(lot.usdToEgpRate);
+          else if(fallbackRate>0)rollsCostEGP+=lineCost*fallbackRate;
         }else rollsUncosted+=rolls;
       }
     });
@@ -340,25 +352,34 @@ function buildBatchCost(batch,batches,data,laborRates){
   const avgScrapRateEGP=scrapRateIsAssumed?DEFAULT_SCRAP_RATE_EGP:scrapRevenue/scrapQtySold;
   const estScrapCreditEGP=isSilica?0:scrapKgForBatch*avgScrapRateEGP;
 
-  // Labor — Injection by how many shifts this batch ran; Plastic Sorting and Assembly by how
-  // many pcs actually went through that stage (sorting handles both accepted and rejected
-  // pcs); Press by how many pcs of aluminum caps this batch actually consumed (Press stamps
-  // the coil into caps — a different machine/person than Assembly) — at the rates set in
-  // Finance. All EGP, so these sum with plastic + scrap. Carryovers (from another batch, or
-  // from WIP Inventory stock) are excluded from sorting/assembly — that material already had
-  // its own labor counted wherever it was actually produced, so counting it again here would
-  // double-charge the same labor across two batches.
-  const injectionShifts=shifts.filter(s=>s.injections).length;
-  const sortingPcs=shifts.reduce((s,x)=>x.isCarryover?s:s+(x.acceptedPcs!=null?(x.acceptedPcs||0)+(x.rejectedPcs||0):0),0);
-  const assemblyPcs=shifts.reduce((s,x)=>x.isCarryover?s:s+(x.assembledPcs||0),0);
-  const pressPcs=alPcsCosted+alPcsUncosted;
-  const laborInjectionEGP=injectionShifts*(Number(rates.injectionCostPerShift)||0);
-  const laborSortingEGP=sortingPcs*(Number(rates.sortingCostPerPc)||0);
-  const laborAssemblyEGP=assemblyPcs*(Number(rates.assemblyCostPerPc)||0);
-  const laborPressEGP=pressPcs*(Number(rates.pressCostPerPc)||0);
-  const laborTotalEGP=laborInjectionEGP+laborSortingEGP+laborAssemblyEGP+laborPressEGP;
+  // Labor — Flip-Off Caps splits into 4 real stages (Injection/Sorting/Press/Assembly), each
+  // its own machine or person; Silica Gel Sachets is just one person tending the machine, paid
+  // a flat rate per shift regardless of pcs, so it's a single line instead.
+  let injectionShifts=0,sortingPcs=0,assemblyPcs=0,pressPcs=0;
+  let laborInjectionEGP=0,laborSortingEGP=0,laborAssemblyEGP=0,laborPressEGP=0,laborSilicaEGP=0;
+  const silicaShiftsCount=isSilica?shifts.length:0;
+  if(isSilica){
+    laborSilicaEGP=silicaShiftsCount*(Number(rates.silicaLaborCostPerShift)||0);
+  }else{
+    // Injection by how many shifts this batch ran; Plastic Sorting and Assembly by how many
+    // pcs actually went through that stage (sorting handles both accepted and rejected pcs);
+    // Press by how many pcs of aluminum caps this batch actually consumed (Press stamps the
+    // coil into caps — a different machine/person than Assembly). Carryovers (from another
+    // batch, or from WIP Inventory stock) are excluded from sorting/assembly — that material
+    // already had its own labor counted wherever it was actually produced, so counting it
+    // again here would double-charge the same labor across two batches.
+    injectionShifts=shifts.filter(s=>s.injections).length;
+    sortingPcs=shifts.reduce((s,x)=>x.isCarryover?s:s+(x.acceptedPcs!=null?(x.acceptedPcs||0)+(x.rejectedPcs||0):0),0);
+    assemblyPcs=shifts.reduce((s,x)=>x.isCarryover?s:s+(x.assembledPcs||0),0);
+    pressPcs=alPcsCosted+alPcsUncosted;
+    laborInjectionEGP=injectionShifts*(Number(rates.injectionCostPerShift)||0);
+    laborSortingEGP=sortingPcs*(Number(rates.sortingCostPerPc)||0);
+    laborAssemblyEGP=assemblyPcs*(Number(rates.assemblyCostPerPc)||0);
+    laborPressEGP=pressPcs*(Number(rates.pressCostPerPc)||0);
+  }
+  const laborTotalEGP=laborInjectionEGP+laborSortingEGP+laborAssemblyEGP+laborPressEGP+laborSilicaEGP;
 
-  const netEGP=(plasticCost.EGP||0)+(silicaCost.EGP||0)+(rollsCost.EGP||0)+laborTotalEGP+alCostEGP-estScrapCreditEGP;
+  const netEGP=(plasticCost.EGP||0)+silicaCostEGP+rollsCostEGP+laborTotalEGP+alCostEGP-estScrapCreditEGP;
 
   // Revenue/profit — priced by the batch's own set quantity (totalPcs), not by however
   // many pcs actually came out of production. sellPricePerPc is set manually per batch.
@@ -377,11 +398,11 @@ function buildBatchCost(batch,batches,data,laborRates){
     regrindKgTotal:regrindKgTotal,alCost:alCost,alPcsCosted:alPcsCosted,alPcsUncosted:alPcsUncosted,
     alCostEGP:alCostEGP,alPcsRealRate:alPcsRealRate,alPcsFallbackRate:alPcsFallbackRate,alPcsNoRate:alPcsNoRate,
     alPcsAssumed:alPcsAssumed,avgAlRateEGP:avgAlRateEGP,
-    silicaCost:silicaCost,silicaKgCosted:silicaKgCosted,silicaKgUncosted:silicaKgUncosted,
-    rollsCost:rollsCost,rollsCosted:rollsCosted,rollsUncosted:rollsUncosted,
+    silicaCost:silicaCost,silicaKgCosted:silicaKgCosted,silicaKgUncosted:silicaKgUncosted,silicaCostEGP:silicaCostEGP,
+    rollsCost:rollsCost,rollsCosted:rollsCosted,rollsUncosted:rollsUncosted,rollsCostEGP:rollsCostEGP,
     scrapKgForBatch:scrapKgForBatch,avgScrapRateEGP:avgScrapRateEGP,scrapRateIsAssumed:scrapRateIsAssumed,estScrapCreditEGP:estScrapCreditEGP,
-    injectionShifts:injectionShifts,sortingPcs:sortingPcs,assemblyPcs:assemblyPcs,pressPcs:pressPcs,
-    laborInjectionEGP:laborInjectionEGP,laborSortingEGP:laborSortingEGP,laborAssemblyEGP:laborAssemblyEGP,laborPressEGP:laborPressEGP,laborTotalEGP:laborTotalEGP,
+    injectionShifts:injectionShifts,sortingPcs:sortingPcs,assemblyPcs:assemblyPcs,pressPcs:pressPcs,silicaShiftsCount:silicaShiftsCount,
+    laborInjectionEGP:laborInjectionEGP,laborSortingEGP:laborSortingEGP,laborAssemblyEGP:laborAssemblyEGP,laborPressEGP:laborPressEGP,laborSilicaEGP:laborSilicaEGP,laborTotalEGP:laborTotalEGP,
     netEGP:netEGP,goodPcsTotal:goodPcsTotal,revenuePcs:revenuePcs,
     sellPricePerPc:sellPricePerPc,revenueEGP:revenueEGP,estCostEGP:estCostEGP,costEGP:costEGP,profitEGP:profitEGP,marginPct:marginPct};
 }
@@ -1916,24 +1937,50 @@ function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDe
 function orderFinance(order){
   const sellPricePerPc=Number(order.sellPricePerPc)||0;
   const estCostEGP=Number(order.estCostEGP)||0;
+  const extraExpenses=order.extraExpenses||[];
+  const extraExpensesEGP=extraExpenses.reduce((s,e)=>s+(Number(e.amountEGP)||0),0);
+  const totalCostEGP=estCostEGP+extraExpensesEGP;
   const revenueEGP=sellPricePerPc*(Number(order.targetQty)||0);
-  const profitEGP=revenueEGP-estCostEGP;
+  const profitEGP=revenueEGP-totalCostEGP;
   const marginPct=revenueEGP>0?profitEGP/revenueEGP*100:null;
-  return {sellPricePerPc:sellPricePerPc,estCostEGP:estCostEGP,revenueEGP:revenueEGP,profitEGP:profitEGP,marginPct:marginPct};
+  return {sellPricePerPc:sellPricePerPc,estCostEGP:estCostEGP,extraExpenses:extraExpenses,extraExpensesEGP:extraExpensesEGP,
+    totalCostEGP:totalCostEGP,revenueEGP:revenueEGP,profitEGP:profitEGP,marginPct:marginPct};
 }
 function OrderFinanceModal({order,onSave,onClose}){
   const [price,setPrice]=useState(order.sellPricePerPc?String(order.sellPricePerPc):"");
   const [cost,setCost]=useState(order.estCostEGP?String(order.estCostEGP):"");
-  const save=()=>onSave({sellPricePerPc:Number(price)||0,estCostEGP:Number(cost)||0});
-  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-    <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:400,overflow:"hidden"}}>
+  const [expenses,setExpenses]=useState(order.extraExpenses||[]);
+  const [expLabel,setExpLabel]=useState(""),[expAmount,setExpAmount]=useState("");
+  const expensesTotal=expenses.reduce((s,e)=>s+(Number(e.amountEGP)||0),0);
+  const addExpense=()=>{
+    if(!expLabel.trim()||!(Number(expAmount)>0))return;
+    setExpenses(p=>p.concat([{id:genId(),label:expLabel.trim(),amountEGP:Number(expAmount)||0}]));
+    setExpLabel("");setExpAmount("");
+  };
+  const removeExpense=id=>setExpenses(p=>p.filter(e=>e.id!==id));
+  const save=()=>onSave({sellPricePerPc:Number(price)||0,estCostEGP:Number(cost)||0,extraExpenses:expenses});
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto"}}>
+    <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:420,overflow:"hidden",margin:"24px 0"}}>
       <div style={{background:"#1A6B2A",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>💰 Sale Price &amp; Cost</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>{order.orderNo}</div></div>
         <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
       <div style={{padding:24}}>
         <div style={{marginBottom:14}}><Field label="Sold For (EGP per Pc)" value={price} onChange={setPrice} type="number" ph="e.g. 0.85"/></div>
         <div style={{marginBottom:18}}><Field label="Estimated Total Cost (EGP)" value={cost} onChange={setCost} type="number" ph="e.g. 150000"/>
-          <div style={{fontSize:11,color:"#999",marginTop:4}}>A rough total — material + labor + anything else this order cost you.</div></div>
+          <div style={{fontSize:11,color:"#999",marginTop:4}}>A rough total — material + labor for this order.</div></div>
+        <div style={{marginBottom:18}}>
+          <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:6,textTransform:"uppercase"}}>Extra Expenses (optional)</label>
+          <div style={{fontSize:11,color:"#999",marginBottom:8}}>One-off costs beyond the estimate above — e.g. an engineer called in to fix something.</div>
+          {expenses.length>0&&<div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+            {expenses.map(e=>(<div key={e.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"#F7F9FC",borderRadius:6,padding:"6px 10px",fontSize:12}}>
+              <span>{e.label}</span>
+              <span style={{display:"flex",alignItems:"center",gap:8}}><strong>{fmt(e.amountEGP)} EGP</strong>
+                <button type="button" onClick={()=>removeExpense(e.id)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:13,padding:0}}>✕</button></span></div>))}
+            <div style={{fontSize:11,color:"#666",textAlign:"right"}}>Subtotal: <strong>{fmt(expensesTotal)} EGP</strong></div></div>}
+          <div style={{display:"flex",gap:6}}>
+            <input value={expLabel} onChange={e=>setExpLabel(e.target.value)} placeholder="e.g. Engineer repair" style={{flex:1,border:"1.5px solid #E2E8F0",borderRadius:8,padding:"8px 10px",fontSize:12,outline:"none"}}/>
+            <input value={expAmount} onChange={e=>setExpAmount(e.target.value.replace(/,/g,""))} type="number" placeholder="EGP" style={{width:90,border:"1.5px solid #E2E8F0",borderRadius:8,padding:"8px 10px",fontSize:12,outline:"none"}}/>
+            <button type="button" onClick={addExpense} style={{padding:"8px 14px",background:"#1A6B2A",color:"#fff",border:"none",borderRadius:8,fontWeight:700,fontSize:12,cursor:"pointer",whiteSpace:"nowrap"}}>+ Add</button></div></div>
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#1A6B2A",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save</button>
       </div></div></div>);
 }
@@ -1959,7 +2006,7 @@ function OrderRow({order,linked,allBatches,onDelete,onUpdateOrder}){
   const pct=cartonsMode?(targetCartons?Math.min(100,Math.round(producedCartons/targetCartons*100)):0)
     :(order.targetQty?Math.min(100,Math.round(produced/order.targetQty*100)):0);
   const cfg=BST[order.status]||BST.Production;
-  const {sellPricePerPc,estCostEGP,revenueEGP,profitEGP,marginPct}=orderFinance(order);
+  const {sellPricePerPc,extraExpensesEGP,totalCostEGP,revenueEGP,profitEGP,marginPct}=orderFinance(order);
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14}}>
     <div style={{display:"flex",alignItems:"flex-start",gap:8,flexWrap:"wrap"}}>
       <div style={{flex:1,minWidth:0}}>
@@ -1974,10 +2021,10 @@ function OrderRow({order,linked,allBatches,onDelete,onUpdateOrder}){
           <div style={{height:6,background:"#F0F0F0",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:pct>=100?"#22A03A":ACCENT,borderRadius:3}}/></div>
           {cartonsMode&&<div style={{fontSize:11,color:"#888",marginTop:3}}>{fmt(Math.max(0,targetCartons-producedCartons))} cartons left</div>}</div>
         {linked.length>0&&<div style={{fontSize:11,color:"#888",marginBottom:6}}>{linked.length} batches: {linked.map(b=><span key={b.id} style={{fontFamily:"monospace",marginRight:8,color:NAVY}}>{b.batchNo}{b.isSample?" 🎁":""}</span>)}</div>}
-        <button type="button" onClick={()=>setShowFin(true)} style={{padding:"5px 10px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,marginBottom:sellPricePerPc>0||estCostEGP>0?8:0}}>💰 {sellPricePerPc>0||estCostEGP>0?"Edit":"Set"} Sale Price &amp; Cost</button>
-        {(sellPricePerPc>0||estCostEGP>0)&&(<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(90px,1fr))",gap:8}}>
+        <button type="button" onClick={()=>setShowFin(true)} style={{padding:"5px 10px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,marginBottom:sellPricePerPc>0||totalCostEGP>0?8:0}}>💰 {sellPricePerPc>0||totalCostEGP>0?"Edit":"Set"} Sale Price &amp; Cost</button>
+        {(sellPricePerPc>0||totalCostEGP>0)&&(<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(90px,1fr))",gap:8}}>
           <div style={{background:"#F7F9FC",borderRadius:8,padding:"7px 10px"}}><div style={{fontSize:9,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Revenue</div><div style={{fontSize:14,fontWeight:900,color:NAVY,marginTop:1}}>{fmt(revenueEGP)}</div></div>
-          <div style={{background:"#F7F9FC",borderRadius:8,padding:"7px 10px"}}><div style={{fontSize:9,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Est. Cost</div><div style={{fontSize:14,fontWeight:900,color:NAVY,marginTop:1}}>{fmt(estCostEGP)}</div></div>
+          <div style={{background:"#F7F9FC",borderRadius:8,padding:"7px 10px"}}><div style={{fontSize:9,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Cost{extraExpensesEGP>0?" (+ extras)":""}</div><div style={{fontSize:14,fontWeight:900,color:NAVY,marginTop:1}}>{fmt(totalCostEGP)}</div></div>
           <div style={{background:profitEGP>=0?"#EAF7EC":"#FFF0F0",borderRadius:8,padding:"7px 10px"}}><div style={{fontSize:9,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Profit</div><div style={{fontSize:14,fontWeight:900,color:profitEGP>=0?"#1A6B2A":"#DC3545",marginTop:1}}>{fmt(profitEGP)}{marginPct!=null?" ("+marginPct.toFixed(0)+"%)":""}</div></div></div>)}</div>
       {confDel?(<div style={{display:"flex",gap:6,flexShrink:0}}>
         <button type="button" onClick={onDelete} style={{padding:"5px 12px",background:"#DC3545",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700}}>Yes</button>
@@ -2655,17 +2702,19 @@ function BatchCostDoc({cost,orders,onBack,onSaveSellPrice}){
     </>)}
     <ReportSection title="Labor (rates set in Finance — edit any time under Labor Rates)">
       <div style={{display:"flex",flexDirection:"column",gap:6,fontSize:12,color:"#666",marginBottom:8}}>
+        {cost.isSilica?(
+          <div>Silica Gel Sachets — {cost.silicaShiftsCount} shift{cost.silicaShiftsCount===1?"":"s"} (one person tending the machine): <strong>{fmt(cost.laborSilicaEGP)} EGP</strong></div>
+        ):(<>
         <div>Injection — {cost.injectionShifts} shift{cost.injectionShifts===1?"":"s"}: <strong>{fmt(cost.laborInjectionEGP)} EGP</strong></div>
         <div>Plastic Sorting — {fmtN(cost.sortingPcs)} pcs: <strong>{fmt(cost.laborSortingEGP)} EGP</strong></div>
         <div>Press (stamps coil into caps) — {fmtN(cost.pressPcs)} pcs: <strong>{fmt(cost.laborPressEGP)} EGP</strong></div>
-        <div>Assembly (plastic + caps) — {fmtN(cost.assemblyPcs)} pcs: <strong>{fmt(cost.laborAssemblyEGP)} EGP</strong></div></div>
+        <div>Assembly (plastic + caps) — {fmtN(cost.assemblyPcs)} pcs: <strong>{fmt(cost.laborAssemblyEGP)} EGP</strong></div></>)}</div>
       <div style={{fontSize:20,fontWeight:900,color:NAVY}}>{fmt(cost.laborTotalEGP)} <span style={{fontSize:12,color:"#888",fontWeight:700}}>EGP labor total</span></div>
-      {cost.isSilica&&<div style={{fontSize:11,color:"#999",marginTop:6}}>Labor here is Flip-Off Caps-specific (Injection/Sorting/Press/Assembly) and isn&apos;t tracked for Silica Gel Sachets yet, so this will show 0.</div>}
     </ReportSection>
     <div style={{background:"#EBF1F8",borderRadius:10,padding:16,marginBottom:16}}>
       <div style={{fontSize:11,fontWeight:800,color:NAVY,textTransform:"uppercase",marginBottom:6}}>Net EGP ({cost.isSilica?"Silica Gel + Rolls + Labor":"Plastic + Aluminum + Labor − Scrap Credit"})</div>
       <div style={{fontSize:26,fontWeight:900,color:NAVY}}>{fmt(cost.netEGP)} <span style={{fontSize:13,color:"#888",fontWeight:700}}>EGP</span></div>
-      <div style={{fontSize:11,color:"#888",marginTop:4}}>{cost.isSilica?"Silica Gel and rolls priced in USD aren't converted to EGP yet — only amounts already in EGP count toward this total.":"Aluminum is converted to EGP using each coil's purchase-time rate where set, otherwise Finance's fallback rate."}</div>
+      <div style={{fontSize:11,color:"#888",marginTop:4}}>{cost.isSilica?"Silica Gel and rolls priced in USD are converted using each lot's own purchase-time rate where set, otherwise Finance's fallback rate.":"Aluminum is converted to EGP using each coil's purchase-time rate where set, otherwise Finance's fallback rate."}</div>
     </div>
     <div style={{background:"#F7F9FC",borderRadius:10,padding:14,fontSize:12,color:"#666",marginBottom:16}}>
       This covers {cost.isSilica?"silica gel, rolls, and labor":"plastic, aluminum, and labor"} cost — no overhead applied yet. Add more cost inputs over time to make this more accurate.</div>
@@ -2690,8 +2739,9 @@ function LaborRatesModal({rates,onSave,onClose}){
   const [injection,setInjection]=useState(String(rates.injectionCostPerShift));
   const [press,setPress]=useState(String(rates.pressCostPerPc));
   const [assembly,setAssembly]=useState(String(rates.assemblyCostPerPc));
+  const [silicaLabor,setSilicaLabor]=useState(String(rates.silicaLaborCostPerShift));
   const [fxRate,setFxRate]=useState(String(rates.usdToEgpFallbackRate));
-  const save=()=>onSave({sortingCostPerPc:Number(sorting)||0,injectionCostPerShift:Number(injection)||0,pressCostPerPc:Number(press)||0,assemblyCostPerPc:Number(assembly)||0,usdToEgpFallbackRate:Number(fxRate)||0});
+  const save=()=>onSave({sortingCostPerPc:Number(sorting)||0,injectionCostPerShift:Number(injection)||0,pressCostPerPc:Number(press)||0,assemblyCostPerPc:Number(assembly)||0,silicaLaborCostPerShift:Number(silicaLabor)||0,usdToEgpFallbackRate:Number(fxRate)||0});
   return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:440,overflow:"hidden"}}>
       <div style={{background:NAVY,padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -2706,6 +2756,8 @@ function LaborRatesModal({rates,onSave,onClose}){
           <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 12,000 EGP salary ÷ 18 visits/month ÷ 240,000 pcs/visit</div></div>
         <div style={{marginBottom:14}}><Field label="Assembly — plastic + caps (EGP per pc)" value={assembly} onChange={setAssembly} type="number" ph="0.003125"/>
           <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 500 EGP paid per visit ÷ 160,000 pcs/visit</div></div>
+        <div style={{marginBottom:14}}><Field label="Silica Gel Sachets Labor (EGP per shift)" value={silicaLabor} onChange={setSilicaLabor} type="number" ph="461"/>
+          <div style={{fontSize:11,color:"#999",marginTop:3}}>One person tending the machine, flat rate per shift regardless of pcs made.</div></div>
         <div style={{marginBottom:18}}><Field label="USD → EGP Fallback Rate" value={fxRate} onChange={setFxRate} type="number" ph="50"/>
           <div style={{fontSize:11,color:"#999",marginTop:3}}>Used only when a coil lot doesn&apos;t have its own purchase-time rate set.</div></div>
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Settings</button>
@@ -2716,9 +2768,9 @@ function OrdersProfitReport({orders,onBack}){
   const [filter,setFilter]=useState("all");
   const matches=o=>filter==="all"?true:filter==="silica"?isSilicaProduct(o.product):!isSilicaProduct(o.product);
   const list=orders.filter(matches).map(o=>Object.assign({order:o},orderFinance(o))).sort((a,b)=>b.order.orderNo.localeCompare(a.order.orderNo));
-  const priced=list.filter(x=>x.sellPricePerPc>0||x.estCostEGP>0);
+  const priced=list.filter(x=>x.sellPricePerPc>0||x.totalCostEGP>0);
   const totalRevenue=list.reduce((s,x)=>s+x.revenueEGP,0);
-  const totalCost=list.reduce((s,x)=>s+x.estCostEGP,0);
+  const totalCost=list.reduce((s,x)=>s+x.totalCostEGP,0);
   const totalProfit=totalRevenue-totalCost;
   const totalMargin=totalRevenue>0?totalProfit/totalRevenue*100:null;
   const maxAbsProfit=Math.max(1,...priced.map(x=>Math.abs(x.profitEGP)));
@@ -2757,8 +2809,8 @@ function OrdersProfitReport({orders,onBack}){
           <td style={{padding:"6px 8px",fontFamily:"monospace"}}>{x.order.orderNo}</td>
           <td style={{padding:"6px 8px"}}>{x.order.client||"—"}</td>
           <td style={{padding:"6px 8px"}}>{x.revenueEGP>0?fmt(x.revenueEGP):"—"}</td>
-          <td style={{padding:"6px 8px"}}>{x.estCostEGP>0?fmt(x.estCostEGP):"—"}</td>
-          <td style={{padding:"6px 8px",fontWeight:700,color:x.profitEGP>=0?"#1A6B2A":"#DC3545"}}>{(x.sellPricePerPc>0||x.estCostEGP>0)?fmt(x.profitEGP):"—"}</td></tr>))}</tbody>
+          <td style={{padding:"6px 8px"}}>{x.totalCostEGP>0?fmt(x.totalCostEGP):"—"}</td>
+          <td style={{padding:"6px 8px",fontWeight:700,color:x.profitEGP>=0?"#1A6B2A":"#DC3545"}}>{(x.sellPricePerPc>0||x.totalCostEGP>0)?fmt(x.profitEGP):"—"}</td></tr>))}</tbody>
       </table>
     </div>)}
   </div>);
