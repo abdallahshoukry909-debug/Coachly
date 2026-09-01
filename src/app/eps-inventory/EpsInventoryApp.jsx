@@ -341,6 +341,13 @@ function buildBatchCost(batch,batches,data,laborRates){
     if(alPcsAssumed>0)alCostEGP+=alPcsAssumed*avgAlRateEGP;
   }
 
+  // Rejected pcs (Plastic Sorting + Final Sorting rejects) already consumed real plastic/
+  // aluminum/labor before being rejected — that spend doesn't come back, so it's already fully
+  // counted in the material/labor totals above (material and labor are costed at time of use,
+  // not reduced for a later reject outcome). This is just surfacing how much of that sunk cost
+  // is attributable to rejects, for visibility.
+  const rejectedPcsTotal=isSilica?0:shifts.reduce((s,x)=>s+(x.rejectedPcs||0)+(x.finalRejectedPcs||0),0);
+
   let scrapQtySold=0,scrapRevenue=0;
   scrapLots.forEach(lot=>(lot.usageLog||[]).forEach(e=>{
     if(e.qtyUsed>0&&e.saleRevenue!=null){scrapQtySold+=Number(e.qtyUsed);scrapRevenue+=Number(e.saleRevenue);}
@@ -401,6 +408,7 @@ function buildBatchCost(batch,batches,data,laborRates){
     silicaCost:silicaCost,silicaKgCosted:silicaKgCosted,silicaKgUncosted:silicaKgUncosted,silicaCostEGP:silicaCostEGP,
     rollsCost:rollsCost,rollsCosted:rollsCosted,rollsUncosted:rollsUncosted,rollsCostEGP:rollsCostEGP,
     scrapKgForBatch:scrapKgForBatch,avgScrapRateEGP:avgScrapRateEGP,scrapRateIsAssumed:scrapRateIsAssumed,estScrapCreditEGP:estScrapCreditEGP,
+    rejectedPcsTotal:rejectedPcsTotal,
     injectionShifts:injectionShifts,sortingPcs:sortingPcs,assemblyPcs:assemblyPcs,pressPcs:pressPcs,silicaShiftsCount:silicaShiftsCount,
     laborInjectionEGP:laborInjectionEGP,laborSortingEGP:laborSortingEGP,laborAssemblyEGP:laborAssemblyEGP,laborPressEGP:laborPressEGP,laborSilicaEGP:laborSilicaEGP,laborTotalEGP:laborTotalEGP,
     netEGP:netEGP,goodPcsTotal:goodPcsTotal,revenuePcs:revenuePcs,
@@ -1712,6 +1720,16 @@ function BatchForm({batches,orders,onSave,onCancel}){
   const [expDate,setExpDate]=useState("");
   const [status,setStatus]=useState("Production"),[orderNo,setOrderNo]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
   const [isSample,setIsSample]=useState(false);
+  const [sellPrice,setSellPrice]=useState("");
+  // Picking an order pre-fills the selling price from that order's own price, same as Finance
+  // does — still just a starting point, editable per batch if this one sells for something else.
+  const pickOrder=no=>{
+    setOrderNo(no);
+    if(!sellPrice){
+      const ord=orders.filter(o=>o.orderNo===no)[0];
+      if(ord&&ord.sellPricePerPc)setSellPrice(String(ord.sellPricePerPc));
+    }
+  };
   const [capWt,setCapWt]=useState(String(CAP_WT)),[asmWt,setAsmWt]=useState(String(ASM_WT));
   const [wastePerInj,setWastePerInj]=useState(String(WASTE_PER_INJ));
   const isFO=product==="Flip-Off Caps 20mm";
@@ -1728,6 +1746,7 @@ function BatchForm({batches,orders,onSave,onCancel}){
     onSave({id:genId(),batchNo:preview,isSubBatch:false,parentBatchNo:null,product:product,status:status,
       color:variant.trim(),line:meta.lines?line:"",cartons:c,bagsPerCarton:b,pcsPerBag:p,partialCartonBags:pt,partialBagPcs:pbp,totalPcs:totalPcs,
       mfgDate:mfgDate,expiryDate:expDate,client:client.trim(),orderNo:orderNo||null,notes:notes.trim(),createdAt:today(),isSample:isSample,
+      sellPricePerPc:Number(sellPrice)||0,
       capWt:isFO?(Number(capWt)||CAP_WT):null,asmWt:isFO?(Number(asmWt)||ASM_WT):null,
       wastePerInj:isFO?(Number(wastePerInj)||WASTE_PER_INJ):null});};
   return(<div style={{maxWidth:700,fontFamily:"'Inter',sans-serif"}}>
@@ -1762,8 +1781,9 @@ function BatchForm({batches,orders,onSave,onCancel}){
         <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Status</label>
           <select value={status} onChange={e=>setStatus(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>{BSTATUSES.map(s=><option key={s}>{s}</option>)}</select></div>
         <div style={{gridColumn:"1/-1"}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Link to Order</label>
-          <select value={orderNo} onChange={e=>setOrderNo(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+          <select value={orderNo} onChange={e=>pickOrder(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
             <option value="">— none —</option>{orders.map(o=><option key={o.id} value={o.orderNo}>{o.orderNo} · {o.client}</option>)}</select></div>
+        <div style={{gridColumn:"1/-1"}}><Field label="Selling Price per Pc (EGP, optional)" value={sellPrice} onChange={setSellPrice} type="number" ph="e.g. 0.85"/></div>
         <div style={{gridColumn:"1/-1"}}><Field label="Notes" value={notes} onChange={setNotes}/></div>
         <div style={{gridColumn:"1/-1"}}>
           <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"#555",cursor:"pointer"}}>
@@ -2715,6 +2735,7 @@ function BatchCostDoc({cost,orders,onBack,onSaveSellPrice}){
       <div style={{fontSize:11,fontWeight:800,color:NAVY,textTransform:"uppercase",marginBottom:6}}>Net EGP ({cost.isSilica?"Silica Gel + Rolls + Labor":"Plastic + Aluminum + Labor − Scrap Credit"})</div>
       <div style={{fontSize:26,fontWeight:900,color:NAVY}}>{fmt(cost.netEGP)} <span style={{fontSize:13,color:"#888",fontWeight:700}}>EGP</span></div>
       <div style={{fontSize:11,color:"#888",marginTop:4}}>{cost.isSilica?"Silica Gel and rolls priced in USD are converted using each lot's own purchase-time rate where set, otherwise Finance's fallback rate.":"Aluminum is converted to EGP using each coil's purchase-time rate where set, otherwise Finance's fallback rate."}</div>
+      {!cost.isSilica&&cost.rejectedPcsTotal>0&&<div style={{fontSize:11,color:"#888",marginTop:4}}>⚠️ Includes {fmtN(cost.rejectedPcsTotal)} rejected pcs — that material and labor were already spent and don&apos;t come back, so it&apos;s counted here like any other pcs, not netted out.</div>}
     </div>
     <div style={{background:"#F7F9FC",borderRadius:10,padding:14,fontSize:12,color:"#666",marginBottom:16}}>
       This covers {cost.isSilica?"silica gel, rolls, and labor":"plastic, aluminum, and labor"} cost — no overhead applied yet. Add more cost inputs over time to make this more accurate.</div>
