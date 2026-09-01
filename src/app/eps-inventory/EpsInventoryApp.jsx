@@ -2766,8 +2766,10 @@ function LaborRatesModal({rates,onSave,onClose}){
 const isSilicaProduct=p=>p==="Silica Gel Sachets"||p==="Silica Gel Capsules";
 function OrdersProfitReport({orders,onBack}){
   const [filter,setFilter]=useState("all");
+  const notShippedCount=orders.filter(o=>o.status!=="Shipped").length;
+  const shippedOrders=orders.filter(o=>o.status==="Shipped");
   const matches=o=>filter==="all"?true:filter==="silica"?isSilicaProduct(o.product):!isSilicaProduct(o.product);
-  const list=orders.filter(matches).map(o=>Object.assign({order:o},orderFinance(o))).sort((a,b)=>b.order.orderNo.localeCompare(a.order.orderNo));
+  const list=shippedOrders.filter(matches).map(o=>Object.assign({order:o},orderFinance(o))).sort((a,b)=>b.order.orderNo.localeCompare(a.order.orderNo));
   const priced=list.filter(x=>x.sellPricePerPc>0||x.totalCostEGP>0);
   const totalRevenue=list.reduce((s,x)=>s+x.revenueEGP,0);
   const totalCost=list.reduce((s,x)=>s+x.totalCostEGP,0);
@@ -2777,10 +2779,11 @@ function OrdersProfitReport({orders,onBack}){
   return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"'Inter',sans-serif"}}>
     <ReportPrintBar onBack={onBack} backLabel="Back to Finance"/>
     <ReportTitle title="Orders Profit Overview" subtitle="Revenue, cost, and profit across every order"/>
-    <div className="eps-no-print" style={{display:"flex",gap:8,marginBottom:18,flexWrap:"wrap"}}>
+    <div className="eps-no-print" style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
       {[["all","All"],["fo","Flip-Off Caps"],["silica","Silica Gel"]].map(([k,label])=>(
         <button key={k} type="button" onClick={()=>setFilter(k)} style={{padding:"6px 14px",borderRadius:20,border:"1.5px solid "+(filter===k?NAVY:"#E2E8F0"),background:filter===k?NAVY:"#fff",color:filter===k?"#fff":"#555",fontSize:12,fontWeight:700,cursor:"pointer"}}>{label}</button>))}
     </div>
+    {notShippedCount>0&&<div style={{fontSize:11,color:"#8A6D00",marginBottom:14}}>📦 {notShippedCount} order{notShippedCount===1?"":"s"} not yet Shipped excluded from this report.</div>}
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:22}}>
       <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Revenue</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(totalRevenue)}</div></div>
       <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Cost</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(totalCost)}</div></div>
