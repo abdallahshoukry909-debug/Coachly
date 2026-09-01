@@ -511,7 +511,7 @@ function SBadge({status,cfg}){
 }
 function Field({label,value,onChange,type,ph,accent,error}){
   return(<div><label style={{display:"block",fontSize:11,fontWeight:700,color:error?"#DC3545":"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"}}>{label}</label>
-    <input type={type||"text"} value={value} onChange={e=>onChange(e.target.value)} placeholder={ph||""} min="0" step="any" style={{width:"100%",border:"1.5px solid "+(error?"#F1948A":"#E2E8F0"),borderRadius:8,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=accent||ACCENT} onBlur={e=>e.target.style.borderColor=error?"#F1948A":"#E2E8F0"}/></div>);
+    <input type={type||"text"} value={value} onChange={e=>onChange(type==="number"?e.target.value.replace(/,/g,""):e.target.value)} placeholder={ph||""} min="0" step="any" style={{width:"100%",border:"1.5px solid "+(error?"#F1948A":"#E2E8F0"),borderRadius:8,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=accent||ACCENT} onBlur={e=>e.target.style.borderColor=error?"#F1948A":"#E2E8F0"}/></div>);
 }
 function ImgUpload({value,onChange,accent}){
   const ref=useRef();
