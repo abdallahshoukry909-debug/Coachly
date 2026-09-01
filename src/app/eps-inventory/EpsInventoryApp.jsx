@@ -2821,7 +2821,8 @@ function OrdersProfitReport({orders,onBack}){
 function BatchesProfitReport({batches,data,laborRates,onBack}){
   const [filter,setFilter]=useState("all");
   const sampleCount=batches.filter(b=>!b.isSubBatch&&b.isSample).length;
-  const mainBatches=batches.filter(b=>!b.isSubBatch&&!b.isSample);
+  const notShippedCount=batches.filter(b=>!b.isSubBatch&&!b.isSample&&b.status!=="Shipped").length;
+  const mainBatches=batches.filter(b=>!b.isSubBatch&&!b.isSample&&b.status==="Shipped");
   const matches=b=>filter==="all"?true:filter==="silica"?isSilicaProduct(b.product):!isSilicaProduct(b.product);
   const list=mainBatches.filter(matches).map(b=>buildBatchCost(b,batches,data,laborRates)).sort((a,b)=>b.batch.batchNo.localeCompare(a.batch.batchNo));
   // Only batches with an actual selling price count toward profit totals — a batch's material
@@ -2840,7 +2841,8 @@ function BatchesProfitReport({batches,data,laborRates,onBack}){
       {[["all","All"],["fo","Flip-Off Caps"],["silica","Silica Gel"]].map(([k,label])=>(
         <button key={k} type="button" onClick={()=>setFilter(k)} style={{padding:"6px 14px",borderRadius:20,border:"1.5px solid "+(filter===k?NAVY:"#E2E8F0"),background:filter===k?NAVY:"#fff",color:filter===k?"#fff":"#555",fontSize:12,fontWeight:700,cursor:"pointer"}}>{label}</button>))}
     </div>
-    {sampleCount>0&&<div style={{fontSize:11,color:"#8A6D00",marginBottom:14}}>🎁 {sampleCount} sample batch{sampleCount===1?"":"es"} excluded from this report.</div>}
+    {sampleCount>0&&<div style={{fontSize:11,color:"#8A6D00",marginBottom:6}}>🎁 {sampleCount} sample batch{sampleCount===1?"":"es"} excluded from this report.</div>}
+    {notShippedCount>0&&<div style={{fontSize:11,color:"#8A6D00",marginBottom:14}}>📦 {notShippedCount} batch{notShippedCount===1?"":"es"} not yet Shipped excluded from this report.</div>}
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:22}}>
       <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Revenue</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(totalRevenue)}</div></div>
       <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Cost</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(totalCost)}</div></div>
