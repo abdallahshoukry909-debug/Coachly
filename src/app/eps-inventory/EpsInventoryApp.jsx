@@ -2763,9 +2763,67 @@ function OrdersProfitReport({orders,onBack}){
     </div>)}
   </div>);
 }
+function BatchesProfitReport({batches,data,laborRates,onBack}){
+  const [filter,setFilter]=useState("all");
+  const sampleCount=batches.filter(b=>!b.isSubBatch&&b.isSample).length;
+  const mainBatches=batches.filter(b=>!b.isSubBatch&&!b.isSample);
+  const matches=b=>filter==="all"?true:filter==="silica"?isSilicaProduct(b.product):!isSilicaProduct(b.product);
+  const list=mainBatches.filter(matches).map(b=>buildBatchCost(b,batches,data,laborRates)).sort((a,b)=>b.batch.batchNo.localeCompare(a.batch.batchNo));
+  // Only batches with an actual selling price count toward profit totals — a batch's material
+  // + labor cost is always auto-computed even before it's priced, so including unpriced batches
+  // here would subtract in-progress production costs from profit before any sale exists for them.
+  const priced=list.filter(x=>x.sellPricePerPc>0);
+  const totalRevenue=priced.reduce((s,x)=>s+x.revenueEGP,0);
+  const totalCost=priced.reduce((s,x)=>s+x.costEGP,0);
+  const totalProfit=totalRevenue-totalCost;
+  const totalMargin=totalRevenue>0?totalProfit/totalRevenue*100:null;
+  const maxAbsProfit=Math.max(1,...priced.map(x=>Math.abs(x.profitEGP)));
+  return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"'Inter',sans-serif"}}>
+    <ReportPrintBar onBack={onBack} backLabel="Back to Finance"/>
+    <ReportTitle title="Batches Profit Overview" subtitle="Revenue, cost, and profit across every batch"/>
+    <div className="eps-no-print" style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+      {[["all","All"],["fo","Flip-Off Caps"],["silica","Silica Gel"]].map(([k,label])=>(
+        <button key={k} type="button" onClick={()=>setFilter(k)} style={{padding:"6px 14px",borderRadius:20,border:"1.5px solid "+(filter===k?NAVY:"#E2E8F0"),background:filter===k?NAVY:"#fff",color:filter===k?"#fff":"#555",fontSize:12,fontWeight:700,cursor:"pointer"}}>{label}</button>))}
+    </div>
+    {sampleCount>0&&<div style={{fontSize:11,color:"#8A6D00",marginBottom:14}}>🎁 {sampleCount} sample batch{sampleCount===1?"":"es"} excluded from this report.</div>}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:22}}>
+      <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Revenue</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(totalRevenue)}</div></div>
+      <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Cost</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(totalCost)}</div></div>
+      <div style={{background:totalProfit>=0?"#EAF7EC":"#FFF0F0",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Profit</div><div style={{fontSize:17,fontWeight:900,color:totalProfit>=0?"#1A6B2A":"#DC3545",marginTop:2}}>{fmt(totalProfit)}</div></div>
+      {totalMargin!=null&&<div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Margin</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{totalMargin.toFixed(1)}%</div></div>}
+    </div>
+    {priced.length===0?(<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No batches with a selling price set yet.</div>):(<>
+      <div style={{fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",marginBottom:10}}>Profit by Batch</div>
+      <div style={{display:"flex",flexDirection:"column",gap:9,marginBottom:24}}>
+        {priced.map(x=>(<div key={x.batch.id}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#666",marginBottom:3}}>
+            <span style={{fontFamily:"monospace"}}>{x.batch.batchNo}{x.batch.client?" · "+x.batch.client:""}</span>
+            <span style={{fontWeight:700,color:x.profitEGP>=0?"#1A6B2A":"#DC3545"}}>{fmt(x.profitEGP)} EGP</span></div>
+          <div style={{height:8,background:"#F0F0F0",borderRadius:4,overflow:"hidden"}}>
+            <div style={{height:"100%",width:Math.max(2,Math.abs(x.profitEGP)/maxAbsProfit*100)+"%",background:x.profitEGP>=0?"#22A03A":"#DC3545",borderRadius:4}}/></div>
+        </div>))}
+      </div>
+    </>)}
+    <div style={{fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",marginBottom:10}}>All Batches</div>
+    {list.length===0?(<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No batches in this filter.</div>):(
+    <div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+        <thead><tr style={{textAlign:"left",color:"#999",fontSize:10,textTransform:"uppercase"}}>
+          <th style={{padding:"6px 8px"}}>Batch</th><th style={{padding:"6px 8px"}}>Client</th><th style={{padding:"6px 8px"}}>Revenue</th><th style={{padding:"6px 8px"}}>Cost</th><th style={{padding:"6px 8px"}}>Profit</th></tr></thead>
+        <tbody>{list.map(x=>(<tr key={x.batch.id} style={{borderTop:"1px solid #F0F0F0"}}>
+          <td style={{padding:"6px 8px",fontFamily:"monospace"}}>{x.batch.batchNo}</td>
+          <td style={{padding:"6px 8px"}}>{x.batch.client||"—"}</td>
+          <td style={{padding:"6px 8px"}}>{x.revenueEGP>0?fmt(x.revenueEGP):"—"}</td>
+          <td style={{padding:"6px 8px"}}>{x.costEGP>0?fmt(x.costEGP):"—"}</td>
+          <td style={{padding:"6px 8px",fontWeight:700,color:x.profitEGP>=0?"#1A6B2A":"#DC3545"}}>{x.sellPricePerPc>0?fmt(x.profitEGP):"—"}</td></tr>))}</tbody>
+      </table>
+    </div>)}
+  </div>);
+}
 function FinanceSection({data,batches,orders,laborRates,onSaveLaborRates,onUpdateBatch,onClose}){
   const [doc,setDoc]=useState(null);
   const [showOrdersReport,setShowOrdersReport]=useState(false);
+  const [showBatchesReport,setShowBatchesReport]=useState(false);
   const [pickBatchNo,setPickBatchNo]=useState("");
   const [showRates,setShowRates]=useState(false);
   const mainBatches=batches.filter(b=>!b.isSubBatch).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
@@ -2778,6 +2836,8 @@ function FinanceSection({data,batches,orders,laborRates,onSaveLaborRates,onUpdat
       }}/></div>);
   if(showOrdersReport)return(<div className="eps-print-page" style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
     <OrdersProfitReport orders={orders} onBack={()=>setShowOrdersReport(false)}/></div>);
+  if(showBatchesReport)return(<div className="eps-print-page" style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
+    <BatchesProfitReport batches={batches} data={data} laborRates={laborRates} onBack={()=>setShowBatchesReport(false)}/></div>);
   return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"linear-gradient(135deg,#0D1F3C,"+NAVY+")",position:"sticky",top:0,zIndex:100}}>
       <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
@@ -2796,6 +2856,11 @@ function FinanceSection({data,batches,orders,laborRates,onSaveLaborRates,onUpdat
           <button type="button" disabled={!pickBatchNo} onClick={()=>{const b=mainBatches.filter(x=>x.batchNo===pickBatchNo)[0];if(b)setDoc(buildBatchCost(b,batches,data,laborRates));}}
             style={{background:pickBatchNo?NAVY:"#E2E8F0",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,fontSize:13,cursor:pickBatchNo?"pointer":"default",whiteSpace:"nowrap"}}>Generate</button></div>
       {showRates&&<LaborRatesModal rates={laborRates} onClose={()=>setShowRates(false)} onSave={r=>{onSaveLaborRates(r);setShowRates(false);}}/>}
+      </div>
+      <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:16}}>
+        <div style={{fontWeight:800,fontSize:14,color:NAVY,marginBottom:2}}>📈 Batches Profit Overview</div>
+        <div style={{fontSize:12,color:"#888",marginBottom:12}}>Revenue, cost, and profit across every batch — see it all, or split Flip-Off from Silica Gel.</div>
+        <button type="button" onClick={()=>setShowBatchesReport(true)} style={{background:NAVY,color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,fontSize:13,cursor:"pointer"}}>View Report</button>
       </div>
       <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:16}}>
         <div style={{fontWeight:800,fontSize:14,color:NAVY,marginBottom:2}}>📊 Orders Profit Overview</div>
@@ -2839,10 +2904,12 @@ export default function EpsInventoryApp(){
             return l;});
           merged[k]=Object.assign({},MATERIAL_META[k],{lots:lots,coils:coils});
         });
-        const sb=p._batches||[];const nos={};sb.forEach(b=>{nos[b.batchNo]=1;});
-        bs=sb.concat(INITIAL_BATCHES.filter(b=>!nos[b.batchNo]));
-        const so=p._orders||[];const ons={};so.forEach(o=>{ons[o.orderNo]=1;});
-        os=so.concat(INITIAL_ORDERS.filter(o=>!ons[o.orderNo]));
+        // Once real data has ever been saved, it is the source of truth — do NOT re-merge the
+        // original starter batches/orders back in, or a deleted seed record would reappear on
+        // every reload (this used to concat back any INITIAL_BATCHES/INITIAL_ORDERS not present
+        // in the saved arrays, which silently undid every delete of a starter record).
+        bs=p._batches||[];
+        os=p._orders||[];
         // pressCostPerPc used to mean the combined "Press/Assembly" rate before they were split
         // into two real machines — a saved rate under that old key is really the Assembly rate,
         // so carry it forward under the new assemblyCostPerPc key instead of misapplying it to
