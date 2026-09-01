@@ -509,9 +509,9 @@ function SBadge({status,cfg}){
   const map=cfg||STATUS_CONFIG,c=map[status]||map["In Stock"]||{bg:"#eee",text:"#333",dot:"#999"};
   return <span style={{display:"inline-flex",alignItems:"center",gap:5,background:c.bg,color:c.text,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}><span style={{width:7,height:7,borderRadius:"50%",background:c.dot,flexShrink:0}}/>{status}</span>;
 }
-function Field({label,value,onChange,type,ph,accent}){
-  return(<div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"}}>{label}</label>
-    <input type={type||"text"} value={value} onChange={e=>onChange(e.target.value)} placeholder={ph||""} min="0" step="any" style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=accent||ACCENT} onBlur={e=>e.target.style.borderColor="#E2E8F0"}/></div>);
+function Field({label,value,onChange,type,ph,accent,error}){
+  return(<div><label style={{display:"block",fontSize:11,fontWeight:700,color:error?"#DC3545":"#666",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"}}>{label}</label>
+    <input type={type||"text"} value={value} onChange={e=>onChange(e.target.value)} placeholder={ph||""} min="0" step="any" style={{width:"100%",border:"1.5px solid "+(error?"#F1948A":"#E2E8F0"),borderRadius:8,padding:"9px 12px",fontSize:13,outline:"none",boxSizing:"border-box",fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=accent||ACCENT} onBlur={e=>e.target.style.borderColor=error?"#F1948A":"#E2E8F0"}/></div>);
 }
 function ImgUpload({value,onChange,accent}){
   const ref=useRef();
@@ -1600,8 +1600,9 @@ function SilicaShiftForm({parentBatch,batches,data,existing,onSave,onCancel}){
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
         <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date of Production</label>
           <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
-        <Field label="Operator" value={operator} onChange={setOperator} ph="Name" accent="#0E4A2A"/></div>
-      <div style={{marginBottom:14}}><Field label="Amount Made (pcs)" value={amount} onChange={v=>{setAmount(v);setErr("");}} type="number" ph="e.g. 25000" accent="#0E4A2A"/></div>
+        <Field label="Operator" value={operator} onChange={setOperator} ph="Name" accent="#0E4A2A" error={err==="Enter the operator's name."}/></div>
+      <div style={{marginBottom:14}}><Field label="Amount Made (pcs)" value={amount} onChange={v=>{setAmount(v);setErr("");}} type="number" ph="e.g. 25000" accent="#0E4A2A" error={err==="Enter the amount made."}/>
+        {err==="Enter the amount made."&&<div style={{fontSize:11,color:"#DC3545",marginTop:4}}>↑ This field, not the rolls below — the rolls value you typed is fine.</div>}</div>
       <div style={{background:"#D0F0E0",borderRadius:10,padding:14,marginBottom:14}}>
         <div style={{fontWeight:700,fontSize:13,color:"#0E4A2A",marginBottom:10}}>🟡 Silica Gel Used</div>
         <div style={{marginBottom:10}}>
@@ -1844,6 +1845,7 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts,onUp
         {isFO&&<div><strong>Weights:</strong> {batch.capWt||CAP_WT} g/cap plastic · {batch.asmWt||ASM_WT} g/cap assembled · {batch.wastePerInj||WASTE_PER_INJ} g/shot waste</div>}
         {batch.notes&&<div><strong>Notes:</strong> {batch.notes}</div>}</div>
       <button type="button" onClick={()=>setShowQty(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:10,marginRight:8}}>🔢 Edit Amount</button>
+      <button type="button" onClick={()=>onUpdateBatch(Object.assign({},batch,{isSample:!batch.isSample}))} style={{padding:"6px 14px",border:"1.5px solid "+(batch.isSample?"#E6C200":"#E2E8F0"),color:batch.isSample?"#8A6D00":"#555",background:batch.isSample?"#FFF3CD":"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:10,marginRight:8}}>🎁 {batch.isSample?"Unmark Sample":"Mark as Sample"}</button>
       {isFO&&<button type="button" onClick={()=>setShowWeights(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:10,marginRight:8}}>⚖️ Edit Weights</button>}
       {confDel?(<div style={{display:"flex",gap:8}}>
         <button type="button" onClick={()=>{onDelete();setConfDel(false);}} style={{padding:"6px 14px",background:"#DC3545",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700}}>Yes, delete</button>
