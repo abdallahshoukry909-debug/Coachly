@@ -395,7 +395,11 @@ function buildBatchCost(batch,batches,data,laborRates){
   const goodPcsTotal=shifts.reduce((s,x)=>s+(x.goodPcs||0),0);
   const revenuePcs=Number(batch.totalPcs)||0;
   const sellPricePerPc=Number(batch.sellPricePerPc)||0;
-  const revenueEGP=sellPricePerPc*revenuePcs;
+  // A Rejected batch is never going to be sold — the material/labor cost already happened and
+  // won't come back, but there's no revenue to offset it, so it's a full loss (not priced as if
+  // it were a normal sale even if a sell price had been set for it).
+  const isRejected=batch.status==="Rejected";
+  const revenueEGP=isRejected?0:sellPricePerPc*revenuePcs;
   const estCostEGP=Number(batch.estCostEGP)||0;
   const costEGP=estCostEGP>0?estCostEGP:netEGP;
   const profitEGP=revenueEGP-costEGP;
@@ -412,7 +416,7 @@ function buildBatchCost(batch,batches,data,laborRates){
     injectionShifts:injectionShifts,sortingPcs:sortingPcs,assemblyPcs:assemblyPcs,pressPcs:pressPcs,silicaShiftsCount:silicaShiftsCount,
     laborInjectionEGP:laborInjectionEGP,laborSortingEGP:laborSortingEGP,laborAssemblyEGP:laborAssemblyEGP,laborPressEGP:laborPressEGP,laborSilicaEGP:laborSilicaEGP,laborTotalEGP:laborTotalEGP,
     netEGP:netEGP,goodPcsTotal:goodPcsTotal,revenuePcs:revenuePcs,
-    sellPricePerPc:sellPricePerPc,revenueEGP:revenueEGP,estCostEGP:estCostEGP,costEGP:costEGP,profitEGP:profitEGP,marginPct:marginPct};
+    sellPricePerPc:sellPricePerPc,revenueEGP:revenueEGP,estCostEGP:estCostEGP,costEGP:costEGP,profitEGP:profitEGP,marginPct:marginPct,isRejected:isRejected};
 }
 
 const PRODUCT_META={
@@ -2749,8 +2753,8 @@ function BatchCostDoc({cost,orders,onBack,onSaveSellPrice}){
     <ReportSection title="Selling Price & Profit">
       <div className="eps-no-print" style={{marginBottom:10}}>
         <button type="button" onClick={()=>setShowPrice(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ {cost.sellPricePerPc>0||cost.estCostEGP>0?"Edit":"Set"} Selling Price &amp; Cost</button></div>
-      {cost.sellPricePerPc>0?(<>
-        <div style={{fontSize:12,color:"#666",marginBottom:10}}>{fmt(cost.sellPricePerPc)} EGP/pc × {fmtN(cost.revenuePcs)} pcs (batch quantity — actual produced: {fmtN(cost.goodPcsTotal)} pcs)</div>
+      {(cost.sellPricePerPc>0||cost.isRejected)?(<>
+        <div style={{fontSize:12,color:"#666",marginBottom:10}}>{cost.isRejected?"❌ Rejected — thrown away, no revenue":fmt(cost.sellPricePerPc)+" EGP/pc × "+fmtN(cost.revenuePcs)+" pcs (batch quantity — actual produced: "+fmtN(cost.goodPcsTotal)+" pcs)"}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:10}}>
           <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Revenue</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(cost.revenueEGP)}</div></div>
           <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Cost</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(cost.costEGP)}</div></div>
@@ -2852,14 +2856,18 @@ function OrdersProfitReport({orders,onBack}){
 function BatchesProfitReport({batches,data,laborRates,onBack}){
   const [filter,setFilter]=useState("all");
   const sampleCount=batches.filter(b=>!b.isSubBatch&&b.isSample).length;
-  const notShippedCount=batches.filter(b=>!b.isSubBatch&&!b.isSample&&b.status!=="Shipped").length;
-  const mainBatches=batches.filter(b=>!b.isSubBatch&&!b.isSample&&b.status==="Shipped");
+  // Tracked here once a batch is resolved either way: Shipped (it sold) or Rejected (thrown
+  // away — the cost already happened and won't come back, but there's no sale to offset it, so
+  // it counts as a pure loss). Anything still in Production/QC Hold/Released isn't final yet.
+  const notShippedCount=batches.filter(b=>!b.isSubBatch&&!b.isSample&&b.status!=="Shipped"&&b.status!=="Rejected").length;
+  const mainBatches=batches.filter(b=>!b.isSubBatch&&!b.isSample&&(b.status==="Shipped"||b.status==="Rejected"));
   const matches=b=>filter==="all"?true:filter==="silica"?isSilicaProduct(b.product):!isSilicaProduct(b.product);
   const list=mainBatches.filter(matches).map(b=>buildBatchCost(b,batches,data,laborRates)).sort((a,b)=>b.batch.batchNo.localeCompare(a.batch.batchNo));
-  // Only batches with an actual selling price count toward profit totals — a batch's material
-  // + labor cost is always auto-computed even before it's priced, so including unpriced batches
-  // here would subtract in-progress production costs from profit before any sale exists for them.
-  const priced=list.filter(x=>x.sellPricePerPc>0);
+  // Only batches with an actual selling price (or a Rejected batch, which counts on cost alone)
+  // count toward profit totals — a batch's material + labor cost is always auto-computed even
+  // before it's priced, so including unpriced-and-not-rejected batches here would subtract
+  // in-progress production costs from profit before any sale (or write-off) exists for them.
+  const priced=list.filter(x=>x.sellPricePerPc>0||x.isRejected);
   const totalRevenue=priced.reduce((s,x)=>s+x.revenueEGP,0);
   const totalCost=priced.reduce((s,x)=>s+x.costEGP,0);
   const totalProfit=totalRevenue-totalCost;
@@ -2873,19 +2881,19 @@ function BatchesProfitReport({batches,data,laborRates,onBack}){
         <button key={k} type="button" onClick={()=>setFilter(k)} style={{padding:"6px 14px",borderRadius:20,border:"1.5px solid "+(filter===k?NAVY:"#E2E8F0"),background:filter===k?NAVY:"#fff",color:filter===k?"#fff":"#555",fontSize:12,fontWeight:700,cursor:"pointer"}}>{label}</button>))}
     </div>
     {sampleCount>0&&<div style={{fontSize:11,color:"#8A6D00",marginBottom:6}}>🎁 {sampleCount} sample batch{sampleCount===1?"":"es"} excluded from this report.</div>}
-    {notShippedCount>0&&<div style={{fontSize:11,color:"#8A6D00",marginBottom:14}}>📦 {notShippedCount} batch{notShippedCount===1?"":"es"} not yet Shipped excluded from this report.</div>}
+    {notShippedCount>0&&<div style={{fontSize:11,color:"#8A6D00",marginBottom:14}}>📦 {notShippedCount} batch{notShippedCount===1?"":"es"} not yet Shipped or Rejected excluded from this report.</div>}
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:22}}>
       <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Revenue</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(totalRevenue)}</div></div>
       <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Cost</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(totalCost)}</div></div>
       <div style={{background:totalProfit>=0?"#EAF7EC":"#FFF0F0",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Profit</div><div style={{fontSize:17,fontWeight:900,color:totalProfit>=0?"#1A6B2A":"#DC3545",marginTop:2}}>{fmt(totalProfit)}</div></div>
       {totalMargin!=null&&<div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Margin</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{totalMargin.toFixed(1)}%</div></div>}
     </div>
-    {priced.length===0?(<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No batches with a selling price set yet.</div>):(<>
+    {priced.length===0?(<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No batches with a selling price set (or Rejected) yet.</div>):(<>
       <div style={{fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",marginBottom:10}}>Profit by Batch</div>
       <div style={{display:"flex",flexDirection:"column",gap:9,marginBottom:24}}>
         {priced.map(x=>(<div key={x.batch.id}>
           <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#666",marginBottom:3}}>
-            <span style={{fontFamily:"monospace"}}>{x.batch.batchNo}{x.batch.client?" · "+x.batch.client:""}</span>
+            <span style={{fontFamily:"monospace"}}>{x.batch.batchNo}{x.batch.client?" · "+x.batch.client:""}{x.isRejected?" · ❌ Rejected (full loss)":""}</span>
             <span style={{fontWeight:700,color:x.profitEGP>=0?"#1A6B2A":"#DC3545"}}>{fmt(x.profitEGP)} EGP</span></div>
           <div style={{height:8,background:"#F0F0F0",borderRadius:4,overflow:"hidden"}}>
             <div style={{height:"100%",width:Math.max(2,Math.abs(x.profitEGP)/maxAbsProfit*100)+"%",background:x.profitEGP>=0?"#22A03A":"#DC3545",borderRadius:4}}/></div>
@@ -2899,11 +2907,11 @@ function BatchesProfitReport({batches,data,laborRates,onBack}){
         <thead><tr style={{textAlign:"left",color:"#999",fontSize:10,textTransform:"uppercase"}}>
           <th style={{padding:"6px 8px"}}>Batch</th><th style={{padding:"6px 8px"}}>Client</th><th style={{padding:"6px 8px"}}>Revenue</th><th style={{padding:"6px 8px"}}>Cost</th><th style={{padding:"6px 8px"}}>Profit</th></tr></thead>
         <tbody>{list.map(x=>(<tr key={x.batch.id} style={{borderTop:"1px solid #F0F0F0"}}>
-          <td style={{padding:"6px 8px",fontFamily:"monospace"}}>{x.batch.batchNo}</td>
+          <td style={{padding:"6px 8px",fontFamily:"monospace"}}>{x.batch.batchNo}{x.isRejected?" ❌":""}</td>
           <td style={{padding:"6px 8px"}}>{x.batch.client||"—"}</td>
           <td style={{padding:"6px 8px"}}>{x.revenueEGP>0?fmt(x.revenueEGP):"—"}</td>
           <td style={{padding:"6px 8px"}}>{x.costEGP>0?fmt(x.costEGP):"—"}</td>
-          <td style={{padding:"6px 8px",fontWeight:700,color:x.profitEGP>=0?"#1A6B2A":"#DC3545"}}>{x.sellPricePerPc>0?fmt(x.profitEGP):"—"}</td></tr>))}</tbody>
+          <td style={{padding:"6px 8px",fontWeight:700,color:x.profitEGP>=0?"#1A6B2A":"#DC3545"}}>{(x.sellPricePerPc>0||x.isRejected)?fmt(x.profitEGP):"—"}</td></tr>))}</tbody>
       </table>
     </div>)}
   </div>);
