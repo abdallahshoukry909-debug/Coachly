@@ -1960,11 +1960,15 @@ function orderFinance(order){
   const extraExpenses=order.extraExpenses||[];
   const extraExpensesEGP=extraExpenses.reduce((s,e)=>s+(Number(e.amountEGP)||0),0);
   const totalCostEGP=estCostEGP+extraExpensesEGP;
-  const revenueEGP=sellPricePerPc*(Number(order.targetQty)||0);
+  // A Rejected order is never going to be sold — the material/labor cost already happened and
+  // won't come back, but there's no revenue to offset it, so it's a full loss (not priced as
+  // if it were a normal sale even if a sell price had been set for it).
+  const isRejected=order.status==="Rejected";
+  const revenueEGP=isRejected?0:sellPricePerPc*(Number(order.targetQty)||0);
   const profitEGP=revenueEGP-totalCostEGP;
   const marginPct=revenueEGP>0?profitEGP/revenueEGP*100:null;
   return {sellPricePerPc:sellPricePerPc,estCostEGP:estCostEGP,extraExpenses:extraExpenses,extraExpensesEGP:extraExpensesEGP,
-    totalCostEGP:totalCostEGP,revenueEGP:revenueEGP,profitEGP:profitEGP,marginPct:marginPct};
+    totalCostEGP:totalCostEGP,revenueEGP:revenueEGP,profitEGP:profitEGP,marginPct:marginPct,isRejected:isRejected};
 }
 function OrderFinanceModal({order,onSave,onClose}){
   const [price,setPrice]=useState(order.sellPricePerPc?String(order.sellPricePerPc):"");
@@ -2007,6 +2011,7 @@ function OrderFinanceModal({order,onSave,onClose}){
 function OrderRow({order,linked,allBatches,onDelete,onUpdateOrder}){
   const [confDel,setConfDel]=useState(false);
   const [showFin,setShowFin]=useState(false);
+  const [showStatus,setShowStatus]=useState(false);
   const linkedNos=linked.map(b=>b.batchNo);
   const shifts=(allBatches||[]).filter(b=>b.isSubBatch&&linkedNos.indexOf(b.parentBatchNo)>=0);
   const ref=linked.filter(b=>Number(b.bagsPerCarton)>0&&Number(b.pcsPerBag)>0)[0];
@@ -2032,8 +2037,10 @@ function OrderRow({order,linked,allBatches,onDelete,onUpdateOrder}){
       <div style={{flex:1,minWidth:0}}>
         <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:5}}>
           <span style={{fontFamily:"monospace",fontWeight:700,fontSize:14,color:NAVY}}>{order.orderNo}</span>
-          <span style={{display:"inline-flex",alignItems:"center",gap:4,background:cfg.bg,color:cfg.text,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700}}>
-            <span style={{width:6,height:6,borderRadius:"50%",background:cfg.dot}}/>{order.status}</span></div>
+          <button type="button" onClick={()=>setShowStatus(!showStatus)} style={{display:"inline-flex",alignItems:"center",gap:4,background:cfg.bg,color:cfg.text,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,border:"none",cursor:"pointer"}}>
+            <span style={{width:6,height:6,borderRadius:"50%",background:cfg.dot}}/>{order.status}{showStatus?" ▲":" ▾"}</button></div>
+        {showStatus&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+          {BSTATUSES.map(s=>{const c=BST[s];return(<button type="button" key={s} onClick={()=>{onUpdateOrder(Object.assign({},order,{status:s}));setShowStatus(false);}} style={{padding:"5px 12px",borderRadius:20,fontSize:11,fontWeight:600,cursor:"pointer",border:"1.5px solid "+(order.status===s?c.dot:"#E2E8F0"),background:order.status===s?c.bg:"#fff",color:order.status===s?c.text:"#666"}}>{s}</button>);})}</div>}
         <div style={{fontSize:12,color:"#666",marginBottom:6}}>{order.product&&order.product!=="Flip-Off Caps 20mm"?order.product+" · ":""}{order.client} · {order.color||"any"} · Target {fmtN(order.targetQty)} pcs{cartonsMode?" ("+fmt(targetCartons)+" cartons)":""}</div>
         <div style={{marginBottom:6}}>
           <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#888",marginBottom:3}}>
@@ -2080,7 +2087,7 @@ function OrdersSection({batches,orders,onCreateOrder,onDeleteOrder,onDeleteAllOr
           <input type="date" value={delivery} onChange={e=>setDelivery(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
         <div style={{gridColumn:"1/-1"}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Status</label>
           <select value={status} onChange={e=>setStatus(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
-            {["Production","QC Hold","Released","Shipped"].map(s=><option key={s}>{s}</option>)}</select></div></div>
+            {BSTATUSES.map(s=><option key={s}>{s}</option>)}</select></div></div>
       {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"linear-gradient(135deg,"+NAVY+","+ACCENT+")",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Order</button>
     </div></div>);
@@ -2787,10 +2794,13 @@ function LaborRatesModal({rates,onSave,onClose}){
 const isSilicaProduct=p=>p==="Silica Gel Sachets"||p==="Silica Gel Capsules";
 function OrdersProfitReport({orders,onBack}){
   const [filter,setFilter]=useState("all");
-  const notShippedCount=orders.filter(o=>o.status!=="Shipped").length;
-  const shippedOrders=orders.filter(o=>o.status==="Shipped");
+  // Tracked here once an order is resolved either way: Shipped (it sold) or Rejected (thrown
+  // away — the cost already happened and won't come back, but there's no sale to offset it, so
+  // it counts as a pure loss). Anything still in Production/QC Hold/Released isn't final yet.
+  const untrackedCount=orders.filter(o=>o.status!=="Shipped"&&o.status!=="Rejected").length;
+  const trackedOrders=orders.filter(o=>o.status==="Shipped"||o.status==="Rejected");
   const matches=o=>filter==="all"?true:filter==="silica"?isSilicaProduct(o.product):!isSilicaProduct(o.product);
-  const list=shippedOrders.filter(matches).map(o=>Object.assign({order:o},orderFinance(o))).sort((a,b)=>b.order.orderNo.localeCompare(a.order.orderNo));
+  const list=trackedOrders.filter(matches).map(o=>Object.assign({order:o},orderFinance(o))).sort((a,b)=>b.order.orderNo.localeCompare(a.order.orderNo));
   const priced=list.filter(x=>x.sellPricePerPc>0||x.totalCostEGP>0);
   const totalRevenue=list.reduce((s,x)=>s+x.revenueEGP,0);
   const totalCost=list.reduce((s,x)=>s+x.totalCostEGP,0);
@@ -2804,7 +2814,7 @@ function OrdersProfitReport({orders,onBack}){
       {[["all","All"],["fo","Flip-Off Caps"],["silica","Silica Gel"]].map(([k,label])=>(
         <button key={k} type="button" onClick={()=>setFilter(k)} style={{padding:"6px 14px",borderRadius:20,border:"1.5px solid "+(filter===k?NAVY:"#E2E8F0"),background:filter===k?NAVY:"#fff",color:filter===k?"#fff":"#555",fontSize:12,fontWeight:700,cursor:"pointer"}}>{label}</button>))}
     </div>
-    {notShippedCount>0&&<div style={{fontSize:11,color:"#8A6D00",marginBottom:14}}>📦 {notShippedCount} order{notShippedCount===1?"":"s"} not yet Shipped excluded from this report.</div>}
+    {untrackedCount>0&&<div style={{fontSize:11,color:"#8A6D00",marginBottom:14}}>📦 {untrackedCount} order{untrackedCount===1?"":"s"} not yet Shipped or Rejected excluded from this report.</div>}
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:22}}>
       <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Revenue</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(totalRevenue)}</div></div>
       <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Cost</div><div style={{fontSize:17,fontWeight:900,color:NAVY,marginTop:2}}>{fmt(totalCost)}</div></div>
@@ -2816,7 +2826,7 @@ function OrdersProfitReport({orders,onBack}){
       <div style={{display:"flex",flexDirection:"column",gap:9,marginBottom:24}}>
         {priced.map(x=>(<div key={x.order.id}>
           <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#666",marginBottom:3}}>
-            <span style={{fontFamily:"monospace"}}>{x.order.orderNo} · {x.order.client}</span>
+            <span style={{fontFamily:"monospace"}}>{x.order.orderNo} · {x.order.client}{x.isRejected?" · ❌ Rejected (full loss)":""}</span>
             <span style={{fontWeight:700,color:x.profitEGP>=0?"#1A6B2A":"#DC3545"}}>{fmt(x.profitEGP)} EGP</span></div>
           <div style={{height:8,background:"#F0F0F0",borderRadius:4,overflow:"hidden"}}>
             <div style={{height:"100%",width:Math.max(2,Math.abs(x.profitEGP)/maxAbsProfit*100)+"%",background:x.profitEGP>=0?"#22A03A":"#DC3545",borderRadius:4}}/></div>
@@ -2830,7 +2840,7 @@ function OrdersProfitReport({orders,onBack}){
         <thead><tr style={{textAlign:"left",color:"#999",fontSize:10,textTransform:"uppercase"}}>
           <th style={{padding:"6px 8px"}}>Order</th><th style={{padding:"6px 8px"}}>Client</th><th style={{padding:"6px 8px"}}>Revenue</th><th style={{padding:"6px 8px"}}>Cost</th><th style={{padding:"6px 8px"}}>Profit</th></tr></thead>
         <tbody>{list.map(x=>(<tr key={x.order.id} style={{borderTop:"1px solid #F0F0F0"}}>
-          <td style={{padding:"6px 8px",fontFamily:"monospace"}}>{x.order.orderNo}</td>
+          <td style={{padding:"6px 8px",fontFamily:"monospace"}}>{x.order.orderNo}{x.isRejected?" ❌":""}</td>
           <td style={{padding:"6px 8px"}}>{x.order.client||"—"}</td>
           <td style={{padding:"6px 8px"}}>{x.revenueEGP>0?fmt(x.revenueEGP):"—"}</td>
           <td style={{padding:"6px 8px"}}>{x.totalCostEGP>0?fmt(x.totalCostEGP):"—"}</td>
