@@ -418,7 +418,7 @@ function buildBatchCost(batch,batches,data,laborRates){
 const PRODUCT_META={
   "Flip-Off Caps 20mm":{code:"FO",variantLabel:"Cap Colour",sizes:null,lines:null},
   "Silica Gel Capsules":{code:"SC",variantLabel:"Size",sizes:["0.3g","0.5g","1g"],lines:["Line 1","Line 2","Line 3"]},
-  "Silica Gel Sachets":{code:"SS",variantLabel:"Size",sizes:["0.5g","1g","10g"],lines:["Line 1","Line 2"]},
+  "Silica Gel Sachets":{code:"SS",variantLabel:"Size",sizes:["0.5g","1g","5g","10g"],lines:["Line 1","Line 2"]},
 };
 const PRODUCTS=Object.keys(PRODUCT_META);
 function nextOrdNo(os){const p="EPS-ORD-"+pad(getYr(),2);const ns=os.filter(o=>o.orderNo.indexOf(p)===0).map(o=>parseInt(o.orderNo.slice(p.length))||0);return p+pad(ns.length?Math.max.apply(null,ns)+1:1,4);}
