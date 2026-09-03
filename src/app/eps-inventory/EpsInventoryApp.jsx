@@ -365,7 +365,10 @@ function buildBatchCost(batch,batches,data,laborRates){
   // a flat rate per shift regardless of pcs, so it's a single line instead.
   let injectionShifts=0,sortingPcs=0,assemblyPcs=0,pressPcs=0;
   let laborInjectionEGP=0,laborSortingEGP=0,laborAssemblyEGP=0,laborPressEGP=0,laborSilicaEGP=0;
-  const silicaShiftsCount=isSilica?shifts.length:0;
+  // Carryovers (leftover finished sachets from another batch) never had a machine shift here —
+  // that labor was already counted wherever they were actually produced, so counting it again
+  // would double-charge the same labor across two batches.
+  const silicaShiftsCount=isSilica?shifts.filter(s=>!s.isCarryover).length:0;
   if(isSilica){
     laborSilicaEGP=silicaShiftsCount*(Number(rates.silicaLaborCostPerShift)||0);
   }else{
@@ -1703,8 +1706,47 @@ function SilicaShiftForm({parentBatch,batches,data,existing,onSave,onCancel}){
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#0E4A2A",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Shift</button>
     </div></div>);
 }
+// Leftover FINISHED sachets from another Silica Gel Sachets batch, logged as a completed
+// shift here without drawing fresh Silica Gel/Rolls/Cartons — that material was already
+// consumed under the original batch, so redrawing it here would double-count it.
+function SilicaCarryoverForm({parentBatch,batches,onSave,onCancel}){
+  const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch);
+  const priorCarryovers=mySubs.filter(b=>b.isCarryover).length;
+  const subNo=parentBatch.batchNo+"-CO"+(priorCarryovers+1);
+  const sourceOptions=batches.filter(b=>!b.isSubBatch&&b.product==="Silica Gel Sachets"&&b.batchNo!==parentBatch.batchNo);
+  const [sourceBatchNo,setSourceBatchNo]=useState(""),[qty,setQty]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
+  const effectiveQty=Number(qty)||0;
+  const save=()=>{
+    if(!sourceBatchNo){setErr("Select which batch this carried over from.");return;}
+    if(effectiveQty<=0){setErr("Enter a quantity.");return;}
+    const payload={id:genId(),batchNo:subNo,isSubBatch:true,parentBatchNo:parentBatch.batchNo,
+      product:parentBatch.product,color:parentBatch.color,client:parentBatch.client,orderNo:parentBatch.orderNo,
+      stage:"Complete",status:"Complete",
+      cartons:0,bagsPerCarton:0,pcsPerBag:0,partialCartonBags:0,totalPcs:effectiveQty,
+      mfgDate:parentBatch.mfgDate,operator:"",amountPcs:effectiveQty,goodPcs:effectiveQty,
+      isCarryover:true,carryoverFrom:sourceBatchNo,
+      notes:"Carried over from "+sourceBatchNo+(notes?" — "+notes:""),createdAt:today()};
+    onSave(payload,null);
+  };
+  return(<div style={{maxWidth:640,fontFamily:"'Inter',sans-serif"}}>
+    <div style={{background:"#4A6741",borderRadius:"12px 12px 0 0",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>↩️ Log Carryover — {subNo}</div><div style={{color:"rgba(255,255,255,0.65)",fontSize:12}}>Leftover finished sachets from a previous Silica Gel Sachets batch</div></div>
+      <button type="button" onClick={onCancel} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:13}}>Cancel</button></div>
+    <div style={{background:"#fff",borderRadius:"0 0 12px 12px",border:"1.5px solid #EEF2F7",borderTop:"none",padding:20}}>
+      <div style={{marginBottom:14}}>
+        <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Carried Over From Batch</label>
+        <select value={sourceBatchNo} onChange={e=>{setSourceBatchNo(e.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+          <option value="">— select batch —</option>
+          {sourceOptions.map(b=><option key={b.id} value={b.batchNo}>{b.batchNo} · {b.color}{b.client?" · "+b.client:""}</option>)}</select>
+        {sourceOptions.length===0&&<div style={{fontSize:11,color:"#DC3545",marginTop:5,fontWeight:600}}>⚠️ No other Silica Gel Sachets batches to carry over from yet.</div>}</div>
+      <div style={{marginBottom:14}}><Field label="Quantity (Pcs) *" value={qty} onChange={v=>{setQty(v);setErr("");}} type="number" ph="e.g. 15000" accent="#4A6741"/></div>
+      <div style={{marginBottom:18}}><Field label="Notes (optional)" value={notes} onChange={setNotes} accent="#4A6741"/></div>
+      {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
+      <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#4A6741",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Log Carryover</button>
+    </div></div>);
+}
 function SilicaShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,onDeleteSub}){
-  const [form,setForm]=useState(null);      // {mode:"new"} | {subId, editing:true}
+  const [form,setForm]=useState(null);      // {mode:"new"} | {mode:"carryover"} | {subId, editing:true}
   const [confDel,setConfDel]=useState(null);
   const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch).sort((a,b)=>a.batchNo.localeCompare(b.batchNo));
   const totalGood=mySubs.reduce((s,b)=>s+(b.goodPcs||0),0);
@@ -1717,6 +1759,7 @@ function SilicaShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpda
   const close=()=>setForm(null);
 
   if(form&&form.mode==="new")return <SilicaShiftForm parentBatch={parentBatch} batches={batches} data={data} onSave={(b,m)=>{onCreateSub(b,m);close();}} onCancel={close}/>;
+  if(form&&form.mode==="carryover")return <SilicaCarryoverForm parentBatch={parentBatch} batches={batches} onSave={(b,m)=>{onCreateSub(b,m);close();}} onCancel={close}/>;
   if(cur)return <SilicaShiftForm parentBatch={parentBatch} batches={batches} data={data} existing={cur} onSave={(b,m)=>{onUpdateSub(b,m,cur);close();}} onCancel={close}/>;
 
   return(<div style={{fontFamily:"'Inter',sans-serif"}}>
@@ -1738,7 +1781,8 @@ function SilicaShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpda
         {mySubs.map(sub=>(<div key={sub.id} style={{background:"#FAFBFC",borderRadius:10,border:"1.5px solid #EEF2F7",padding:"10px 14px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
             <div><span style={{fontFamily:"monospace",fontWeight:800,fontSize:14,color:NAVY}}>{sub.batchNo}</span>
-              <span style={{fontSize:11,color:"#888",marginLeft:8}}>{sub.mfgDate}{sub.operator?" · "+sub.operator:""}</span></div>
+              <span style={{fontSize:11,color:"#888",marginLeft:8}}>{sub.mfgDate}{sub.operator?" · "+sub.operator:""}</span>
+              {sub.isCarryover&&<span style={{background:"#EEF3EC",color:"#4A6741",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700,marginLeft:8}}>↩️ from {sub.carryoverFrom}</span>}</div>
             <button type="button" onClick={()=>setForm({subId:sub.id,editing:true})} style={{background:"#fff",border:"1px solid #0E4A2A",color:"#0E4A2A",borderRadius:20,padding:"3px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>✏️ Edit</button></div>
           <div style={{display:"flex",gap:14,fontSize:11,color:"#666",flexWrap:"wrap",marginTop:8}}>
             <span style={{fontWeight:700,color:"#1A6B2A"}}>✅ {fmtN(sub.goodPcs)} pcs</span>
@@ -1747,13 +1791,15 @@ function SilicaShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpda
             {sub.cartonsUsed?<span>📦 {sub.cartonsUsed} cartons</span>:null}</div>
           <div style={{marginTop:9,paddingTop:9,borderTop:"1px solid #F0F0F0"}}>
             {confDel===sub.id?(<div style={{display:"flex",gap:8,alignItems:"center"}}>
-              <span style={{fontSize:11,color:"#8B1A1A",fontWeight:600,flex:1}}>Delete {sub.batchNo}{(sub.silicaLotId||sub.rollsLotId)?" — any material it drew will be returned to stock":""}?</span>
+              <span style={{fontSize:11,color:"#8B1A1A",fontWeight:600,flex:1}}>Delete {sub.batchNo}{(sub.silicaLotId||sub.rollsLotId||sub.cartonsLotId)?" — any material it drew will be returned to stock":""}?</span>
               <button type="button" onClick={()=>{onDeleteSub(sub);setConfDel(null);}} style={{background:"#DC3545",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11,color:"#fff",fontWeight:800}}>Yes, delete</button>
               <button type="button" onClick={()=>setConfDel(null)} style={{background:"#E2E8F0",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11}}>Cancel</button></div>)
             :(<button type="button" onClick={()=>setConfDel(sub.id)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>🗑 Delete this shift</button>)}</div>
         </div>))}
       </div>
-      <button type="button" onClick={()=>setForm({mode:"new"})} style={{width:"100%",padding:13,background:"linear-gradient(135deg,#0E4A2A,#1A7A45)",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer"}}>+ New Shift ({String.fromCharCode(65+mySubs.length)})</button>
+      <div style={{display:"flex",gap:8}}>
+        <button type="button" onClick={()=>setForm({mode:"new"})} style={{flex:1,padding:13,background:"linear-gradient(135deg,#0E4A2A,#1A7A45)",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer"}}>+ New Shift ({String.fromCharCode(65+mySubs.length)})</button>
+        <button type="button" onClick={()=>setForm({mode:"carryover"})} style={{padding:"13px 16px",background:"#fff",border:"1.5px solid #4A6741",color:"#4A6741",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer",whiteSpace:"nowrap"}}>↩️ Carryover</button></div>
     </div></div>);
 }
 
