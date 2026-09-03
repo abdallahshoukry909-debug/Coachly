@@ -58,7 +58,10 @@ const stageColor={"Injection":"#856404","Plastic Sorting":"#0C5460","Assembly":"
 const stageBg={"Injection":"#FFF3CD","Plastic Sorting":"#D1ECF1","Assembly":"#EDE0FF","Final Sorting":"#FFF8DC","Complete":"#C6EFCE"};
 const INITIAL_COILS={"Aluminum Coils":[]};
 
-const isSilica=l=>(l.description||"").toLowerCase().includes("silica gel");
+// Matches raw Silica Gel material lots (bought/stocked in 25 KG bags) so they display as
+// "bags" — but NOT finished Silica Gel Sachets product saved to WIP Inventory, which is
+// counted in plain pcs, not 25 KG bags of raw beads.
+const isSilica=l=>{const d=(l.description||"").toLowerCase();return d.includes("silica gel")&&!d.includes("sachet");};
 const BLANK_LOT={lotNumber:"",plNo:"",date:"",supplier:"",description:"",qtyReceived:"",unit:"KG",qtyRemaining:"",unitCost:"",unitCostCurrency:"EGP",status:"In Stock",notes:"",image:null,usageLog:[],totalCoils:"",coilsUsed:0};
 function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
 function fmt(n){if(n===""||n==null||isNaN(Number(n)))return"—";return Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});}
