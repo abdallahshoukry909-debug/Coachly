@@ -482,7 +482,9 @@ const INITIAL_LOTS={
   "Silica Gel":[
     {id:"sg-1",lotNumber:"YM0120260120",plNo:"YM012026012C",date:"20-Jan-2026",supplier:"Dongying Yiming New Materials Co., Ltd",description:"Silica Gel Beaded Type A – 25 KG/bag",qtyReceived:16000,unit:"KG",qtyRemaining:15350,unitCost:0.95,unitCostCurrency:"USD",status:"In Stock",notes:"640 packages × 25 KG",image:null,usageLog:[{id:"sg-1-hist1",date:"19-Aug-2026",qtyUsed:650,reason:"Recovered usage",remainingAfter:15350}]},
   ],
-  "WIP Inventory":[],
+  "WIP Inventory":[
+    {id:"wip-ss-05g-1",lotNumber:"WIP-SS-0.5G-001",plNo:"",date:"03-Sep-2026",supplier:"",description:"Silica Gel Sachets — Finished — 0.5g",qtyReceived:48000,unit:"Pcs",qtyRemaining:48000,unitCost:"",status:"In Stock",notes:"Existing inventory — added directly",image:null,usageLog:[]},
+  ],
   "Cartons":[
     {id:"ctn-1",lotNumber:"EPS-CTN-260001",plNo:"",date:"01-Sep-2026",supplier:"",description:"Corrugated Carton – 30×38×58 cm",qtyReceived:1000,unit:"Cartons",qtyRemaining:1000,unitCost:32.5,unitCostCurrency:"EGP",status:"In Stock",notes:"",image:null,usageLog:[]},
   ],
