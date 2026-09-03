@@ -1709,44 +1709,106 @@ function SilicaShiftForm({parentBatch,batches,data,existing,onSave,onCancel}){
 // Leftover FINISHED sachets from another Silica Gel Sachets batch, logged as a completed
 // shift here without drawing fresh Silica Gel/Rolls/Cartons — that material was already
 // consumed under the original batch, so redrawing it here would double-count it.
-function SilicaCarryoverForm({parentBatch,batches,onSave,onCancel}){
+function SilicaCarryoverForm({parentBatch,batches,data,onSave,onCancel}){
   const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch);
   const priorCarryovers=mySubs.filter(b=>b.isCarryover).length;
   const subNo=parentBatch.batchNo+"-CO"+(priorCarryovers+1);
   const sourceOptions=batches.filter(b=>!b.isSubBatch&&b.product==="Silica Gel Sachets"&&b.batchNo!==parentBatch.batchNo);
-  const [sourceBatchNo,setSourceBatchNo]=useState(""),[qty,setQty]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
-  const effectiveQty=Number(qty)||0;
+  // Leftover Silica Gel Sachets saved to WIP Inventory are tagged with a description starting
+  // "Silica Gel Sachets" (see SilicaSaveLeftoverForm) — matched here so only that stock, not
+  // Flip-Off's plastic/assembled WIP stock, shows up as a source.
+  const wipLots=((data&&data["WIP Inventory"]&&data["WIP Inventory"].lots)||[]).filter(l=>l.status!=="Out of Stock"&&Number(l.qtyRemaining)>0&&(l.description||"").indexOf("Silica Gel Sachets")===0);
+  const [source,setSource]=useState("batch");   // "batch" | "wip"
+  const [sourceBatchNo,setSourceBatchNo]=useState(""),[qty,setQty]=useState("");
+  const [wipLotId,setWipLotId]=useState(""),[wipPcs,setWipPcs]=useState("");
+  const [notes,setNotes]=useState(""),[err,setErr]=useState("");
+  const selWip=wipLotId?wipLots.filter(l=>l.id===wipLotId)[0]:null;
+  const wipRemaining=selWip?Number(selWip.qtyRemaining):0;
+  const manualQty=Number(qty)||0,wipQty=Number(wipPcs)||0;
+  const effectiveQty=source==="wip"?wipQty:manualQty;
   const save=()=>{
-    if(!sourceBatchNo){setErr("Select which batch this carried over from.");return;}
+    if(source==="batch"&&!sourceBatchNo){setErr("Select which batch this carried over from.");return;}
+    if(source==="wip"&&!wipLotId){setErr("Select which saved leftover lot this came from.");return;}
     if(effectiveQty<=0){setErr("Enter a quantity.");return;}
+    if(source==="wip"&&wipQty>wipRemaining+0.5){setErr("Only "+fmtN(wipRemaining)+" pcs left in that lot.");return;}
+    const fromLabel=source==="wip"?selWip.lotNumber:sourceBatchNo;
     const payload={id:genId(),batchNo:subNo,isSubBatch:true,parentBatchNo:parentBatch.batchNo,
       product:parentBatch.product,color:parentBatch.color,client:parentBatch.client,orderNo:parentBatch.orderNo,
       stage:"Complete",status:"Complete",
       cartons:0,bagsPerCarton:0,pcsPerBag:0,partialCartonBags:0,totalPcs:effectiveQty,
       mfgDate:parentBatch.mfgDate,operator:"",amountPcs:effectiveQty,goodPcs:effectiveQty,
-      isCarryover:true,carryoverFrom:sourceBatchNo,
-      notes:"Carried over from "+sourceBatchNo+(notes?" — "+notes:""),createdAt:today()};
-    onSave(payload,null);
+      isCarryover:true,carryoverFrom:fromLabel,
+      wipLotId:source==="wip"?wipLotId:null,wipLotNo:source==="wip"?selWip.lotNumber:null,wipPcsUsed:source==="wip"?effectiveQty:0,
+      notes:"Carried over from "+fromLabel+(notes?" — "+notes:""),createdAt:today()};
+    onSave(payload,source==="wip"?{wipLotId:wipLotId,wipPcsUsed:effectiveQty}:null);
   };
   return(<div style={{maxWidth:640,fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"#4A6741",borderRadius:"12px 12px 0 0",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-      <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>↩️ Log Carryover — {subNo}</div><div style={{color:"rgba(255,255,255,0.65)",fontSize:12}}>Leftover finished sachets from a previous Silica Gel Sachets batch</div></div>
+      <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>↩️ Log Carryover — {subNo}</div><div style={{color:"rgba(255,255,255,0.65)",fontSize:12}}>Leftover finished sachets from a previous batch, or saved leftover stock</div></div>
       <button type="button" onClick={onCancel} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:13}}>Cancel</button></div>
     <div style={{background:"#fff",borderRadius:"0 0 12px 12px",border:"1.5px solid #EEF2F7",borderTop:"none",padding:20}}>
       <div style={{marginBottom:14}}>
-        <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Carried Over From Batch</label>
-        <select value={sourceBatchNo} onChange={e=>{setSourceBatchNo(e.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
-          <option value="">— select batch —</option>
-          {sourceOptions.map(b=><option key={b.id} value={b.batchNo}>{b.batchNo} · {b.color}{b.client?" · "+b.client:""}</option>)}</select>
-        {sourceOptions.length===0&&<div style={{fontSize:11,color:"#DC3545",marginTop:5,fontWeight:600}}>⚠️ No other Silica Gel Sachets batches to carry over from yet.</div>}</div>
-      <div style={{marginBottom:14}}><Field label="Quantity (Pcs) *" value={qty} onChange={v=>{setQty(v);setErr("");}} type="number" ph="e.g. 15000" accent="#4A6741"/></div>
+        <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Where From?</label>
+        <div style={{display:"flex",gap:8}}>
+          {[["batch","Another Batch"],["wip","Saved Leftover Stock"]].map(([k,label])=>(
+            <div key={k} onClick={()=>{setSource(k);setErr("");}} style={{flex:1,padding:"9px 12px",borderRadius:9,border:"2px solid "+(source===k?"#4A6741":"#E2E8F0"),background:source===k?"#EEF3EC":"#fff",cursor:"pointer",textAlign:"center",fontWeight:source===k?700:500,fontSize:13,color:source===k?"#4A6741":"#444"}}>{label}</div>))}</div></div>
+      {source==="batch"?(<>
+        <div style={{marginBottom:14}}>
+          <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Carried Over From Batch</label>
+          <select value={sourceBatchNo} onChange={e=>{setSourceBatchNo(e.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+            <option value="">— select batch —</option>
+            {sourceOptions.map(b=><option key={b.id} value={b.batchNo}>{b.batchNo} · {b.color}{b.client?" · "+b.client:""}</option>)}</select>
+          {sourceOptions.length===0&&<div style={{fontSize:11,color:"#DC3545",marginTop:5,fontWeight:600}}>⚠️ No other Silica Gel Sachets batches to carry over from yet.</div>}</div>
+        <div style={{marginBottom:14}}><Field label="Quantity (Pcs) *" value={qty} onChange={v=>{setQty(v);setErr("");}} type="number" ph="e.g. 15000" accent="#4A6741"/></div>
+      </>):(<div style={{marginBottom:14}}>
+        <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Saved Leftover Lot</label>
+        <select value={wipLotId} onChange={e=>{setWipLotId(e.target.value);setWipPcs("");setErr("");}} style={{width:"100%",border:"1.5px solid "+(wipLots.length?"#E2E8F0":"#F1948A"),borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+          <option value="">— select lot —</option>
+          {wipLots.map(l=><option key={l.id} value={l.id}>{l.lotNumber} · {fmtN(l.qtyRemaining)} pcs · {l.description}</option>)}</select>
+        {wipLots.length===0&&<div style={{fontSize:11,color:"#DC3545",marginTop:5,fontWeight:600}}>⚠️ No saved leftover Silica Gel Sachets stock yet — use &quot;💾 Save Leftover&quot; on a batch first.</div>}
+        {selWip&&<div style={{marginTop:10}}>
+          <Field label="Pcs to Use" value={wipPcs} onChange={v=>{setWipPcs(v);setErr("");}} type="number" ph={"up to "+fmtN(wipRemaining)} accent="#4A6741"/>
+          <div style={{fontSize:11,color:"#4A6741",marginTop:4}}>{fmtN(wipRemaining)} pcs available <button type="button" onClick={()=>setWipPcs(String(wipRemaining))} style={{marginLeft:8,background:"none",border:"none",color:"#4A6741",textDecoration:"underline",cursor:"pointer",fontSize:11,padding:0}}>use all</button></div></div>}
+      </div>)}
       <div style={{marginBottom:18}}><Field label="Notes (optional)" value={notes} onChange={setNotes} accent="#4A6741"/></div>
       {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#4A6741",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Log Carryover</button>
     </div></div>);
 }
-function SilicaShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,onDeleteSub}){
-  const [form,setForm]=useState(null);      // {mode:"new"} | {mode:"carryover"} | {subId, editing:true}
+// Leftover FINISHED Silica Gel Sachets from a batch that wasn't fully used/shipped, saved as
+// its own WIP Inventory lot (size/client tagged) so it's visible in stock for a later batch's
+// Carryover — simpler than the Flip-Off version since Silica has no intermediate stages,
+// just finished pcs.
+function SilicaSaveLeftoverForm({parentBatch,onSave,onClose}){
+  const mc=MATERIAL_META["WIP Inventory"];
+  const [size,setSize]=useState(parentBatch.color||""),[company,setCompany]=useState(parentBatch.client||"");
+  const [qty,setQty]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
+  const pcs=Number(qty)||0;
+  const save=()=>{
+    if(pcs<=0){setErr("Enter the leftover quantity in pcs.");return;}
+    onSave({id:genId(),lotNumber:"WIP-"+parentBatch.batchNo+"-"+genId().slice(-4),plNo:"",date:today(),
+      supplier:company.trim(),
+      description:"Silica Gel Sachets — Finished — "+(size.trim()||"any size")+(company.trim()?" — "+company.trim():""),
+      qtyReceived:pcs,unit:"Pcs",qtyRemaining:pcs,unitCost:"",status:"In Stock",
+      notes:"From "+parentBatch.batchNo+(notes?" — "+notes:""),image:null,usageLog:[]});
+  };
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:460,maxHeight:"92vh",overflowY:"auto"}}>
+      <div style={{background:mc.color,borderRadius:"16px 16px 0 0",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>{mc.emoji} Save Leftover to Stock</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>{parentBatch.batchNo}{parentBatch.color?" · "+parentBatch.color:""}{parentBatch.client?" · "+parentBatch.client:""}</div></div>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
+      <div style={{padding:24}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+          <Field label="Size / Variant" value={size} onChange={setSize} ph="e.g. 10g" accent={mc.accent}/>
+          <Field label="Company" value={company} onChange={setCompany} ph="e.g. Mountain Nutrition" accent={mc.accent}/></div>
+        <div style={{marginBottom:14}}><Field label="Quantity (Pcs) *" value={qty} onChange={v=>{setQty(v);setErr("");}} type="number" ph="e.g. 5000" accent={mc.accent}/></div>
+        <div style={{marginBottom:18}}><Field label="Notes (optional)" value={notes} onChange={setNotes} accent={mc.accent}/></div>
+        {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
+        <button type="button" onClick={save} style={{width:"100%",padding:13,background:mc.accent,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save to WIP Inventory</button>
+      </div></div></div>);
+}
+function SilicaShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,onDeleteSub,onSaveLeftover}){
+  const [form,setForm]=useState(null);      // {mode:"new"} | {mode:"carryover"} | {mode:"leftover"} | {subId, editing:true}
   const [confDel,setConfDel]=useState(null);
   const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch).sort((a,b)=>a.batchNo.localeCompare(b.batchNo));
   const totalGood=mySubs.reduce((s,b)=>s+(b.goodPcs||0),0);
@@ -1759,7 +1821,8 @@ function SilicaShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpda
   const close=()=>setForm(null);
 
   if(form&&form.mode==="new")return <SilicaShiftForm parentBatch={parentBatch} batches={batches} data={data} onSave={(b,m)=>{onCreateSub(b,m);close();}} onCancel={close}/>;
-  if(form&&form.mode==="carryover")return <SilicaCarryoverForm parentBatch={parentBatch} batches={batches} onSave={(b,m)=>{onCreateSub(b,m);close();}} onCancel={close}/>;
+  if(form&&form.mode==="carryover")return <SilicaCarryoverForm parentBatch={parentBatch} batches={batches} data={data} onSave={(b,m)=>{onCreateSub(b,m);close();}} onCancel={close}/>;
+  if(form&&form.mode==="leftover")return <SilicaSaveLeftoverForm parentBatch={parentBatch} onSave={lot=>{onSaveLeftover(lot);close();}} onClose={close}/>;
   if(cur)return <SilicaShiftForm parentBatch={parentBatch} batches={batches} data={data} existing={cur} onSave={(b,m)=>{onUpdateSub(b,m,cur);close();}} onCancel={close}/>;
 
   return(<div style={{fontFamily:"'Inter',sans-serif"}}>
@@ -1797,9 +1860,10 @@ function SilicaShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpda
             :(<button type="button" onClick={()=>setConfDel(sub.id)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>🗑 Delete this shift</button>)}</div>
         </div>))}
       </div>
-      <div style={{display:"flex",gap:8}}>
-        <button type="button" onClick={()=>setForm({mode:"new"})} style={{flex:1,padding:13,background:"linear-gradient(135deg,#0E4A2A,#1A7A45)",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer"}}>+ New Shift ({String.fromCharCode(65+mySubs.length)})</button>
-        <button type="button" onClick={()=>setForm({mode:"carryover"})} style={{padding:"13px 16px",background:"#fff",border:"1.5px solid #4A6741",color:"#4A6741",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer",whiteSpace:"nowrap"}}>↩️ Carryover</button></div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button type="button" onClick={()=>setForm({mode:"new"})} style={{flex:1,padding:13,background:"linear-gradient(135deg,#0E4A2A,#1A7A45)",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer",minWidth:150}}>+ New Shift ({String.fromCharCode(65+mySubs.length)})</button>
+        <button type="button" onClick={()=>setForm({mode:"carryover"})} style={{padding:"13px 16px",background:"#fff",border:"1.5px solid #4A6741",color:"#4A6741",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer",whiteSpace:"nowrap"}}>↩️ Carryover</button>
+        <button type="button" onClick={()=>setForm({mode:"leftover"})} style={{padding:"13px 16px",background:"#fff",border:"1.5px solid "+MATERIAL_META["WIP Inventory"].accent,color:MATERIAL_META["WIP Inventory"].accent,borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer",whiteSpace:"nowrap"}}>💾 Save Leftover</button></div>
     </div></div>);
 }
 
@@ -2008,6 +2072,7 @@ function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDe
         if(m.silicaKg)onApplyMaterial("Silica Gel",null,0,m.silicaLotId,m.silicaKg,b.batchNo);
         if(m.rollsUsed)onApplyMaterial("Sachets Paper",null,0,m.rollsLotId,m.rollsUsed,b.batchNo);
         if(m.cartonsUsed)onApplyMaterial("Cartons",null,0,m.cartonsLotId,m.cartonsUsed,b.batchNo);
+        if(m.wipPcsUsed)onApplyMaterial("WIP Inventory",null,0,m.wipLotId,m.wipPcsUsed,b.batchNo);
       }}}
     onUpdateSub={(b,m,old)=>{onUpdateBatch(b);
       if(m){
@@ -2015,7 +2080,7 @@ function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDe
         onApplyMaterial("Sachets Paper",old?old.rollsLotId:null,old?(old.rollsUsed||0):0,m.rollsLotId,m.rollsUsed,b.batchNo);
         onApplyMaterial("Cartons",old?old.cartonsLotId:null,old?(old.cartonsUsed||0):0,m.cartonsLotId,m.cartonsUsed,b.batchNo);
       }}}
-    onDeleteSub={onDeleteSub}/>;
+    onDeleteSub={onDeleteSub} onSaveLeftover={onSaveLeftover}/>;
   if(parent)return <ShiftManager parentBatch={parent} batches={all} data={data} onClose={()=>setShiftId(null)}
     onCreateSub={(b,m)=>{onCreateBatch(b);
       if(m&&m.plasticLotId!==undefined)onApplyPlastic(null,0,m.plasticLotId,m.plasticBags,b.batchNo);
