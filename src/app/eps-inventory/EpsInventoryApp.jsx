@@ -429,6 +429,9 @@ const PRODUCT_META={
   "Silica Gel Sachets":{code:"SS",variantLabel:"Size",sizes:["0.5g","1g","5g","10g"],lines:["Line 1","Line 2"]},
 };
 const PRODUCTS=Object.keys(PRODUCT_META);
+// Known Pcs-per-Bag packaging convention per Silica Gel Sachets size — pre-fills Pcs per Bag
+// on Create Batch when that size is picked, still editable per batch.
+const SACHET_PCS_PER_BAG={"0.5g":2000};
 function nextOrdNo(os){const p="EPS-ORD-"+pad(getYr(),2);const ns=os.filter(o=>o.orderNo.indexOf(p)===0).map(o=>parseInt(o.orderNo.slice(p.length))||0);return p+pad(ns.length?Math.max.apply(null,ns)+1:1,4);}
 
 function CheckBadge({actual,expected}){
@@ -1903,6 +1906,10 @@ function BatchForm({batches,orders,onSave,onCancel}){
   const totalBags=c*b+pt;
   const totalPcs=pbp>0&&totalBags>0?(totalBags-1)*p+pbp:totalBags*p;
   const changeProduct=v=>{const m=PRODUCT_META[v];setProduct(v);setVariant("");setLine(m.lines?m.lines[0]:"");setErr("");};
+  const pickVariant=v=>{
+    setVariant(v);setErr("");
+    if(product==="Silica Gel Sachets"&&SACHET_PCS_PER_BAG[v])setPpb(String(SACHET_PCS_PER_BAG[v]));
+  };
   const save=()=>{if(!variant.trim()){setErr(meta.variantLabel+" is required.");return;}if(c<1){setErr("At least 1 carton.");return;}
     onSave({id:genId(),batchNo:preview,isSubBatch:false,parentBatchNo:null,product:product,status:status,
       color:variant.trim(),line:meta.lines?line:"",cartons:c,bagsPerCarton:b,pcsPerBag:p,partialCartonBags:pt,partialBagPcs:pbp,totalPcs:totalPcs,
@@ -1920,7 +1927,7 @@ function BatchForm({batches,orders,onSave,onCancel}){
           <select value={product} onChange={e=>changeProduct(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
             {PRODUCTS.map(pr=><option key={pr}>{pr}</option>)}</select></div>
         {meta.sizes?(<div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{meta.variantLabel} *</label>
-          <select value={variant} onChange={e=>{setVariant(e.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+          <select value={variant} onChange={e=>pickVariant(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
             <option value="">— select —</option>{meta.sizes.map(s=><option key={s}>{s}</option>)}</select></div>)
         :(<Field label={meta.variantLabel+" *"} value={variant} onChange={v=>{setVariant(v);setErr("");}} ph="e.g. Blue"/>)}
         {meta.lines&&<div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Production Line</label>
