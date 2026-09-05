@@ -260,18 +260,21 @@ function buildBatchCost(batch,batches,data,laborRates){
   const scrapLots=(data["Aluminum Scrap"]&&data["Aluminum Scrap"].lots)||[];
   const silicaGelLots=(data["Silica Gel"]&&data["Silica Gel"].lots)||[];
   const rollsLots=(data["Sachets Paper"]&&data["Sachets Paper"].lots)||[];
+  const cartonsLots=(data["Cartons"]&&data["Cartons"].lots)||[];
 
   const plasticCost={};let plasticBagsCosted=0,plasticBagsUncosted=0,regrindKgTotal=0;
   const alCost={};let alPcsCosted=0,alPcsUncosted=0,scrapKgForBatch=0;
   let alCostEGP=0,alPcsRealRate=0,alPcsFallbackRate=0,alPcsNoRate=0,avgAlRateEGP=0,alPcsAssumed=0;
   const silicaCost={};let silicaKgCosted=0,silicaKgUncosted=0;
   const rollsCost={};let rollsCosted=0,rollsUncosted=0;
+  const cartonsCost={};let cartonsCosted=0,cartonsUncosted=0,cartonsCostEGP=0;
   let silicaCostEGP=0,rollsCostEGP=0;
+  // USD-priced material converts to EGP the same way everywhere: the lot's own purchase-time
+  // rate when set, otherwise Finance's fallback rate. Cartons apply to both products, so this
+  // is shared rather than declared inside the isSilica/Flip-Off branches below.
+  const fallbackRate=Number(rates.usdToEgpFallbackRate)||0;
 
   if(isSilica){
-    // Silica Gel / Sachets Paper priced in USD convert to EGP the same way Aluminum does:
-    // the lot's own purchase-time rate when set, otherwise Finance's fallback rate.
-    const fallbackRate=Number(rates.usdToEgpFallbackRate)||0;
     shifts.forEach(s=>{
       const kg=s.silicaKg||0;
       if(kg>0){
@@ -315,7 +318,6 @@ function buildBatchCost(batch,batches,data,laborRates){
     // alCostEGP converts non-EGP aluminum cost using each coil's own purchase-time rate when
     // set, falling back to Finance's fallback rate otherwise — tracked separately so it's clear
     // which pcs got a real rate vs the fallback, rather than blending them silently.
-    const fallbackRate=Number(rates.usdToEgpFallbackRate)||0;
     shifts.forEach(s=>{
       (s.aluminumSelections||[]).forEach(sel=>{
         const lot=capsLots.filter(l=>l.lotNumber===sel.lotNo)[0];
@@ -344,6 +346,23 @@ function buildBatchCost(batch,batches,data,laborRates){
     alPcsAssumed=alPcsUncosted>0&&avgAlRateEGP>0?alPcsUncosted:0;
     if(alPcsAssumed>0)alCostEGP+=alPcsAssumed*avgAlRateEGP;
   }
+
+  // Cartons — packaging, priced the same way as Plastic/Aluminum/Silica/Rolls above. Applies
+  // to both products (Flip-Off draws them at Final Sorting, Silica on the shift itself), so
+  // this runs once here instead of being duplicated inside the isSilica/Flip-Off branches.
+  shifts.forEach(s=>{
+    const ct=s.cartonsUsed||0;if(ct<=0)return;
+    const lot=s.cartonsLotId?cartonsLots.filter(l=>l.id===s.cartonsLotId)[0]:null;
+    if(lot&&lot.unitCost){
+      const cur=lot.unitCostCurrency||"EGP";
+      const lineCost=ct*Number(lot.unitCost);
+      cartonsCost[cur]=(cartonsCost[cur]||0)+lineCost;
+      cartonsCosted+=ct;
+      if(cur==="EGP")cartonsCostEGP+=lineCost;
+      else if(lot.usdToEgpRate)cartonsCostEGP+=lineCost*Number(lot.usdToEgpRate);
+      else if(fallbackRate>0)cartonsCostEGP+=lineCost*fallbackRate;
+    }else cartonsUncosted+=ct;
+  });
 
   // Rejected pcs (Plastic Sorting + Final Sorting rejects) already consumed real plastic/
   // aluminum/labor before being rejected — that spend doesn't come back, so it's already fully
@@ -393,7 +412,7 @@ function buildBatchCost(batch,batches,data,laborRates){
   }
   const laborTotalEGP=laborInjectionEGP+laborSortingEGP+laborAssemblyEGP+laborPressEGP+laborSilicaEGP;
 
-  const netEGP=(plasticCost.EGP||0)+silicaCostEGP+rollsCostEGP+laborTotalEGP+alCostEGP-estScrapCreditEGP;
+  const netEGP=(plasticCost.EGP||0)+silicaCostEGP+rollsCostEGP+cartonsCostEGP+laborTotalEGP+alCostEGP-estScrapCreditEGP;
 
   // Revenue/profit — priced by the batch's own set quantity (totalPcs), not by however
   // many pcs actually came out of production. sellPricePerPc is set manually per batch.
@@ -418,6 +437,7 @@ function buildBatchCost(batch,batches,data,laborRates){
     alPcsAssumed:alPcsAssumed,avgAlRateEGP:avgAlRateEGP,
     silicaCost:silicaCost,silicaKgCosted:silicaKgCosted,silicaKgUncosted:silicaKgUncosted,silicaCostEGP:silicaCostEGP,
     rollsCost:rollsCost,rollsCosted:rollsCosted,rollsUncosted:rollsUncosted,rollsCostEGP:rollsCostEGP,
+    cartonsCost:cartonsCost,cartonsCosted:cartonsCosted,cartonsUncosted:cartonsUncosted,cartonsCostEGP:cartonsCostEGP,
     scrapKgForBatch:scrapKgForBatch,avgScrapRateEGP:avgScrapRateEGP,scrapRateIsAssumed:scrapRateIsAssumed,estScrapCreditEGP:estScrapCreditEGP,
     rejectedPcsTotal:rejectedPcsTotal,
     injectionShifts:injectionShifts,sortingPcs:sortingPcs,assemblyPcs:assemblyPcs,pressPcs:pressPcs,silicaShiftsCount:silicaShiftsCount,
@@ -2902,6 +2922,10 @@ function BatchCostDoc({cost,orders,onBack,onSaveSellPrice}){
         :<div style={{color:"#888",fontSize:12}}>No scrap traceable to this batch&apos;s caps yet.</div>}
       </ReportSection>
     </>)}
+    {(cost.cartonsCosted>0||cost.cartonsUncosted>0)&&<ReportSection title="Cartons">
+      <CurrencyLines byCurrency={cost.cartonsCost}/>
+      <div style={{fontSize:12,color:"#666",marginTop:8}}>{fmtN(cost.cartonsCosted)} cartons costed{cost.cartonsUncosted>0?" · "+fmtN(cost.cartonsUncosted)+" cartons with no lot cost on file":""}</div>
+    </ReportSection>}
     <ReportSection title="Labor (rates set in Finance — edit any time under Labor Rates)">
       <div style={{display:"flex",flexDirection:"column",gap:6,fontSize:12,color:"#666",marginBottom:8}}>
         {cost.isSilica?(
@@ -2914,13 +2938,13 @@ function BatchCostDoc({cost,orders,onBack,onSaveSellPrice}){
       <div style={{fontSize:20,fontWeight:900,color:NAVY}}>{fmt(cost.laborTotalEGP)} <span style={{fontSize:12,color:"#888",fontWeight:700}}>EGP labor total</span></div>
     </ReportSection>
     <div style={{background:"#EBF1F8",borderRadius:10,padding:16,marginBottom:16}}>
-      <div style={{fontSize:11,fontWeight:800,color:NAVY,textTransform:"uppercase",marginBottom:6}}>Net EGP ({cost.isSilica?"Silica Gel + Rolls + Labor":"Plastic + Aluminum + Labor − Scrap Credit"})</div>
+      <div style={{fontSize:11,fontWeight:800,color:NAVY,textTransform:"uppercase",marginBottom:6}}>Net EGP ({cost.isSilica?"Silica Gel + Rolls + Cartons + Labor":"Plastic + Aluminum + Cartons + Labor − Scrap Credit"})</div>
       <div style={{fontSize:26,fontWeight:900,color:NAVY}}>{fmt(cost.netEGP)} <span style={{fontSize:13,color:"#888",fontWeight:700}}>EGP</span></div>
       <div style={{fontSize:11,color:"#888",marginTop:4}}>{cost.isSilica?"Silica Gel and rolls priced in USD are converted using each lot's own purchase-time rate where set, otherwise Finance's fallback rate.":"Aluminum is converted to EGP using each coil's purchase-time rate where set, otherwise Finance's fallback rate."}</div>
       {!cost.isSilica&&cost.rejectedPcsTotal>0&&<div style={{fontSize:11,color:"#888",marginTop:4}}>⚠️ Includes {fmtN(cost.rejectedPcsTotal)} rejected pcs — that material and labor were already spent and don&apos;t come back, so it&apos;s counted here like any other pcs, not netted out.</div>}
     </div>
     <div style={{background:"#F7F9FC",borderRadius:10,padding:14,fontSize:12,color:"#666",marginBottom:16}}>
-      This covers {cost.isSilica?"silica gel, rolls, and labor":"plastic, aluminum, and labor"} cost — no overhead applied yet. Add more cost inputs over time to make this more accurate.</div>
+      This covers {cost.isSilica?"silica gel, rolls, cartons, and labor":"plastic, aluminum, cartons, and labor"} cost — no overhead applied yet. Add more cost inputs over time to make this more accurate.</div>
     <ReportSection title="Selling Price & Profit">
       <div className="eps-no-print" style={{marginBottom:10}}>
         <button type="button" onClick={()=>setShowPrice(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ {cost.sellPricePerPc>0||cost.estCostEGP>0?"Edit":"Set"} Selling Price &amp; Cost</button></div>
