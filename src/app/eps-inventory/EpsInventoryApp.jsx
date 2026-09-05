@@ -1906,6 +1906,35 @@ function SilicaShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpda
 }
 
 // ══ BATCH FORM / CARD / PRODUCTION ════════════════════════════════════════
+// A carton doesn't always hold uniform bags — e.g. 12 bags of 2000 pcs plus 1 bag of 1000 pcs
+// makes one 25,000-pc carton. bagMixTotals sums a list of {bags,pcs} rows into the real bag
+// count and pcs-per-carton for that mix; bagsPerCarton/pcsPerBag are still stored on the batch
+// (as the total bag count and pcsPerCarton/bagsPerCarton) purely so every other formula that
+// multiplies them together — order progress, the plain "Edit Amount" math — keeps working
+// unchanged, while the real per-size breakdown is kept in batch.bagMix for display.
+function bagMixTotals(mix){
+  const bags=(mix||[]).reduce((s,r)=>s+(Number(r.bags)||0),0);
+  const pcsPerCarton=(mix||[]).reduce((s,r)=>s+(Number(r.bags)||0)*(Number(r.pcs)||0),0);
+  return {bags:bags,pcsPerCarton:pcsPerCarton};
+}
+function BagMixEditor({mix,onChange,accent}){
+  const rows=mix&&mix.length?mix:[{bags:"",pcs:""}];
+  const upd=(i,field,val)=>onChange(rows.map((r,ri)=>ri===i?Object.assign({},r,{[field]:val}):r));
+  const addRow=()=>onChange(rows.concat([{bags:"",pcs:""}]));
+  const removeRow=i=>onChange(rows.length>1?rows.filter((_,ri)=>ri!==i):rows);
+  const totals=bagMixTotals(rows);
+  return(<div>
+    {rows.map((r,i)=>(<div key={i} style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}>
+      <input type="number" value={r.bags} onChange={e=>upd(i,"bags",e.target.value)} placeholder="bags" style={{width:80,border:"1.5px solid #E2E8F0",borderRadius:8,padding:"8px 10px",fontSize:13,boxSizing:"border-box"}}/>
+      <span style={{fontSize:12,color:"#888",whiteSpace:"nowrap"}}>bags of</span>
+      <input type="number" value={r.pcs} onChange={e=>upd(i,"pcs",e.target.value)} placeholder="pcs each" style={{width:100,border:"1.5px solid #E2E8F0",borderRadius:8,padding:"8px 10px",fontSize:13,boxSizing:"border-box"}}/>
+      <span style={{fontSize:12,color:"#888",whiteSpace:"nowrap"}}>pcs each</span>
+      {rows.length>1&&<button type="button" onClick={()=>removeRow(i)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:16,padding:"0 4px"}}>✕</button>}
+    </div>))}
+    <button type="button" onClick={addRow} style={{padding:"6px 12px",border:"1.5px dashed #CBD5E0",borderRadius:8,background:"#fff",color:accent||"#555",cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:8}}>+ Add bag size</button>
+    <div style={{fontSize:12,color:"#555"}}>{totals.bags} bags/carton · <strong>{fmtN(totals.pcsPerCarton)} pcs/carton</strong></div>
+  </div>);
+}
 function BatchForm({batches,orders,onSave,onCancel}){
   const [product,setProduct]=useState("Flip-Off Caps 20mm");
   const meta=PRODUCT_META[product];
@@ -1913,6 +1942,7 @@ function BatchForm({batches,orders,onSave,onCancel}){
   const [client,setClient]=useState(""),[cartons,setCartons]=useState("4");
   const [bpc,setBpc]=useState("2"),[ppb,setPpb]=useState("5000"),[partial,setPartial]=useState("0");
   const [partialBagPcs,setPartialBagPcs]=useState("0");
+  const [useBagMix,setUseBagMix]=useState(false),[bagMix,setBagMix]=useState([{bags:"",pcs:""}]);
   const [mfgDate,setMfgDate]=useState(new Date().toISOString().split("T")[0]);
   const [expDate,setExpDate]=useState("");
   const [status,setStatus]=useState("Production"),[orderNo,setOrderNo]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
@@ -1941,19 +1971,23 @@ function BatchForm({batches,orders,onSave,onCancel}){
   // doesn't get filled to a full bag's worth. 0 means "normal", every bag is a full ppb.
   const pbp=Number(partialBagPcs)||0;
   const totalBags=c*b+pt;
-  const totalPcs=pbp>0&&totalBags>0?(totalBags-1)*p+pbp:totalBags*p;
+  const mixTotals=bagMixTotals(bagMix);
+  const totalPcs=useBagMix?c*mixTotals.pcsPerCarton:(pbp>0&&totalBags>0?(totalBags-1)*p+pbp:totalBags*p);
   const changeProduct=v=>{const m=PRODUCT_META[v];setProduct(v);setVariant("");setLine(m.lines?m.lines[0]:"");setErr("");};
   const pickVariant=v=>{
     setVariant(v);setErr("");
     if(product==="Silica Gel Sachets"&&SACHET_PCS_PER_BAG[v])setPpb(String(SACHET_PCS_PER_BAG[v]));
   };
   const save=()=>{if(!variant.trim()){setErr(meta.variantLabel+" is required.");return;}if(c<1){setErr("At least 1 carton.");return;}
-    onSave({id:genId(),batchNo:preview,isSubBatch:false,parentBatchNo:null,product:product,status:status,
-      color:variant.trim(),line:meta.lines?line:"",cartons:c,bagsPerCarton:b,pcsPerBag:p,partialCartonBags:pt,partialBagPcs:pbp,totalPcs:totalPcs,
+    const mixFields=useBagMix?{bagsPerCarton:mixTotals.bags,pcsPerBag:mixTotals.bags>0?mixTotals.pcsPerCarton/mixTotals.bags:0,
+      partialCartonBags:0,partialBagPcs:0,bagMix:bagMix.map(r=>({bags:Number(r.bags)||0,pcs:Number(r.pcs)||0}))}
+      :{bagsPerCarton:b,pcsPerBag:p,partialCartonBags:pt,partialBagPcs:pbp,bagMix:null};
+    onSave(Object.assign({id:genId(),batchNo:preview,isSubBatch:false,parentBatchNo:null,product:product,status:status,
+      color:variant.trim(),line:meta.lines?line:"",cartons:c,totalPcs:totalPcs,
       mfgDate:mfgDate,expiryDate:isSachets?sachetExpiry:expDate,shelfLife:isSachets?"3 Years (Under Good Conditions)":null,client:client.trim(),orderNo:orderNo||null,notes:notes.trim(),createdAt:today(),isSample:isSample,
       sellPricePerPc:Number(sellPrice)||0,
       capWt:isFO?(Number(capWt)||CAP_WT):null,asmWt:isFO?(Number(asmWt)||ASM_WT):null,
-      wastePerInj:isFO?(Number(wastePerInj)||WASTE_PER_INJ):null});};
+      wastePerInj:isFO?(Number(wastePerInj)||WASTE_PER_INJ):null},mixFields));};
   return(<div style={{maxWidth:700,fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:NAVY,borderRadius:"12px 12px 0 0",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
       <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>Create Batch</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12,fontFamily:"monospace"}}>{preview}</div></div>
@@ -1975,10 +2009,16 @@ function BatchForm({batches,orders,onSave,onCancel}){
         {isFO&&<Field label="Waste per Injection (g)" value={wastePerInj} onChange={setWastePerInj} type="number" ph="28"/>}
         <Field label="Client" value={client} onChange={setClient} ph="e.g. Pharco"/>
         <Field label="Cartons" value={cartons} onChange={setCartons} type="number"/>
-        <Field label="Bags per Carton" value={bpc} onChange={setBpc} type="number"/>
-        <Field label="Pcs per Bag" value={ppb} onChange={setPpb} type="number"/>
-        <Field label="Partial Final Carton (bags)" value={partial} onChange={setPartial} type="number"/>
-        <Field label="Partial Last Bag (pcs, optional)" value={partialBagPcs} onChange={setPartialBagPcs} type="number" ph="0 = normal full bag"/>
+        <div style={{gridColumn:"1/-1"}}>
+          <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"#555",cursor:"pointer"}}>
+            <input type="checkbox" checked={useBagMix} onChange={e=>setUseBagMix(e.target.checked)} style={{width:16,height:16}}/>
+            Custom bag mix (a carton has bags of different sizes)</label></div>
+        {useBagMix?(<div style={{gridColumn:"1/-1"}}><BagMixEditor mix={bagMix} onChange={setBagMix}/></div>):(<>
+          <Field label="Bags per Carton" value={bpc} onChange={setBpc} type="number"/>
+          <Field label="Pcs per Bag" value={ppb} onChange={setPpb} type="number"/>
+          <Field label="Partial Final Carton (bags)" value={partial} onChange={setPartial} type="number"/>
+          <Field label="Partial Last Bag (pcs, optional)" value={partialBagPcs} onChange={setPartialBagPcs} type="number" ph="0 = normal full bag"/>
+        </>)}
         <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Mfg. Date</label>
           <input type="date" value={mfgDate} onChange={e=>setMfgDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
         {isSachets?(<div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Expiry Date (auto — 3 yrs from Mfg.)</label>
@@ -1999,7 +2039,10 @@ function BatchForm({batches,orders,onSave,onCancel}){
       <div style={{background:"#EBF1F8",borderRadius:10,padding:"12px 14px",marginBottom:12}}>
         <div style={{fontSize:11,fontWeight:700,color:NAVY,textTransform:"uppercase"}}>Preview</div>
         <div style={{fontFamily:"monospace",fontSize:15,fontWeight:700,color:NAVY}}>{preview}</div>
-        <div style={{fontSize:12,color:"#555",marginTop:3}}>{c} cartons · {b} bags/carton{pt>0?" + "+pt+" bag"+(pt===1?"":"s")+" partial carton":""} · <strong>{fmtN(totalPcs)} pcs total</strong>{pbp>0&&totalBags>0?" (last bag is "+fmtN(pbp)+" pcs, not "+fmtN(p)+")":""}</div></div>
+        <div style={{fontSize:12,color:"#555",marginTop:3}}>{useBagMix?
+          (c+" cartons × "+mixTotals.bags+" mixed bags ("+fmtN(mixTotals.pcsPerCarton)+" pcs/carton) · "):
+          (c+" cartons · "+b+" bags/carton"+(pt>0?" + "+pt+" bag"+(pt===1?"":"s")+" partial carton":"")+" · ")}
+          <strong>{fmtN(totalPcs)} pcs total</strong>{!useBagMix&&pbp>0&&totalBags>0?" (last bag is "+fmtN(pbp)+" pcs, not "+fmtN(p)+")":""}</div></div>
       {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"linear-gradient(135deg,"+NAVY+","+ACCENT+")",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Batch</button>
     </div></div>);
@@ -2029,13 +2072,19 @@ function BatchQuantityModal({batch,onSave,onClose}){
   const [ppb,setPpb]=useState(String(batch.pcsPerBag||0));
   const [partial,setPartial]=useState(String(batch.partialCartonBags||0));
   const [partialBagPcs,setPartialBagPcs]=useState(String(batch.partialBagPcs||0));
+  const [useBagMix,setUseBagMix]=useState(!!(batch.bagMix&&batch.bagMix.length));
+  const [bagMix,setBagMix]=useState(batch.bagMix&&batch.bagMix.length?batch.bagMix.map(r=>({bags:String(r.bags),pcs:String(r.pcs)})):[{bags:"",pcs:""}]);
   const [err,setErr]=useState("");
   const c=Number(cartons)||0,b=Number(bpc)||0,p=Number(ppb)||0,pt=Number(partial)||0,pbp=Number(partialBagPcs)||0;
   const totalBags=c*b+pt;
-  const totalPcs=pbp>0&&totalBags>0?(totalBags-1)*p+pbp:totalBags*p;
+  const mixTotals=bagMixTotals(bagMix);
+  const totalPcs=useBagMix?c*mixTotals.pcsPerCarton:(pbp>0&&totalBags>0?(totalBags-1)*p+pbp:totalBags*p);
   const save=()=>{
     if(c<1){setErr("At least 1 carton.");return;}
-    onSave(Object.assign({},batch,{cartons:c,bagsPerCarton:b,pcsPerBag:p,partialCartonBags:pt,partialBagPcs:pbp,totalPcs:totalPcs}));
+    const mixFields=useBagMix?{bagsPerCarton:mixTotals.bags,pcsPerBag:mixTotals.bags>0?mixTotals.pcsPerCarton/mixTotals.bags:0,
+      partialCartonBags:0,partialBagPcs:0,bagMix:bagMix.map(r=>({bags:Number(r.bags)||0,pcs:Number(r.pcs)||0}))}
+      :{bagsPerCarton:b,pcsPerBag:p,partialCartonBags:pt,partialBagPcs:pbp,bagMix:null};
+    onSave(Object.assign({},batch,{cartons:c,totalPcs:totalPcs},mixFields));
   };
   return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:440,overflow:"hidden"}}>
@@ -2045,13 +2094,23 @@ function BatchQuantityModal({batch,onSave,onClose}){
       <div style={{padding:24}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
           <Field label="Cartons" value={cartons} onChange={v=>{setCartons(v);setErr("");}} type="number"/>
-          <Field label="Bags per Carton" value={bpc} onChange={setBpc} type="number"/>
-          <Field label="Pcs per Bag" value={ppb} onChange={setPpb} type="number"/>
-          <Field label="Partial Final Carton (bags)" value={partial} onChange={setPartial} type="number"/>
-          <Field label="Partial Last Bag (pcs, optional)" value={partialBagPcs} onChange={setPartialBagPcs} type="number" ph="0 = normal full bag"/>
         </div>
+        <div style={{marginBottom:14}}>
+          <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"#555",cursor:"pointer"}}>
+            <input type="checkbox" checked={useBagMix} onChange={e=>setUseBagMix(e.target.checked)} style={{width:16,height:16}}/>
+            Custom bag mix (a carton has bags of different sizes)</label></div>
+        {useBagMix?(<div style={{marginBottom:14}}><BagMixEditor mix={bagMix} onChange={setBagMix}/></div>):(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+            <Field label="Bags per Carton" value={bpc} onChange={setBpc} type="number"/>
+            <Field label="Pcs per Bag" value={ppb} onChange={setPpb} type="number"/>
+            <Field label="Partial Final Carton (bags)" value={partial} onChange={setPartial} type="number"/>
+            <Field label="Partial Last Bag (pcs, optional)" value={partialBagPcs} onChange={setPartialBagPcs} type="number" ph="0 = normal full bag"/>
+          </div>)}
         <div style={{background:"#EBF1F8",borderRadius:10,padding:"10px 12px",marginBottom:18,fontSize:12,color:"#555"}}>
-          {c} cartons · {b} bags/carton{pt>0?" + "+pt+" bag"+(pt===1?"":"s")+" partial carton":""} · <strong>{fmtN(totalPcs)} pcs total</strong>{pbp>0&&totalBags>0?" (last bag is "+fmtN(pbp)+" pcs, not "+fmtN(p)+")":""}</div>
+          {useBagMix?
+            (c+" cartons × "+mixTotals.bags+" mixed bags ("+fmtN(mixTotals.pcsPerCarton)+" pcs/carton) · "):
+            (c+" cartons · "+b+" bags/carton"+(pt>0?" + "+pt+" bag"+(pt===1?"":"s")+" partial carton":"")+" · ")}
+          <strong>{fmtN(totalPcs)} pcs total</strong>{!useBagMix&&pbp>0&&totalBags>0?" (last bag is "+fmtN(pbp)+" pcs, not "+fmtN(p)+")":""}</div>
         {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Amount</button>
       </div></div></div>);
@@ -2088,7 +2147,9 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts,onUp
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
         {BSTATUSES.map(s=>{const c=BST[s];return(<button type="button" key={s} onClick={()=>onStatusChange(s)} style={{padding:"5px 12px",borderRadius:20,fontSize:11,fontWeight:600,cursor:"pointer",border:"1.5px solid "+(batch.status===s?c.dot:"#E2E8F0"),background:batch.status===s?c.bg:"#fff",color:batch.status===s?c.text:"#666"}}>{s}</button>);})}</div>
       <div style={{fontSize:12,color:"#666",lineHeight:1.7,marginBottom:10}}>
-        <div><strong>Qty:</strong> {batch.cartons} × {batch.bagsPerCarton} × {fmtN(batch.pcsPerBag)} = {fmtN(batch.totalPcs)} pcs</div>
+        <div><strong>Qty:</strong> {batch.bagMix&&batch.bagMix.length?
+          (batch.cartons+" cartons × ("+batch.bagMix.map(r=>r.bags+"×"+fmtN(r.pcs)).join(" + ")+")"):
+          (batch.cartons+" × "+batch.bagsPerCarton+" × "+fmtN(batch.pcsPerBag))} = {fmtN(batch.totalPcs)} pcs</div>
         {batch.mfgDate&&<div><strong>Mfg:</strong> {batch.mfgDate}</div>}
         {batch.expiryDate&&<div><strong>Expiry:</strong> {batch.expiryDate}{batch.shelfLife?" ("+batch.shelfLife+")":""}</div>}
         {isFO&&<div><strong>Weights:</strong> {batch.capWt||CAP_WT} g/cap plastic · {batch.asmWt||ASM_WT} g/cap assembled · {batch.wastePerInj||WASTE_PER_INJ} g/shot waste</div>}
