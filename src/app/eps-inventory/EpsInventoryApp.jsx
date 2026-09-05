@@ -2771,9 +2771,46 @@ const COA_SECTIONS=[
     ["Endotoxin: ≤0.25 EU/mL — Pass",1]]},
   {title:"6. Compliance Statements",items:[
     ["Manufactured under ISO 9001 & GMP",1]]}];
+// Fixed QC spec/test template for Silica Gel Sachets, cross-referenced from the company's own
+// 0.5g COA (COAEPSSS260002.docx) and client-supplied 1g/10g COAs, then corrected against those
+// sources per Abdallah's confirmation: shelf life is 3 years for every size (not the 1 year
+// shown on the 1g/10g source docs), and the heavy-metal limit is NMT (not more than) 100 PPM —
+// the source docs said "NLT" (not less than), which is backwards for a contaminant ceiling.
+// Packing dimension/printing are only known for 0.5g/1g/10g from those sources; other sizes
+// (e.g. 5g) fall back to a placeholder that's flagged for follow-up rather than guessed at.
+const SILICA_COA_PACKING={"0.5g":"17 × 34 mm","1g":"20 × 42 mm","10g":"45 × 70 mm"};
+const SILICA_COA_PRINTING={"0.5g":"Printed","1g":"Plain White","10g":"Plain White"};
+function silicaCoaSections(size){
+  const dim=SILICA_COA_PACKING[size]||"— (spec not yet provided for this size)";
+  const printing=SILICA_COA_PRINTING[size]||"Plain White";
+  return [
+    {title:"1. Appearance & Packing",items:[
+      ["Visual Appearance: White to off-white beads, uniform, free of foreign matter — Complies",1],
+      ["Printing: "+printing+" — Complies",1],
+      ["Packing Dimension ("+(size||"—")+"): "+dim+" — Complies",1]]},
+    {title:"2. Physical & Chemical Tests",items:[
+      ["Moisture Content: NMT 4% — Complies",1],
+      ["Water Vapor Permeability: ≤0.5 g/m² per 24h — Complies",1],
+      ["Fluorescence / Decoloration: Negative — Pass",1],
+      ["Residue (Total / Benzene): Within limit — Complies",1]]},
+    {title:"3. Heavy Metals",items:[
+      ["Cadmium: NMT 100 PPM — Complies",1],
+      ["Chromium: NMT 100 PPM — Complies",1],
+      ["Mercury: NMT 100 PPM — Complies",1]]},
+    {title:"4. Packaging Integrity",items:[
+      ["Drop Test: 1.2 m — Pass",1],
+      ["Standard Packaging: Dust prevention & odor absorption — Complies",1]]},
+    {title:"5. Compliance Statement",items:[
+      ["Conclusion: Confirm with standard",1]]}];
+}
+const SILICA_SHELF_LIFE="Three Years (Under Good Conditions)";
+function silicaCoaProductName(size){return "Silica Gel Sachets ("+(size||"—")+")";}
 // Builds the COA as a real PDF file (vector text, not a screenshot), laid out to match the
 // original document's own margins, fonts, indents and divider color as closely as jsPDF allows.
 function generateCOAPdf(batch){
+  const isSachets=batch.product==="Silica Gel Sachets";
+  const productName=isSachets?silicaCoaProductName(batch.color):COA_PRODUCT_NAME;
+  const sections=isSachets?silicaCoaSections(batch.color):COA_SECTIONS;
   const doc=new jsPDF({unit:"mm",format:"a4"});
   const pageW=210,marginX=21.2,marginTop=12.4,maxY=284.6;
   let y=marginTop;
@@ -2784,8 +2821,10 @@ function generateCOAPdf(batch){
   doc.text("CERTIFICATE OF ANALYSIS (COA)",pageW/2,y+4,{align:"center"});
   y+=16;
   doc.setFontSize(11);
-  [["Product: ",COA_PRODUCT_NAME],["Batch/Lot Number: ",batch.batchNo],
-    ["Quantity: ",fmtN(batch.totalPcs)+" pcs"],["Manufacturing Date: ",batch.mfgDate||"—"]].forEach(([label,val])=>{
+  const headerRows=[["Product: ",productName],["Batch/Lot Number: ",batch.batchNo],
+    ["Quantity: ",fmtN(batch.totalPcs)+" pcs"],["Manufacturing Date: ",batch.mfgDate||"—"]];
+  if(isSachets)headerRows.push(["Client: ",batch.client||"—"],["Expiry Date: ",batch.expiryDate||"—"],["Shelf Life: ",batch.shelfLife||SILICA_SHELF_LIFE]);
+  headerRows.forEach(([label,val])=>{
     ensure(5);
     doc.setFont("times","bold");doc.text(label,marginX,y);
     const lw=doc.getTextWidth(label);
@@ -2796,7 +2835,7 @@ function generateCOAPdf(batch){
   // "≤" isn't in the base14 WinAnsi font jsPDF draws with — swap it for plain ASCII in the
   // PDF only (the on-screen version keeps the real symbol since browsers render it fine).
   const pdfSafe=s=>s.replace(/≤/g,"<=");
-  COA_SECTIONS.forEach(sec=>{
+  sections.forEach(sec=>{
     ensure(9);
     y+=2;
     doc.setFont("times","bold");doc.text(sec.title,marginX,y); y+=5;
@@ -2821,6 +2860,9 @@ function generateCOAPdf(batch){
   doc.save("COA-"+batch.batchNo+".pdf");
 }
 function COADoc({batch,onBack}){
+  const isSachets=batch.product==="Silica Gel Sachets";
+  const productName=isSachets?silicaCoaProductName(batch.color):COA_PRODUCT_NAME;
+  const sections=isSachets?silicaCoaSections(batch.color):COA_SECTIONS;
   return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"'Times New Roman',Times,serif",color:"#000"}}>
     <div className="eps-no-print" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,fontFamily:"'Inter',sans-serif"}}>
       <button type="button" onClick={onBack} style={{background:"#F5F7FA",border:"none",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontWeight:700,fontSize:13,color:"#444"}}>← Back to Certificates</button>
@@ -2829,11 +2871,16 @@ function COADoc({batch,onBack}){
       <img src={COA_LOGO_DATA_URI} alt="" style={{position:"absolute",left:-14,top:-22,width:151,height:66}}/>
       <div style={{textAlign:"center",fontSize:17,paddingTop:6}}>CERTIFICATE OF ANALYSIS (COA)</div>
     </div>
-    <div style={{fontSize:15,marginBottom:3}}><strong>Product: </strong>{COA_PRODUCT_NAME}</div>
+    <div style={{fontSize:15,marginBottom:3}}><strong>Product: </strong>{productName}</div>
     <div style={{fontSize:15,marginBottom:3}}><strong>Batch/Lot Number: </strong>{batch.batchNo}</div>
     <div style={{fontSize:15,marginBottom:3}}><strong>Quantity: </strong>{fmtN(batch.totalPcs)} pcs</div>
     <div style={{fontSize:15,marginBottom:3}}><strong>Manufacturing Date: </strong>{batch.mfgDate||"—"}</div>
-    {COA_SECTIONS.map(sec=>(<div key={sec.title}>
+    {isSachets&&<>
+      <div style={{fontSize:15,marginBottom:3}}><strong>Client: </strong>{batch.client||"—"}</div>
+      <div style={{fontSize:15,marginBottom:3}}><strong>Expiry Date: </strong>{batch.expiryDate||"—"}</div>
+      <div style={{fontSize:15,marginBottom:3}}><strong>Shelf Life: </strong>{batch.shelfLife||SILICA_SHELF_LIFE}</div>
+    </>}
+    {sections.map(sec=>(<div key={sec.title}>
       <div style={{fontSize:15,fontWeight:700,marginTop:14,marginBottom:5}}>{sec.title}</div>
       {sec.items.map((it,i)=><div key={i} style={{fontSize:15,marginLeft:it[1]===2?48:24,marginBottom:3}}>-  {it[0]}</div>)}
     </div>))}
@@ -2850,7 +2897,7 @@ function COADoc({batch,onBack}){
 }
 function CertificatesSection({batches,onClose}){
   const [pickBatchNo,setPickBatchNo]=useState(""),[doc,setDoc]=useState(null);
-  const mainBatches=batches.filter(b=>!b.isSubBatch&&b.batchNo.indexOf("EPS-FO-")===0).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
+  const mainBatches=batches.filter(b=>!b.isSubBatch&&(b.batchNo.indexOf("EPS-FO-")===0||b.batchNo.indexOf("EPS-SS-")===0)).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
   const batch=pickBatchNo?mainBatches.filter(b=>b.batchNo===pickBatchNo)[0]:null;
   if(doc)return(<div className="eps-print-page" style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}><COADoc batch={doc} onBack={()=>setDoc(null)}/></div>);
   return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
@@ -2862,13 +2909,13 @@ function CertificatesSection({batches,onClose}){
     <div style={{maxWidth:700,margin:"0 auto",padding:16,display:"flex",flexDirection:"column",gap:16}}>
       <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:16}}>
         <div style={{fontWeight:800,fontSize:14,color:NAVY,marginBottom:2}}>Select Batch</div>
-        <div style={{fontSize:12,color:"#888",marginBottom:12}}>Flip-Off Caps batches only — the COA template is specific to this product.</div>
+        <div style={{fontSize:12,color:"#888",marginBottom:12}}>Flip-Off Caps and Silica Gel Sachets batches — COA template is specific to each product.</div>
         <select value={pickBatchNo} onChange={e=>setPickBatchNo(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff",marginBottom:12}}>
           <option value="">— select batch —</option>
           {mainBatches.map(b=><option key={b.id} value={b.batchNo}>{b.batchNo} · {b.color}{b.client?" · "+b.client:""}</option>)}</select>
         <button type="button" disabled={!batch} onClick={()=>setDoc(batch)} style={{width:"100%",padding:13,background:batch?NAVY:"#E2E8F0",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:batch?"pointer":"default"}}>🧪 Generate COA</button>
       </div>
-      {mainBatches.length===0&&<div style={{color:"#888",fontSize:13,textAlign:"center",padding:20}}>No Flip-Off Caps batches yet.</div>}
+      {mainBatches.length===0&&<div style={{color:"#888",fontSize:13,textAlign:"center",padding:20}}>No batches yet.</div>}
     </div></div>);
 }
 
