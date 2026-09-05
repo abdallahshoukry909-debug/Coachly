@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
-import AppShell from "@/components/AppShell";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -9,8 +8,8 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "Coachly",
-  description: "Find your perfect coach",
+  title: "East Pharma Factory",
+  description: "Inventory, production and orders for East Pharmaceutical Services",
 };
 
 export const viewport: Viewport = {
@@ -26,9 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${geistSans.variable} h-full antialiased`}>
-      <body className="min-h-full bg-gray-50">
-        <AppShell>{children}</AppShell>
-      </body>
+      <body className="min-h-full bg-gray-50">{children}</body>
     </html>
   );
 }
