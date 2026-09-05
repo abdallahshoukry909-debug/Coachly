@@ -2771,46 +2771,74 @@ const COA_SECTIONS=[
     ["Endotoxin: ≤0.25 EU/mL — Pass",1]]},
   {title:"6. Compliance Statements",items:[
     ["Manufactured under ISO 9001 & GMP",1]]}];
-// Fixed QC spec/test template for Silica Gel Sachets, cross-referenced from the company's own
-// 0.5g COA (COAEPSSS260002.docx) and client-supplied 1g/10g COAs, then corrected against those
-// sources per Abdallah's confirmation: shelf life is 3 years for every size (not the 1 year
-// shown on the 1g/10g source docs), and the heavy-metal limit is NMT (not more than) 100 PPM —
-// the source docs said "NLT" (not less than), which is backwards for a contaminant ceiling.
-// Packing dimension/printing are only known for 0.5g/1g/10g from those sources; other sizes
-// (e.g. 5g) fall back to a placeholder that's flagged for follow-up rather than guessed at.
-const SILICA_COA_PACKING={"0.5g":"17 × 34 mm","1g":"20 × 42 mm","10g":"45 × 70 mm"};
+// QC spec/test table for Silica Gel Sachets, transcribed cell-for-cell from the company's own
+// 0.5g COA (COAEPSSS260002.docx, an actual grid table — not the bulleted-list layout Flip-Off's
+// COA uses) and the client-supplied 1g/10g COAs, which share the identical table. Corrected per
+// Abdallah's confirmation: shelf life is 3 years for every size (source 1g/10g docs said "One
+// Year"), and the heavy-metal limit is NMT (not more than) 100 PPM — the source docs said "NLT"
+// (not less than), which is backwards for a contaminant ceiling. Packing dimension/printing are
+// only known for 0.5g/1g/10g from those sources; other sizes (e.g. 5g) get a flagged placeholder
+// rather than a guessed figure. A blank first/second cell means "same as the row above" — the
+// original table draws that as a vertically merged cell; here it's just left blank in the grid.
+const SILICA_COA_PACKING={"0.5g":"17*34 MM","1g":"20*42 MM","10g":"45*70 MM"};
 const SILICA_COA_PRINTING={"0.5g":"Printed","1g":"Plain White","10g":"Plain White"};
-function silicaCoaSections(size){
+const silicaSizeLabel=size=>(size||"").replace(/g$/,"G");
+function silicaCoaTestRows(size){
   const dim=SILICA_COA_PACKING[size]||"— (spec not yet provided for this size)";
   const printing=SILICA_COA_PRINTING[size]||"Plain White";
   return [
-    {title:"1. Appearance & Packing",items:[
-      ["Visual Appearance: White to off-white beads, uniform, free of foreign matter — Complies",1],
-      ["Printing: "+printing+" — Complies",1],
-      ["Packing Dimension ("+(size||"—")+"): "+dim+" — Complies",1]]},
-    {title:"2. Physical & Chemical Tests",items:[
-      ["Moisture Content: NMT 4% — Complies",1],
-      ["Water Vapor Permeability: ≤0.5 g/m² per 24h — Complies",1],
-      ["Fluorescence / Decoloration: Negative — Pass",1],
-      ["Residue (Total / Benzene): Within limit — Complies",1]]},
-    {title:"3. Heavy Metals",items:[
-      ["Cadmium: NMT 100 PPM — Complies",1],
-      ["Chromium: NMT 100 PPM — Complies",1],
-      ["Mercury: NMT 100 PPM — Complies",1]]},
-    {title:"4. Packaging Integrity",items:[
-      ["Drop Test: 1.2 m — Pass",1],
-      ["Standard Packaging: Dust prevention & odor absorption — Complies",1]]},
-    {title:"5. Compliance Statement",items:[
-      ["Conclusion: Confirm with standard",1]]}];
+    ["Test Item","","Standard","Result","Conclude"],
+    ["Appearance","Appearance","Flat, No Damage, No smell, No dirty","Confirm","Pass"],
+    ["","Printing",printing,"Confirm","Pass"],
+    ["Moisture","","NMT 4%","3.10%","Pass"],
+    ["Content in the packing","Cadmium","NMT 100 PPM","2 PPM","Pass"],
+    ["","Chromium","NMT 100 PPM","2 PPM","Pass"],
+    ["","Mercury","NMT 100 PPM","2 PPM","Pass"],
+    ["Packing","","No Damage if fell from 1.2m high","Negative","Pass"],
+    ["Packing Dimension: "+silicaSizeLabel(size),"",dim,dim,"Pass"],
+    ["Packing Material","","Water Vapor Permeability","≤0.5g/m² · 24h","Pass"],
+    ["Fluorescence","","No fluorescence","Negative","Pass"],
+    ["Decoloration","","No decoloration","Negative","Pass"],
+    ["Residue","Total","NMT 10.0mg/m²","0.1","Pass"],
+    ["","Benzene","NMT 3.0mg/m²","0.01","Pass"],
+    ["Standard Packaging Information","","Prevent dust sex,","≤10 mg/u","Pass"],
+    ["","","Odor Absorption Speed","≤16u ≥0.25/7h·u","Pass"],
+    ["Conclusion","","Confirm with standard","",""]];
 }
 const SILICA_SHELF_LIFE="Three Years (Under Good Conditions)";
-function silicaCoaProductName(size){return "Silica Gel Sachets ("+(size||"—")+")";}
+function silicaCoaHeaderRows(batch){
+  return [
+    ["Batch Number: "+batch.batchNo,"Manufacturer Date: "+(batch.mfgDate||"—")],
+    ["Shelf Life: "+(batch.shelfLife||SILICA_SHELF_LIFE),"Expiry Date: "+(batch.expiryDate||"—")],
+    ["Client: "+(batch.client||"—"),""],
+    ["Item Name: Silica gel "+(silicaSizeLabel(batch.color)||"—"),"Batch Qty.: "+fmtN(batch.totalPcs)+" PCS"]];
+}
+// Draws a bordered grid table cell-by-cell (jsPDF has no built-in table support) — used only for
+// Silica's COA, which is a real table in the source document, unlike Flip-Off's bulleted layout.
+function pdfDrawTable(doc,x,startY,colWidths,rows,{fontSize=8.5,boldRows=[],maxY=284.6,marginTop=12.4}={}){
+  let y=startY;
+  const pad=1.4,lineH=fontSize*0.42+1.3;
+  rows.forEach((row,ri)=>{
+    doc.setFontSize(fontSize);
+    doc.setFont("times",boldRows.indexOf(ri)!==-1?"bold":"normal");
+    const wrapped=row.map((cell,ci)=>doc.splitTextToSize(String(cell||""),colWidths[ci]-2*pad));
+    const nLines=Math.max(1,...wrapped.map(w=>w.length));
+    const rowH=nLines*lineH+2*pad;
+    if(y+rowH>maxY){doc.addPage();doc.setFont("times",boldRows.indexOf(ri)!==-1?"bold":"normal");y=marginTop;}
+    let cx=x;
+    wrapped.forEach((lines,ci)=>{
+      doc.rect(cx,y,colWidths[ci],rowH);
+      lines.forEach((ln,li)=>doc.text(ln,cx+pad,y+pad+lineH*0.78+li*lineH));
+      cx+=colWidths[ci];
+    });
+    y+=rowH;
+  });
+  return y;
+}
 // Builds the COA as a real PDF file (vector text, not a screenshot), laid out to match the
 // original document's own margins, fonts, indents and divider color as closely as jsPDF allows.
 function generateCOAPdf(batch){
   const isSachets=batch.product==="Silica Gel Sachets";
-  const productName=isSachets?silicaCoaProductName(batch.color):COA_PRODUCT_NAME;
-  const sections=isSachets?silicaCoaSections(batch.color):COA_SECTIONS;
   const doc=new jsPDF({unit:"mm",format:"a4"});
   const pageW=210,marginX=21.2,marginTop=12.4,maxY=284.6;
   let y=marginTop;
@@ -2820,38 +2848,46 @@ function generateCOAPdf(batch){
   doc.setFontSize(13);
   doc.text("CERTIFICATE OF ANALYSIS (COA)",pageW/2,y+4,{align:"center"});
   y+=16;
-  doc.setFontSize(11);
-  const headerRows=[["Product: ",productName],["Batch/Lot Number: ",batch.batchNo],
-    ["Quantity: ",fmtN(batch.totalPcs)+" pcs"],["Manufacturing Date: ",batch.mfgDate||"—"]];
-  if(isSachets)headerRows.push(["Client: ",batch.client||"—"],["Expiry Date: ",batch.expiryDate||"—"],["Shelf Life: ",batch.shelfLife||SILICA_SHELF_LIFE]);
-  headerRows.forEach(([label,val])=>{
-    ensure(5);
-    doc.setFont("times","bold");doc.text(label,marginX,y);
-    const lw=doc.getTextWidth(label);
-    doc.setFont("times","normal");doc.text(val,marginX+lw,y);
+  if(isSachets){
+    // Silica's real COA (COAEPSSS260002.docx) is a grid table, not the label/bullet layout
+    // Flip-Off's COA uses — reproduce it as an actual bordered table, cell for cell.
+    const contentW=pageW-2*marginX;
+    y=pdfDrawTable(doc,marginX,y,[contentW/2,contentW/2],silicaCoaHeaderRows(batch),{fontSize:10,maxY,marginTop});
     y+=5;
-  });
-  y+=3;
-  // "≤" isn't in the base14 WinAnsi font jsPDF draws with — swap it for plain ASCII in the
-  // PDF only (the on-screen version keeps the real symbol since browsers render it fine).
-  const pdfSafe=s=>s.replace(/≤/g,"<=");
-  sections.forEach(sec=>{
-    ensure(9);
-    y+=2;
-    doc.setFont("times","bold");doc.text(sec.title,marginX,y); y+=5;
-    doc.setFont("times","normal");
-    sec.items.forEach(([text,level])=>{
-      const ind=marginX+(level===2?12.7:6.35);
-      doc.splitTextToSize("-  "+pdfSafe(text),pageW-ind-marginX).forEach(ln=>{ensure(5);doc.text(ln,ind,y);y+=5;});
+    y=pdfDrawTable(doc,marginX,y,[30,26,58,36,contentW-30-26-58-36],silicaCoaTestRows(batch.color),{fontSize:8,boldRows:[0],maxY,marginTop});
+    y+=6;
+  }else{
+    doc.setFontSize(11);
+    [["Product: ",COA_PRODUCT_NAME],["Batch/Lot Number: ",batch.batchNo],
+      ["Quantity: ",fmtN(batch.totalPcs)+" pcs"],["Manufacturing Date: ",batch.mfgDate||"—"]].forEach(([label,val])=>{
+      ensure(5);
+      doc.setFont("times","bold");doc.text(label,marginX,y);
+      const lw=doc.getTextWidth(label);
+      doc.setFont("times","normal");doc.text(val,marginX+lw,y);
+      y+=5;
     });
-  });
-  y+=4;
-  const authX=marginX+79.4;
-  ensure(24);
-  doc.text("Authorization:",authX,y); y+=5;
-  doc.text("QC Analyst: Abdallah Shoukry",authX,y); y+=5;
-  doc.text("QA Reviewer: Roger Gendy",authX,y); y+=5;
-  doc.text("Date of Issue: "+today(),authX,y); y+=8;
+    y+=3;
+    // "≤" isn't in the base14 WinAnsi font jsPDF draws with — swap it for plain ASCII in the
+    // PDF only (the on-screen version keeps the real symbol since browsers render it fine).
+    const pdfSafe=s=>s.replace(/≤/g,"<=");
+    COA_SECTIONS.forEach(sec=>{
+      ensure(9);
+      y+=2;
+      doc.setFont("times","bold");doc.text(sec.title,marginX,y); y+=5;
+      doc.setFont("times","normal");
+      sec.items.forEach(([text,level])=>{
+        const ind=marginX+(level===2?12.7:6.35);
+        doc.splitTextToSize("-  "+pdfSafe(text),pageW-ind-marginX).forEach(ln=>{ensure(5);doc.text(ln,ind,y);y+=5;});
+      });
+    });
+    y+=4;
+    const authX=marginX+79.4;
+    ensure(24);
+    doc.text("Authorization:",authX,y); y+=5;
+    doc.text("QC Analyst: Abdallah Shoukry",authX,y); y+=5;
+    doc.text("QA Reviewer: Roger Gendy",authX,y); y+=5;
+    doc.text("Date of Issue: "+today(),authX,y); y+=8;
+  }
   ensure(10);
   doc.setDrawColor(31,56,100);doc.setLineWidth(0.4);doc.line(marginX,y,pageW-marginX,y); y+=6;
   doc.setFontSize(10);
@@ -2859,10 +2895,18 @@ function generateCOAPdf(batch){
   doc.text("neweastpharma@gmail.com   01222442004 - 01110055538",marginX,y);
   doc.save("COA-"+batch.batchNo+".pdf");
 }
+// Real bordered <table> — used only for Silica's COA, whose source document is an actual grid
+// table (unlike Flip-Off's bulleted layout).
+function CoaTable({rows,boldRows}){
+  const br=boldRows||[];
+  return(<table style={{width:"100%",borderCollapse:"collapse",fontSize:13,marginBottom:4}}><tbody>
+    {rows.map((row,ri)=>(<tr key={ri}>
+      {row.map((cell,ci)=><td key={ci} style={{border:"1px solid #000",padding:"4px 6px",fontWeight:br.indexOf(ri)!==-1?700:400,whiteSpace:"pre-wrap"}}>{cell}</td>)}
+    </tr>))}
+  </tbody></table>);
+}
 function COADoc({batch,onBack}){
   const isSachets=batch.product==="Silica Gel Sachets";
-  const productName=isSachets?silicaCoaProductName(batch.color):COA_PRODUCT_NAME;
-  const sections=isSachets?silicaCoaSections(batch.color):COA_SECTIONS;
   return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"'Times New Roman',Times,serif",color:"#000"}}>
     <div className="eps-no-print" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,fontFamily:"'Inter',sans-serif"}}>
       <button type="button" onClick={onBack} style={{background:"#F5F7FA",border:"none",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontWeight:700,fontSize:13,color:"#444"}}>← Back to Certificates</button>
@@ -2871,25 +2915,25 @@ function COADoc({batch,onBack}){
       <img src={COA_LOGO_DATA_URI} alt="" style={{position:"absolute",left:-14,top:-22,width:151,height:66}}/>
       <div style={{textAlign:"center",fontSize:17,paddingTop:6}}>CERTIFICATE OF ANALYSIS (COA)</div>
     </div>
-    <div style={{fontSize:15,marginBottom:3}}><strong>Product: </strong>{productName}</div>
-    <div style={{fontSize:15,marginBottom:3}}><strong>Batch/Lot Number: </strong>{batch.batchNo}</div>
-    <div style={{fontSize:15,marginBottom:3}}><strong>Quantity: </strong>{fmtN(batch.totalPcs)} pcs</div>
-    <div style={{fontSize:15,marginBottom:3}}><strong>Manufacturing Date: </strong>{batch.mfgDate||"—"}</div>
-    {isSachets&&<>
-      <div style={{fontSize:15,marginBottom:3}}><strong>Client: </strong>{batch.client||"—"}</div>
-      <div style={{fontSize:15,marginBottom:3}}><strong>Expiry Date: </strong>{batch.expiryDate||"—"}</div>
-      <div style={{fontSize:15,marginBottom:3}}><strong>Shelf Life: </strong>{batch.shelfLife||SILICA_SHELF_LIFE}</div>
-    </>}
-    {sections.map(sec=>(<div key={sec.title}>
-      <div style={{fontSize:15,fontWeight:700,marginTop:14,marginBottom:5}}>{sec.title}</div>
-      {sec.items.map((it,i)=><div key={i} style={{fontSize:15,marginLeft:it[1]===2?48:24,marginBottom:3}}>-  {it[0]}</div>)}
-    </div>))}
-    <div style={{marginLeft:300,marginTop:18}}>
-      <div style={{fontSize:15,marginBottom:3}}>Authorization:</div>
-      <div style={{fontSize:15,marginBottom:3}}>QC Analyst: Abdallah Shoukry</div>
-      <div style={{fontSize:15,marginBottom:3}}>QA Reviewer: Roger Gendy</div>
-      <div style={{fontSize:15,marginBottom:3}}>Date of Issue: {today()}</div>
-    </div>
+    {isSachets?(<>
+      <CoaTable rows={silicaCoaHeaderRows(batch)}/>
+      <CoaTable rows={silicaCoaTestRows(batch.color)} boldRows={[0]}/>
+    </>):(<>
+      <div style={{fontSize:15,marginBottom:3}}><strong>Product: </strong>{COA_PRODUCT_NAME}</div>
+      <div style={{fontSize:15,marginBottom:3}}><strong>Batch/Lot Number: </strong>{batch.batchNo}</div>
+      <div style={{fontSize:15,marginBottom:3}}><strong>Quantity: </strong>{fmtN(batch.totalPcs)} pcs</div>
+      <div style={{fontSize:15,marginBottom:3}}><strong>Manufacturing Date: </strong>{batch.mfgDate||"—"}</div>
+      {COA_SECTIONS.map(sec=>(<div key={sec.title}>
+        <div style={{fontSize:15,fontWeight:700,marginTop:14,marginBottom:5}}>{sec.title}</div>
+        {sec.items.map((it,i)=><div key={i} style={{fontSize:15,marginLeft:it[1]===2?48:24,marginBottom:3}}>-  {it[0]}</div>)}
+      </div>))}
+      <div style={{marginLeft:300,marginTop:18}}>
+        <div style={{fontSize:15,marginBottom:3}}>Authorization:</div>
+        <div style={{fontSize:15,marginBottom:3}}>QC Analyst: Abdallah Shoukry</div>
+        <div style={{fontSize:15,marginBottom:3}}>QA Reviewer: Roger Gendy</div>
+        <div style={{fontSize:15,marginBottom:3}}>Date of Issue: {today()}</div>
+      </div>
+    </>)}
     <div style={{borderBottom:"1.5px solid #1F3864",marginTop:20,marginBottom:12}}/>
     <div style={{fontSize:13,marginBottom:4}}>Plot number 602 industrial zone 6th October , Giza government</div>
     <div style={{fontSize:13}}>neweastpharma@gmail.com &nbsp;&nbsp; 01222442004 - 01110055538</div>
