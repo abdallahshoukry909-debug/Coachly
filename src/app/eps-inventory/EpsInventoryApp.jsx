@@ -2773,15 +2773,15 @@ const COA_SECTIONS=[
     ["Manufactured under ISO 9001 & GMP",1]]}];
 // QC spec/test table for Silica Gel Sachets, transcribed cell-for-cell from the company's own
 // 0.5g COA (COAEPSSS260002.docx, an actual grid table — not the bulleted-list layout Flip-Off's
-// COA uses) and the client-supplied 1g/10g COAs, which share the identical table. Corrected per
-// Abdallah's confirmation: shelf life is 3 years for every size (source 1g/10g docs said "One
-// Year"), and the heavy-metal limit is NMT (not more than) 100 PPM — the source docs said "NLT"
-// (not less than), which is backwards for a contaminant ceiling. Packing dimension/printing are
-// only known for 0.5g/1g/10g from those sources; other sizes (e.g. 5g) get a flagged placeholder
+// COA uses) and the client-supplied 1g/10g COAs, which share the identical table. Per Abdallah's
+// explicit instruction, the heavy-metal line is kept verbatim as "NLT 100 PPM" exactly like the
+// source documents, even though NLT ("not less than") reads backwards for a contaminant ceiling —
+// this is intentionally not "corrected" to NMT. Shelf life is 3 years for every size (source
+// 1g/10g docs said "One Year") per separate confirmation. Packing dimension/printing are only
+// known for 0.5g/1g/10g from those sources; other sizes (e.g. 5g) get a flagged placeholder
 // rather than a guessed figure. rowSpan/colSpan below reproduce the source table's real merged
 // cells exactly (e.g. "Appearance" and "Content in the packing" are single tall cells spanning
-// their sub-rows, "Packing Dimension" spans both label columns) — a flat grid with every cell
-// bordered independently looked like a different, choppier table, which is what this fixes.
+// their sub-rows, "Packing Dimension" spans both label columns).
 const SILICA_COA_PACKING={"0.5g":"17*34 MM","1g":"20*42 MM","10g":"45*70 MM"};
 const SILICA_COA_PRINTING={"0.5g":"Printed","1g":"Plain White","10g":"Plain White"};
 const silicaSizeLabel=size=>(size||"").replace(/g$/,"G");
@@ -2794,9 +2794,9 @@ function silicaCoaTestRows(size){
     {cells:[coaCell("Appearance",{rowSpan:2}),coaCell("Appearance"),coaCell("Flat, No Damage, No smell, No dirty"),coaCell("Confirm"),coaCell("Pass")]},
     {cells:[coaCell("Printing"),coaCell(printing),coaCell("Confirm"),coaCell("Pass")]},
     {cells:[coaCell("Moisture",{colSpan:2}),coaCell("NMT 4%"),coaCell("3.10%"),coaCell("Pass")]},
-    {cells:[coaCell("Content in the packing",{rowSpan:3}),coaCell("Cadmium"),coaCell("NMT 100 PPM"),coaCell("2 PPM"),coaCell("Pass")]},
-    {cells:[coaCell("Chromium"),coaCell("NMT 100 PPM"),coaCell("2 PPM"),coaCell("Pass")]},
-    {cells:[coaCell("Mercury"),coaCell("NMT 100 PPM"),coaCell("2 PPM"),coaCell("Pass")]},
+    {cells:[coaCell("Content in the packing",{rowSpan:3}),coaCell("Cadmium"),coaCell("NLT 100 PPM"),coaCell("2 PPM"),coaCell("Pass")]},
+    {cells:[coaCell("Chromium"),coaCell("NLT 100 PPM"),coaCell("2 PPM"),coaCell("Pass")]},
+    {cells:[coaCell("Mercury"),coaCell("NLT 100 PPM"),coaCell("2 PPM"),coaCell("Pass")]},
     {cells:[coaCell("Packing",{colSpan:2}),coaCell("No Damage if fell from 1.2m high"),coaCell("Negative"),coaCell("Pass")]},
     {cells:[coaCell("Packing Dimension: "+silicaSizeLabel(size),{colSpan:2}),coaCell(dim),coaCell(dim),coaCell("Pass")]},
     {cells:[coaCell("Packing Material",{colSpan:2}),coaCell("Water Vapor Permeability"),coaCell("≤0.5g/m² · 24h"),coaCell("Pass")]},
