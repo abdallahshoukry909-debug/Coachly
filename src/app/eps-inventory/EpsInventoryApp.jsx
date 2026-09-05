@@ -2778,61 +2778,101 @@ const COA_SECTIONS=[
 // Year"), and the heavy-metal limit is NMT (not more than) 100 PPM — the source docs said "NLT"
 // (not less than), which is backwards for a contaminant ceiling. Packing dimension/printing are
 // only known for 0.5g/1g/10g from those sources; other sizes (e.g. 5g) get a flagged placeholder
-// rather than a guessed figure. A blank first/second cell means "same as the row above" — the
-// original table draws that as a vertically merged cell; here it's just left blank in the grid.
+// rather than a guessed figure. rowSpan/colSpan below reproduce the source table's real merged
+// cells exactly (e.g. "Appearance" and "Content in the packing" are single tall cells spanning
+// their sub-rows, "Packing Dimension" spans both label columns) — a flat grid with every cell
+// bordered independently looked like a different, choppier table, which is what this fixes.
 const SILICA_COA_PACKING={"0.5g":"17*34 MM","1g":"20*42 MM","10g":"45*70 MM"};
 const SILICA_COA_PRINTING={"0.5g":"Printed","1g":"Plain White","10g":"Plain White"};
 const silicaSizeLabel=size=>(size||"").replace(/g$/,"G");
+const coaCell=(text,span)=>Object.assign({text:text},span);
 function silicaCoaTestRows(size){
   const dim=SILICA_COA_PACKING[size]||"— (spec not yet provided for this size)";
   const printing=SILICA_COA_PRINTING[size]||"Plain White";
   return [
-    ["Test Item","","Standard","Result","Conclude"],
-    ["Appearance","Appearance","Flat, No Damage, No smell, No dirty","Confirm","Pass"],
-    ["","Printing",printing,"Confirm","Pass"],
-    ["Moisture","","NMT 4%","3.10%","Pass"],
-    ["Content in the packing","Cadmium","NMT 100 PPM","2 PPM","Pass"],
-    ["","Chromium","NMT 100 PPM","2 PPM","Pass"],
-    ["","Mercury","NMT 100 PPM","2 PPM","Pass"],
-    ["Packing","","No Damage if fell from 1.2m high","Negative","Pass"],
-    ["Packing Dimension: "+silicaSizeLabel(size),"",dim,dim,"Pass"],
-    ["Packing Material","","Water Vapor Permeability","≤0.5g/m² · 24h","Pass"],
-    ["Fluorescence","","No fluorescence","Negative","Pass"],
-    ["Decoloration","","No decoloration","Negative","Pass"],
-    ["Residue","Total","NMT 10.0mg/m²","0.1","Pass"],
-    ["","Benzene","NMT 3.0mg/m²","0.01","Pass"],
-    ["Standard Packaging Information","","Prevent dust sex,","≤10 mg/u","Pass"],
-    ["","","Odor Absorption Speed","≤16u ≥0.25/7h·u","Pass"],
-    ["Conclusion","","Confirm with standard","",""]];
+    {cells:[coaCell("Test Item",{colSpan:2}),coaCell("Standard"),coaCell("Result"),coaCell("Conclude")]},
+    {cells:[coaCell("Appearance",{rowSpan:2}),coaCell("Appearance"),coaCell("Flat, No Damage, No smell, No dirty"),coaCell("Confirm"),coaCell("Pass")]},
+    {cells:[coaCell("Printing"),coaCell(printing),coaCell("Confirm"),coaCell("Pass")]},
+    {cells:[coaCell("Moisture",{colSpan:2}),coaCell("NMT 4%"),coaCell("3.10%"),coaCell("Pass")]},
+    {cells:[coaCell("Content in the packing",{rowSpan:3}),coaCell("Cadmium"),coaCell("NMT 100 PPM"),coaCell("2 PPM"),coaCell("Pass")]},
+    {cells:[coaCell("Chromium"),coaCell("NMT 100 PPM"),coaCell("2 PPM"),coaCell("Pass")]},
+    {cells:[coaCell("Mercury"),coaCell("NMT 100 PPM"),coaCell("2 PPM"),coaCell("Pass")]},
+    {cells:[coaCell("Packing",{colSpan:2}),coaCell("No Damage if fell from 1.2m high"),coaCell("Negative"),coaCell("Pass")]},
+    {cells:[coaCell("Packing Dimension: "+silicaSizeLabel(size),{colSpan:2}),coaCell(dim),coaCell(dim),coaCell("Pass")]},
+    {cells:[coaCell("Packing Material",{colSpan:2}),coaCell("Water Vapor Permeability"),coaCell("≤0.5g/m² · 24h"),coaCell("Pass")]},
+    {cells:[coaCell("Fluorescence",{colSpan:2}),coaCell("No fluorescence"),coaCell("Negative"),coaCell("Pass")]},
+    {cells:[coaCell("Decoloration",{colSpan:2}),coaCell("No decoloration"),coaCell("Negative"),coaCell("Pass")]},
+    {cells:[coaCell("Residue",{rowSpan:2}),coaCell("Total"),coaCell("NMT 10.0mg/m²"),coaCell("0.1"),coaCell("Pass")]},
+    {cells:[coaCell("Benzene"),coaCell("NMT 3.0mg/m²"),coaCell("0.01"),coaCell("Pass")]},
+    {cells:[coaCell("Standard Packaging Information",{rowSpan:2,colSpan:2}),coaCell("Prevent dust sex,"),coaCell("≤10 mg/u"),coaCell("Pass")]},
+    {cells:[coaCell("Odor Absorption Speed"),coaCell("≤16u ≥0.25/7h·u"),coaCell("Pass")]},
+    {cells:[coaCell("Conclusion",{colSpan:2}),coaCell("Confirm with standard",{colSpan:3})]}];
 }
 const SILICA_SHELF_LIFE="Three Years (Under Good Conditions)";
 function silicaCoaHeaderRows(batch){
   return [
-    ["Batch Number: "+batch.batchNo,"Manufacturer Date: "+(batch.mfgDate||"—")],
-    ["Shelf Life: "+(batch.shelfLife||SILICA_SHELF_LIFE),"Expiry Date: "+(batch.expiryDate||"—")],
-    ["Client: "+(batch.client||"—"),""],
-    ["Item Name: Silica gel "+(silicaSizeLabel(batch.color)||"—"),"Batch Qty.: "+fmtN(batch.totalPcs)+" PCS"]];
+    {cells:[coaCell("Batch Number: "+batch.batchNo),coaCell("Manufacturer Date: "+(batch.mfgDate||"—"))]},
+    {cells:[coaCell("Shelf Life: "+(batch.shelfLife||SILICA_SHELF_LIFE)),coaCell("Expiry Date: "+(batch.expiryDate||"—"))]},
+    {cells:[coaCell("Client: "+(batch.client||"—")),coaCell("")]},
+    {cells:[coaCell("Item Name: Silica gel "+(silicaSizeLabel(batch.color)||"—")),coaCell("Batch Qty.: "+fmtN(batch.totalPcs)+" PCS")]}];
 }
-// Draws a bordered grid table cell-by-cell (jsPDF has no built-in table support) — used only for
-// Silica's COA, which is a real table in the source document, unlike Flip-Off's bulleted layout.
-function pdfDrawTable(doc,x,startY,colWidths,rows,{fontSize=8.5,boldRows=[],maxY=284.6,marginTop=12.4}={}){
-  let y=startY;
+// Draws a bordered grid table cell-by-cell, honoring rowSpan/colSpan on each cell (jsPDF has no
+// built-in table support) — used only for Silica's COA, a real table in the source document,
+// unlike Flip-Off's bulleted layout. Cells are placed left-to-right/top-to-bottom, skipping any
+// column still covered by an earlier row's rowSpan; a rowSpan cell's box grows to the combined
+// height of the rows it covers, which is computed after every row's own height is known.
+function pdfDrawGridTable(doc,x,startY,colWidths,rowDefs,{fontSize=8.5,boldRows=[],maxY=284.6,marginTop=12.4}={}){
   const pad=1.4,lineH=fontSize*0.42+1.3;
-  rows.forEach((row,ri)=>{
-    doc.setFontSize(fontSize);
-    doc.setFont("times",boldRows.indexOf(ri)!==-1?"bold":"normal");
-    const wrapped=row.map((cell,ci)=>doc.splitTextToSize(String(cell||""),colWidths[ci]-2*pad));
-    const nLines=Math.max(1,...wrapped.map(w=>w.length));
-    const rowH=nLines*lineH+2*pad;
-    if(y+rowH>maxY){doc.addPage();doc.setFont("times",boldRows.indexOf(ri)!==-1?"bold":"normal");y=marginTop;}
-    let cx=x;
-    wrapped.forEach((lines,ci)=>{
-      doc.rect(cx,y,colWidths[ci],rowH);
-      lines.forEach((ln,li)=>doc.text(ln,cx+pad,y+pad+lineH*0.78+li*lineH));
-      cx+=colWidths[ci];
+  const nRows=rowDefs.length;
+  const occupied=rowDefs.map(()=>({}));
+  const placed=rowDefs.map(()=>[]);
+  for(let r=0;r<nRows;r++){
+    let col=0;
+    rowDefs[r].cells.forEach(cell=>{
+      while(occupied[r][col])col++;
+      const cs=cell.colSpan||1,rs=cell.rowSpan||1;
+      placed[r].push({cell:cell,col:col,colSpan:cs,rowSpan:rs});
+      for(let rr=r;rr<r+rs;rr++)for(let cc=col;cc<col+cs;cc++)occupied[rr][cc]=true;
+      col+=cs;
     });
-    y+=rowH;
+  }
+  const colX=i=>x+colWidths.slice(0,i).reduce((a,b)=>a+b,0);
+  const spanW=(c,n)=>colWidths.slice(c,c+n).reduce((a,b)=>a+b,0);
+  const wrappedByRowCol={},rowH=new Array(nRows).fill(0);
+  for(let r=0;r<nRows;r++){
+    doc.setFontSize(fontSize);
+    doc.setFont("times",boldRows.indexOf(r)!==-1?"bold":"normal");
+    placed[r].forEach(p=>{
+      const lines=doc.splitTextToSize(String(p.cell.text||""),spanW(p.col,p.colSpan)-2*pad);
+      wrappedByRowCol[r+"-"+p.col]=lines;
+      if(p.rowSpan===1)rowH[r]=Math.max(rowH[r],lines.length*lineH+2*pad);
+    });
+    if(rowH[r]===0)rowH[r]=lineH+2*pad;
+  }
+  for(let r=0;r<nRows;r++)placed[r].forEach(p=>{
+    if(p.rowSpan>1){
+      const needed=wrappedByRowCol[r+"-"+p.col].length*lineH+2*pad;
+      let covered=0;for(let rr=r;rr<r+p.rowSpan;rr++)covered+=rowH[rr];
+      if(needed>covered)rowH[r+p.rowSpan-1]+=needed-covered;
+    }
   });
+  let y=startY;
+  const rowY=new Array(nRows);
+  for(let r=0;r<nRows;r++){
+    if(y+rowH[r]>maxY){doc.addPage();y=marginTop;}
+    rowY[r]=y;
+    y+=rowH[r];
+  }
+  for(let r=0;r<nRows;r++){
+    doc.setFont("times",boldRows.indexOf(r)!==-1?"bold":"normal");
+    placed[r].forEach(p=>{
+      const w=spanW(p.col,p.colSpan);
+      let h=0;for(let rr=r;rr<r+p.rowSpan;rr++)h+=rowH[rr];
+      const cx=colX(p.col);
+      doc.rect(cx,rowY[r],w,h);
+      wrappedByRowCol[r+"-"+p.col].forEach((ln,li)=>doc.text(ln,cx+pad,rowY[r]+pad+lineH*0.78+li*lineH));
+    });
+  }
   return y;
 }
 // Builds the COA as a real PDF file (vector text, not a screenshot), laid out to match the
@@ -2852,9 +2892,9 @@ function generateCOAPdf(batch){
     // Silica's real COA (COAEPSSS260002.docx) is a grid table, not the label/bullet layout
     // Flip-Off's COA uses — reproduce it as an actual bordered table, cell for cell.
     const contentW=pageW-2*marginX;
-    y=pdfDrawTable(doc,marginX,y,[contentW/2,contentW/2],silicaCoaHeaderRows(batch),{fontSize:10,maxY,marginTop});
+    y=pdfDrawGridTable(doc,marginX,y,[contentW/2,contentW/2],silicaCoaHeaderRows(batch),{fontSize:10,maxY,marginTop});
     y+=5;
-    y=pdfDrawTable(doc,marginX,y,[30,26,58,36,contentW-30-26-58-36],silicaCoaTestRows(batch.color),{fontSize:8,boldRows:[0],maxY,marginTop});
+    y=pdfDrawGridTable(doc,marginX,y,[30,26,58,36,contentW-30-26-58-36],silicaCoaTestRows(batch.color),{fontSize:8,boldRows:[0],maxY,marginTop});
     y+=6;
   }else{
     doc.setFontSize(11);
@@ -2901,7 +2941,7 @@ function CoaTable({rows,boldRows}){
   const br=boldRows||[];
   return(<table style={{width:"100%",borderCollapse:"collapse",fontSize:13,marginBottom:4}}><tbody>
     {rows.map((row,ri)=>(<tr key={ri}>
-      {row.map((cell,ci)=><td key={ci} style={{border:"1px solid #000",padding:"4px 6px",fontWeight:br.indexOf(ri)!==-1?700:400,whiteSpace:"pre-wrap"}}>{cell}</td>)}
+      {row.cells.map((c,ci)=><td key={ci} rowSpan={c.rowSpan||1} colSpan={c.colSpan||1} style={{border:"1px solid #000",padding:"4px 6px",fontWeight:br.indexOf(ri)!==-1?700:400,whiteSpace:"pre-wrap",verticalAlign:"top"}}>{c.text}</td>)}
     </tr>))}
   </tbody></table>);
 }
