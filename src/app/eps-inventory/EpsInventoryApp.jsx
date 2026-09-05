@@ -67,6 +67,16 @@ function genId(){return Date.now().toString(36)+Math.random().toString(36).slice
 function fmt(n){if(n===""||n==null||isNaN(Number(n)))return"—";return Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function fmtN(n){if(n==null||isNaN(Number(n)))return"—";const v=Number(n);return v>=1000?v.toLocaleString("en-US"):v.toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:2});}
 function today(){return new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}).replace(/ /g,"-");}
+// Adds whole years to an ISO date string (YYYY-MM-DD, the <input type="date"> format) —
+// used for Silica Gel Sachets' fixed 3-year shelf life, computed from mfg date rather than
+// entered by hand.
+function addYears(isoDate,years){
+  if(!isoDate)return "";
+  const d=new Date(isoDate+"T00:00:00");
+  if(isNaN(d.getTime()))return "";
+  d.setFullYear(d.getFullYear()+years);
+  return d.toISOString().split("T")[0];
+}
 function pad(n,l){return String(n).padStart(l,"0");}
 function getYr(){return new Date().getFullYear()%100;}
 function coilWt(od,id,w){od=Number(od);id=Number(id);w=Number(w);if(!od||!id||!w||od<=id)return null;return((Math.PI/4)*(od*od-id*id)*w)*ALU_DEN;}
@@ -1920,6 +1930,10 @@ function BatchForm({batches,orders,onSave,onCancel}){
   const [capWt,setCapWt]=useState(String(CAP_WT)),[asmWt,setAsmWt]=useState(String(ASM_WT));
   const [wastePerInj,setWastePerInj]=useState(String(WASTE_PER_INJ));
   const isFO=product==="Flip-Off Caps 20mm";
+  const isSachets=product==="Silica Gel Sachets";
+  // Silica Gel Sachets has a fixed 3-year shelf life under good conditions — expiry is always
+  // exactly 3 years from manufacture, not something entered per batch.
+  const sachetExpiry=isSachets?addYears(mfgDate,3):"";
   const preview=nextBatchNo(batches,meta.code);
   const c=Number(cartons)||0,b=Number(bpc)||0,p=Number(ppb)||0,pt=Number(partial)||0;
   // partialBagPcs overrides the pcs count of just the very last bag (still one physical bag,
@@ -1936,7 +1950,7 @@ function BatchForm({batches,orders,onSave,onCancel}){
   const save=()=>{if(!variant.trim()){setErr(meta.variantLabel+" is required.");return;}if(c<1){setErr("At least 1 carton.");return;}
     onSave({id:genId(),batchNo:preview,isSubBatch:false,parentBatchNo:null,product:product,status:status,
       color:variant.trim(),line:meta.lines?line:"",cartons:c,bagsPerCarton:b,pcsPerBag:p,partialCartonBags:pt,partialBagPcs:pbp,totalPcs:totalPcs,
-      mfgDate:mfgDate,expiryDate:expDate,client:client.trim(),orderNo:orderNo||null,notes:notes.trim(),createdAt:today(),isSample:isSample,
+      mfgDate:mfgDate,expiryDate:isSachets?sachetExpiry:expDate,shelfLife:isSachets?"3 Years (Under Good Conditions)":null,client:client.trim(),orderNo:orderNo||null,notes:notes.trim(),createdAt:today(),isSample:isSample,
       sellPricePerPc:Number(sellPrice)||0,
       capWt:isFO?(Number(capWt)||CAP_WT):null,asmWt:isFO?(Number(asmWt)||ASM_WT):null,
       wastePerInj:isFO?(Number(wastePerInj)||WASTE_PER_INJ):null});};
@@ -1967,8 +1981,10 @@ function BatchForm({batches,orders,onSave,onCancel}){
         <Field label="Partial Last Bag (pcs, optional)" value={partialBagPcs} onChange={setPartialBagPcs} type="number" ph="0 = normal full bag"/>
         <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Mfg. Date</label>
           <input type="date" value={mfgDate} onChange={e=>setMfgDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
-        <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{product==="Flip-Off Caps 20mm"?"Retest Date (optional)":"Expiry Date"}</label>
-          <input type="date" value={expDate} onChange={e=>setExpDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+        {isSachets?(<div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Expiry Date (auto — 3 yrs from Mfg.)</label>
+          <div style={{padding:"9px 12px",background:"#F7F9FC",borderRadius:8,fontSize:13,color:"#555",border:"1.5px solid #E2E8F0"}}>{sachetExpiry||"—"}</div></div>)
+        :(<div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{isFO?"Retest Date (optional)":"Expiry Date"}</label>
+          <input type="date" value={expDate} onChange={e=>setExpDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>)}
         <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Status</label>
           <select value={status} onChange={e=>setStatus(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>{BSTATUSES.map(s=><option key={s}>{s}</option>)}</select></div>
         <div style={{gridColumn:"1/-1"}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Link to Order</label>
@@ -2074,6 +2090,7 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts,onUp
       <div style={{fontSize:12,color:"#666",lineHeight:1.7,marginBottom:10}}>
         <div><strong>Qty:</strong> {batch.cartons} × {batch.bagsPerCarton} × {fmtN(batch.pcsPerBag)} = {fmtN(batch.totalPcs)} pcs</div>
         {batch.mfgDate&&<div><strong>Mfg:</strong> {batch.mfgDate}</div>}
+        {batch.expiryDate&&<div><strong>Expiry:</strong> {batch.expiryDate}{batch.shelfLife?" ("+batch.shelfLife+")":""}</div>}
         {isFO&&<div><strong>Weights:</strong> {batch.capWt||CAP_WT} g/cap plastic · {batch.asmWt||ASM_WT} g/cap assembled · {batch.wastePerInj||WASTE_PER_INJ} g/shot waste</div>}
         {batch.notes&&<div><strong>Notes:</strong> {batch.notes}</div>}</div>
       <button type="button" onClick={()=>setShowQty(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:10,marginRight:8}}>🔢 Edit Amount</button>
