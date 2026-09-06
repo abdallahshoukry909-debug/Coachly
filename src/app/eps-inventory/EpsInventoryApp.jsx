@@ -2718,7 +2718,7 @@ const labelValStyle={fontSize:12,fontWeight:800,color:"#111",marginTop:1};
 // instead of sitting small in the top-left of a mostly-empty cell.
 function LabelCard({product,client,variantLabel,variantValue,unitLabel,unitText,netQtyText,mfgDate,expDate,serial}){
   const showExp=expDate!=null;
-  return(<div className="eps-label-card" style={{border:"1.5px dashed #999",borderRadius:8,padding:"12px 16px",width:"100%",height:"100%",background:"#fff",breakInside:"avoid",pageBreakInside:"avoid",display:"flex",flexDirection:"column",justifyContent:"space-between",boxSizing:"border-box"}}>
+  return(<div className="eps-label-card" style={{border:"1.5px dashed #999",borderRadius:8,padding:"12px 16px",width:"100%",height:"65mm",background:"#fff",breakInside:"avoid",pageBreakInside:"avoid",display:"flex",flexDirection:"column",justifyContent:"space-between",boxSizing:"border-box"}}>
     <div style={{background:"#000",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 10px",gap:10}}>
       <span style={{fontWeight:800,fontSize:12,letterSpacing:"0.02em"}}>{COMPANY_NAME}</span>
       <span style={{fontSize:8,fontWeight:700,whiteSpace:"nowrap"}}>{COMPANY_CERT}</span></div>
@@ -2793,7 +2793,7 @@ function LabelsSection({batches,onClose}){
       {/* 8 labels per printed page — 2 columns × 4 rows — each page is its own grid so a row
           never splits awkwardly across a page break. */}
       {chunk(labels,8).map((page,pi)=>(
-        <div key={pi} className="eps-label-page" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gridTemplateRows:"repeat(4,1fr)",gap:"4mm 5mm",height:"277mm",marginBottom:"6mm"}}>
+        <div key={pi} className="eps-label-page" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4mm 5mm",marginBottom:"6mm"}}>
           {page.map((l,i)=><LabelCard key={i} {...l}/>)}
         </div>
       ))}
