@@ -17,6 +17,10 @@ body {
 }
 
 @media print {
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
   .eps-no-print {
     display: none !important;
   }
@@ -30,5 +34,13 @@ body {
   .eps-label-card {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+  .eps-label-page {
+    break-after: page;
+    page-break-after: always;
+  }
+  .eps-label-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
   }
 }

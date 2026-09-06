@@ -78,6 +78,7 @@ function addYears(isoDate,years){
   return d.toISOString().split("T")[0];
 }
 function pad(n,l){return String(n).padStart(l,"0");}
+function chunk(arr,n){const out=[];for(let i=0;i<arr.length;i+=n)out.push(arr.slice(i,i+n));return out;}
 function getYr(){return new Date().getFullYear()%100;}
 function coilWt(od,id,w){od=Number(od);id=Number(id);w=Number(w);if(!od||!id||!w||od<=id)return null;return((Math.PI/4)*(od*od-id*id)*w)*ALU_DEN;}
 const kgToPcs=(kg,wt)=>Math.round(Number(kg)*1000/wt);
@@ -2705,31 +2706,34 @@ function Barcode({value}){
   const ref=useRef(null);
   useEffect(()=>{
     if(ref.current&&value){
-      try{JsBarcode(ref.current,value,{format:"CODE128",displayValue:true,fontSize:10,height:28,margin:0});}catch{/* invalid chars for CODE128 — skip rendering */}
+      try{JsBarcode(ref.current,value,{format:"CODE128",displayValue:true,fontSize:6,height:15,margin:0});}catch{/* invalid chars for CODE128 — skip rendering */}
     }
   },[value]);
   return <svg ref={ref}/>;
 }
-const labelHdStyle={fontSize:8,color:"#666",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.03em"};
-const labelValStyle={fontSize:11,fontWeight:800,color:"#111",marginTop:1};
+const labelHdStyle={fontSize:5.5,color:"#666",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.02em"};
+const labelValStyle={fontSize:7.5,fontWeight:800,color:"#111",marginTop:1};
+// Sized to fit 8 to a printed A4 page (4 rows × 2 columns, see LabelsSection) — small enough that
+// every field still needs to stay legible, hence the smaller grid gaps/padding rather than
+// dropping any field.
 function LabelCard({product,client,variantLabel,variantValue,unitLabel,unitText,netQtyText,mfgDate,expDate,serial}){
   const showExp=expDate!=null;
-  return(<div className="eps-label-card" style={{border:"1.5px dashed #999",borderRadius:8,padding:"11px 14px",width:"100%",maxWidth:640,background:"#fff",breakInside:"avoid",pageBreakInside:"avoid",margin:"0 auto 12px"}}>
-    <div style={{background:"#000",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 10px",marginBottom:8,gap:10}}>
-      <span style={{fontWeight:800,fontSize:11,letterSpacing:"0.02em"}}>{COMPANY_NAME}</span>
-      <span style={{fontSize:8,fontWeight:700,whiteSpace:"nowrap"}}>{COMPANY_CERT}</span></div>
-    <div style={{fontSize:14,fontWeight:800,color:"#111",marginBottom:8}}>{product}</div>
-    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:8}}>
+  return(<div className="eps-label-card" style={{border:"1px dashed #999",borderRadius:5,padding:"6px 8px",width:"100%",background:"#fff",breakInside:"avoid",pageBreakInside:"avoid"}}>
+    <div style={{background:"#000",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"2px 6px",marginBottom:4,gap:6}}>
+      <span style={{fontWeight:800,fontSize:7.5,letterSpacing:"0.01em"}}>{COMPANY_NAME}</span>
+      <span style={{fontSize:5.5,fontWeight:700,whiteSpace:"nowrap"}}>{COMPANY_CERT}</span></div>
+    <div style={{fontSize:9.5,fontWeight:800,color:"#111",marginBottom:4}}>{product}</div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginBottom:4}}>
       <div><div style={labelHdStyle}>{unitLabel}</div><div style={labelValStyle}>{unitText}</div></div>
       <div><div style={labelHdStyle}>Client</div><div style={labelValStyle}>{client||"—"}</div></div>
       <div><div style={labelHdStyle}>{variantLabel}</div><div style={labelValStyle}>{variantValue||"—"}</div></div>
-      <div><div style={labelHdStyle}>Serial No.</div><div style={{...labelValStyle,fontFamily:"monospace",fontSize:10}}>{serial}</div></div></div>
-    <div style={{display:"grid",gridTemplateColumns:"repeat("+(showExp?3:2)+",1fr)",gap:8,marginBottom:8}}>
+      <div><div style={labelHdStyle}>Serial No.</div><div style={{...labelValStyle,fontFamily:"monospace",fontSize:6.5}}>{serial}</div></div></div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat("+(showExp?3:2)+",1fr)",gap:4,marginBottom:4}}>
       <div><div style={labelHdStyle}>Net Qty</div><div style={labelValStyle}>{netQtyText}</div></div>
       <div><div style={labelHdStyle}>Mfg. Date</div><div style={labelValStyle}>{mfgDate||"—"}</div></div>
       {showExp&&<div><div style={labelHdStyle}>Exp. Date</div><div style={labelValStyle}>{expDate||"—"}</div></div>}</div>
-    <div style={{display:"flex",justifyContent:"center",marginBottom:6}}><Barcode value={serial}/></div>
-    <div style={{borderTop:"1px solid #ddd",paddingTop:5,fontSize:8,color:"#333",lineHeight:1.4}}>
+    <div style={{display:"flex",justifyContent:"center",marginBottom:3}}><Barcode value={serial}/></div>
+    <div style={{borderTop:"1px solid #ddd",paddingTop:3,fontSize:5.5,color:"#333",lineHeight:1.3}}>
       <div>{COMPANY_PHONE}</div><div>{COMPANY_EMAIL}</div><div>{COMPANY_ADDRESS}</div></div>
   </div>);
 }
@@ -2786,9 +2790,13 @@ function LabelsSection({batches,onClose}){
     <div style={{maxWidth:680,margin:"0 auto"}}>
       <ReportPrintBar onBack={()=>setLabels(null)} backLabel="Back to Labels"/>
       <div className="eps-no-print" style={{fontSize:12,color:"#888",marginBottom:14}}>{labels.length} label{labels.length===1?"":"s"} — {batch.batchNo}</div>
-      <div>
-        {labels.map((l,i)=><LabelCard key={i} {...l}/>)}
-      </div>
+      {/* 8 labels per printed page — 2 columns × 4 rows — each page is its own grid so a row
+          never splits awkwardly across a page break. */}
+      {chunk(labels,8).map((page,pi)=>(
+        <div key={pi} className="eps-label-page" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gridAutoRows:"1fr",gap:"3mm 4mm",marginBottom:"4mm"}}>
+          {page.map((l,i)=><LabelCard key={i} {...l}/>)}
+        </div>
+      ))}
     </div></div>);
   return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"linear-gradient(135deg,#0D1F3C,"+NAVY+")",position:"sticky",top:0,zIndex:100}}>
