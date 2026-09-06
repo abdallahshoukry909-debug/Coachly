@@ -508,6 +508,7 @@ const INITIAL_LOTS={
     {id:"pm-1",lotNumber:"56647874",plNo:"",date:"",supplier:"",description:"Virgin Plastic Material",qtyReceived:0,unit:"Bags",qtyRemaining:0,unitCost:"",status:"Out of Stock",notes:"Recovered from prior data — receipt details incomplete",image:null,usageLog:[]},
     {id:"pm-2",lotNumber:"56647874",plNo:"",date:"",supplier:"",description:"Virgin Plastic Material",qtyReceived:0,unit:"Bags",qtyRemaining:0,unitCost:"",status:"Out of Stock",notes:"Recovered from prior data — receipt details incomplete",image:null,usageLog:[]},
     {id:"pm-3",lotNumber:"56647874",plNo:"",date:"",supplier:"",description:"Virgin Plastic Material",qtyReceived:57,unit:"Bags",qtyRemaining:57,unitCost:1725,unitCostCurrency:"EGP",status:"In Stock",notes:"Recovered from prior data — receipt details incomplete",image:null,usageLog:[]},
+    {id:"pm-4",lotNumber:"EPS-PM-260001",plNo:"",date:"06-Sep-2026",supplier:"",description:"Virgin Plastic Material",qtyReceived:80,unit:"Bags",qtyRemaining:80,unitCost:1725,unitCostCurrency:"EGP",status:"In Stock",notes:"New shipment — 2 tons (80 bags × 25 KG)",image:null,usageLog:[]},
   ],
   "Sachets Paper":[
     {id:"sp-1",lotNumber:"126020237",plNo:"WE26031002",date:"10-Mar-2026",supplier:"Jia Xing Lucky Moon Packaging Material Co., Ltd",description:"TNK30//PE25 1G – 50MM×1000M",qtyReceived:547,unit:"Rolls",qtyRemaining:547,unitCost:11.00,unitCostCurrency:"USD",status:"In Stock",notes:"Pallet 1/2 | 27,000 m²",image:null,usageLog:[]},
