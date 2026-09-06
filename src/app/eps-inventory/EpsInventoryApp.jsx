@@ -1535,6 +1535,19 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
   },0);
   const totalPlasticPcs=sortedPlasticPcs+unsortedPlasticPcs;
   const plasticPct=target?Math.min(100,Math.round(totalPlasticPcs/target*100)):0;
+  // Final product made so far — packed (fully through Final Sorting, already counted in
+  // totalGood/goodPcs) vs unsorted (assembled and accepted, sitting past Plastic Sorting, but
+  // not yet through Final Sorting at all). This is the downstream counterpart of the Plastic
+  // Made split above — that one tracks Injection through Plastic Sorting, this one tracks
+  // Assembly through Final Sorting/packing — and it's what makes assembled WIP visible instead
+  // of silently missing from every count until the shift finally reaches Final Sorting.
+  const packedFinalPcs=totalGood;
+  const unsortedFinalPcs=mySubs.reduce((s,b)=>{
+    if(b.finalAcceptedKg!=null||b.assembledPcs==null)return s;
+    return s+b.assembledPcs;
+  },0);
+  const totalFinalPcs=packedFinalPcs+unsortedFinalPcs;
+  const finalPct=target?Math.min(100,Math.round(totalFinalPcs/target*100)):0;
   // Aluminum/assembly-side loss, so it can be traced instead of only showing up as a
   // missing total: shrinkage during Assembly itself, and accepted product that Final
   // Sorting says is good but never actually made it into a counted carton.
@@ -1585,6 +1598,15 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
           <div><div style={{color:"#7B3FB5",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>Sorted</div><div style={{fontWeight:800,color:"#4A1A6E"}}>{fmtN(sortedPlasticPcs)} pcs</div></div>
           <div><div style={{color:"#7B3FB5",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>Unsorted</div><div style={{fontWeight:800,color:"#4A1A6E"}}>{fmtN(unsortedPlasticPcs)} pcs</div></div></div>
         {plasticPct>=100&&<div style={{marginTop:8,fontSize:11,color:"#8B1A1A",fontWeight:700}}>✅ Enough plastic made for this batch — no need to run more Injection shifts.</div>}</div>}
+      {mySubs.length>0&&<div style={{background:"#E8F5E9",borderRadius:10,padding:12,marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:6,fontSize:11}}>
+          <span style={{fontWeight:800,color:"#1A6B2A",textTransform:"uppercase"}}>📦 Final Product</span>
+          <span style={{color:"#2E8B4A"}}>{fmtN(totalFinalPcs)} of {fmtN(target)} pcs · {finalPct}%</span></div>
+        <div style={{height:8,background:"#C8E6C9",borderRadius:4,overflow:"hidden",marginBottom:8}}><div style={{height:"100%",width:finalPct+"%",background:finalPct>=100?"#22A03A":"#2E8B4A",borderRadius:4}}/></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,fontSize:12}}>
+          <div><div style={{color:"#2E8B4A",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>Packed</div><div style={{fontWeight:800,color:"#1A6B2A"}}>{fmtN(packedFinalPcs)} pcs</div></div>
+          <div><div style={{color:"#2E8B4A",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>Unsorted</div><div style={{fontWeight:800,color:"#1A6B2A"}}>{fmtN(unsortedFinalPcs)} pcs</div></div></div>
+        {finalPct>=100&&<div style={{marginTop:8,fontSize:11,color:"#8B1A1A",fontWeight:700}}>✅ All product for this batch has been packed.</div>}</div>}
       {mySubs.length>0&&<div style={{background:"#FFF5F5",borderRadius:10,padding:12,marginBottom:12}}>
         <div style={{fontSize:11,fontWeight:800,color:"#8B1A1A",textTransform:"uppercase",marginBottom:8}}>♻️ Waste Summary</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(105px,1fr))",gap:10,fontSize:12,marginBottom:10}}>
