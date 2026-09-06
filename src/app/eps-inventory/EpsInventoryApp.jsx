@@ -2870,6 +2870,10 @@ const SILICA_COA_PACKING={"0.5g":"17*34 MM","1g":"20*42 MM","10g":"45*70 MM"};
 const SILICA_COA_PRINTING={"0.5g":"Printed","1g":"Plain White","10g":"Plain White"};
 const silicaSizeLabel=size=>(size||"").replace(/g$/,"G");
 const coaCell=(text,span)=>Object.assign({text:text},span);
+// A cell built from multiple runs of mixed bold/plain text on one line (e.g. a bold "Batch
+// Number: " label immediately followed by a plain value) — the header info table needs this;
+// the test-items table's cells are always single-style so they keep using plain coaCell.
+const coaRuns=(runs,span)=>Object.assign({runs:runs},span);
 function silicaCoaTestRows(size){
   const dim=SILICA_COA_PACKING[size]||"— (spec not yet provided for this size)";
   const printing=SILICA_COA_PRINTING[size]||"Plain White";
@@ -2893,19 +2897,30 @@ function silicaCoaTestRows(size){
     {cells:[coaCell("Conclusion",{colSpan:2}),coaCell("Confirm with standard",{colSpan:3})]}];
 }
 const SILICA_SHELF_LIFE="Three Years (Under Good Conditions)";
+// Matches the source table exactly: left-column labels are bold with a plain value following on
+// the same line; the right column is plain text throughout (not bold, even the label) and right-
+// aligned. Row 3 is genuinely ONE cell holding both "Item Name" and "Batch Qty." (with literal
+// multiple spaces as separation, as in the source) — the right cell for rows 2 and 3 is empty,
+// not a second value column.
 function silicaCoaHeaderRows(batch){
   return [
-    {cells:[coaCell("Batch Number: "+batch.batchNo),coaCell("Manufacturer Date: "+(batch.mfgDate||"—"))]},
-    {cells:[coaCell("Shelf Life: "+(batch.shelfLife||SILICA_SHELF_LIFE)),coaCell("Expiry Date: "+(batch.expiryDate||"—"))]},
-    {cells:[coaCell("Client: "+(batch.client||"—")),coaCell("")]},
-    {cells:[coaCell("Item Name: Silica gel "+(silicaSizeLabel(batch.color)||"—")),coaCell("Batch Qty.: "+fmtN(batch.totalPcs)+" PCS")]}];
+    {cells:[coaRuns([{t:"Batch Number: ",bold:true},{t:batch.batchNo}]),
+      coaRuns([{t:"Manufacturer Date: "+(batch.mfgDate||"—")}],{align:"right"})]},
+    {cells:[coaRuns([{t:"Shelf Life: ",bold:true},{t:batch.shelfLife||SILICA_SHELF_LIFE}]),
+      coaRuns([{t:"Expiry Date: "+(batch.expiryDate||"—")}],{align:"right"})]},
+    {cells:[coaRuns([{t:"Client: ",bold:true},{t:batch.client||"—"}]),coaCell("")]},
+    {cells:[coaRuns([{t:"Item Name:    ",bold:true},{t:"Silica gel "+(silicaSizeLabel(batch.color)||"—")},
+      {t:"        Batch Qty.:    ",bold:true},{t:fmtN(batch.totalPcs)+" PCS"}]),coaCell("")]}];
 }
 // Draws a bordered grid table cell-by-cell, honoring rowSpan/colSpan on each cell (jsPDF has no
 // built-in table support) — used only for Silica's COA, a real table in the source document,
 // unlike Flip-Off's bulleted layout. Cells are placed left-to-right/top-to-bottom, skipping any
 // column still covered by an earlier row's rowSpan; a rowSpan cell's box grows to the combined
 // height of the rows it covers, which is computed after every row's own height is known.
-function pdfDrawGridTable(doc,x,startY,colWidths,rowDefs,{fontSize=8.5,boldRows=[],maxY=284.6,marginTop=12.4}={}){
+// "≤"/"≥" aren't in the base14 WinAnsi fonts jsPDF draws with — swap them for plain ASCII in
+// the PDF only (the on-screen table keeps the real symbols since browsers render them fine).
+const pdfSafeText=s=>String(s||"").replace(/≤/g,"<=").replace(/≥/g,">=");
+function pdfDrawGridTable(doc,x,startY,colWidths,rowDefs,{fontSize=8.5,boldRows=[],maxY=284.6,marginTop=12.4,fontFamily="times",noBorders=false}={}){
   const pad=1.4,lineH=fontSize*0.42+1.3;
   const nRows=rowDefs.length;
   const occupied=rowDefs.map(()=>({}));
@@ -2922,20 +2937,32 @@ function pdfDrawGridTable(doc,x,startY,colWidths,rowDefs,{fontSize=8.5,boldRows=
   }
   const colX=i=>x+colWidths.slice(0,i).reduce((a,b)=>a+b,0);
   const spanW=(c,n)=>colWidths.slice(c,c+n).reduce((a,b)=>a+b,0);
-  const wrappedByRowCol={},rowH=new Array(nRows).fill(0);
+  // Cells with `runs` (mixed bold/plain text on one line, e.g. a bold label + plain value) are
+  // measured as a single line with a total width (for right-alignment); plain-text cells wrap
+  // normally across the cell's width, same as before.
+  const measured={},rowH=new Array(nRows).fill(0);
   for(let r=0;r<nRows;r++){
+    const rowBold=boldRows.indexOf(r)!==-1;
     doc.setFontSize(fontSize);
-    doc.setFont("times",boldRows.indexOf(r)!==-1?"bold":"normal");
     placed[r].forEach(p=>{
-      const lines=doc.splitTextToSize(String(p.cell.text||""),spanW(p.col,p.colSpan)-2*pad);
-      wrappedByRowCol[r+"-"+p.col]=lines;
-      if(p.rowSpan===1)rowH[r]=Math.max(rowH[r],lines.length*lineH+2*pad);
+      if(p.cell.runs){
+        let totalW=0;
+        p.cell.runs.forEach(run=>{doc.setFont(fontFamily,run.bold||rowBold?"bold":"normal");totalW+=doc.getTextWidth(run.t);});
+        measured[r+"-"+p.col]={runs:true,totalW:totalW};
+        if(p.rowSpan===1)rowH[r]=Math.max(rowH[r],lineH+2*pad);
+      }else{
+        doc.setFont(fontFamily,rowBold?"bold":"normal");
+        const lines=doc.splitTextToSize(pdfSafeText(p.cell.text),spanW(p.col,p.colSpan)-2*pad);
+        measured[r+"-"+p.col]={lines:lines};
+        if(p.rowSpan===1)rowH[r]=Math.max(rowH[r],lines.length*lineH+2*pad);
+      }
     });
     if(rowH[r]===0)rowH[r]=lineH+2*pad;
   }
   for(let r=0;r<nRows;r++)placed[r].forEach(p=>{
     if(p.rowSpan>1){
-      const needed=wrappedByRowCol[r+"-"+p.col].length*lineH+2*pad;
+      const m=measured[r+"-"+p.col];
+      const needed=(m.lines?m.lines.length:1)*lineH+2*pad;
       let covered=0;for(let rr=r;rr<r+p.rowSpan;rr++)covered+=rowH[rr];
       if(needed>covered)rowH[r+p.rowSpan-1]+=needed-covered;
     }
@@ -2948,22 +2975,56 @@ function pdfDrawGridTable(doc,x,startY,colWidths,rowDefs,{fontSize=8.5,boldRows=
     y+=rowH[r];
   }
   for(let r=0;r<nRows;r++){
-    doc.setFont("times",boldRows.indexOf(r)!==-1?"bold":"normal");
+    const rowBold=boldRows.indexOf(r)!==-1;
     placed[r].forEach(p=>{
       const w=spanW(p.col,p.colSpan);
       let h=0;for(let rr=r;rr<r+p.rowSpan;rr++)h+=rowH[rr];
       const cx=colX(p.col);
-      doc.rect(cx,rowY[r],w,h);
-      wrappedByRowCol[r+"-"+p.col].forEach((ln,li)=>doc.text(ln,cx+pad,rowY[r]+pad+lineH*0.78+li*lineH));
+      if(!noBorders)doc.rect(cx,rowY[r],w,h);
+      const m=measured[r+"-"+p.col];
+      const ty=rowY[r]+pad+lineH*0.78;
+      if(m.runs){
+        let tx=p.cell.align==="right"?cx+w-pad-m.totalW:cx+pad;
+        p.cell.runs.forEach(run=>{
+          doc.setFont(fontFamily,run.bold||rowBold?"bold":"normal");
+          doc.text(run.t,tx,ty);
+          tx+=doc.getTextWidth(run.t);
+        });
+      }else{
+        doc.setFont(fontFamily,rowBold?"bold":"normal");
+        m.lines.forEach((ln,li)=>doc.text(ln,cx+pad,ty+li*lineH));
+      }
     });
   }
   return y;
 }
+// Silica's COA layout, margins and column widths are taken directly from the company's real
+// document (COAEPSSS260002.docx — a Word doc with its own page margins, table grid, borderless
+// header table and Calibri font), which differs from Flip-Off's own real template — so it gets
+// its own full drawing path rather than sharing Flip-Off's below.
+function generateSilicaCOAPdf(doc,batch){
+  const pageW=210,marginX=15,marginTop=12.35,maxY=284.6;
+  doc.setFont("helvetica","normal");
+  try{doc.addImage(COA_LOGO_DATA_URI,"JPEG",marginX,marginTop,50.2,22);}catch{/* image decode failed — continue without it */}
+  const ruleY=marginTop+22+2.8;
+  doc.setDrawColor(30,55,110);doc.setLineWidth(0.26);doc.line(marginX,ruleY,pageW-marginX,ruleY);
+  let y=ruleY+11;
+  doc.setFontSize(20);doc.setFont("helvetica","bold");
+  doc.text("Certificate of Analysis",pageW/2,y,{align:"center"});
+  y+=9;
+  y=pdfDrawGridTable(doc,marginX,y,[91.68,75.02],silicaCoaHeaderRows(batch),{fontSize:10.5,maxY,marginTop,fontFamily:"helvetica",noBorders:true});
+  y+=5;
+  y=pdfDrawGridTable(doc,marginX,y,[22.85,30.49,67.12,24.27,21.86],silicaCoaTestRows(batch.color),{fontSize:8,boldRows:[0],maxY,marginTop,fontFamily:"helvetica"});
+  y+=8;
+  doc.setFontSize(9.5);doc.setFont("helvetica","bold");
+  doc.text("Plot number 602 industrial zone 6th October , Giza government",marginX,y); y+=4.5;
+  doc.text("neweastpharma@gmail.com     01222442004 - 01110055538",marginX,y);
+}
 // Builds the COA as a real PDF file (vector text, not a screenshot), laid out to match the
 // original document's own margins, fonts, indents and divider color as closely as jsPDF allows.
 function generateCOAPdf(batch){
-  const isSachets=batch.product==="Silica Gel Sachets";
   const doc=new jsPDF({unit:"mm",format:"a4"});
+  if(batch.product==="Silica Gel Sachets"){generateSilicaCOAPdf(doc,batch);doc.save("COA-"+batch.batchNo+".pdf");return;}
   const pageW=210,marginX=21.2,marginTop=12.4,maxY=284.6;
   let y=marginTop;
   const ensure=need=>{if(y+need>maxY){doc.addPage();doc.setFont("times","normal");y=marginTop;}};
@@ -2972,46 +3033,36 @@ function generateCOAPdf(batch){
   doc.setFontSize(13);
   doc.text("CERTIFICATE OF ANALYSIS (COA)",pageW/2,y+4,{align:"center"});
   y+=16;
-  if(isSachets){
-    // Silica's real COA (COAEPSSS260002.docx) is a grid table, not the label/bullet layout
-    // Flip-Off's COA uses — reproduce it as an actual bordered table, cell for cell.
-    const contentW=pageW-2*marginX;
-    y=pdfDrawGridTable(doc,marginX,y,[contentW/2,contentW/2],silicaCoaHeaderRows(batch),{fontSize:10,maxY,marginTop});
+  doc.setFontSize(11);
+  [["Product: ",COA_PRODUCT_NAME],["Batch/Lot Number: ",batch.batchNo],
+    ["Quantity: ",fmtN(batch.totalPcs)+" pcs"],["Manufacturing Date: ",batch.mfgDate||"—"]].forEach(([label,val])=>{
+    ensure(5);
+    doc.setFont("times","bold");doc.text(label,marginX,y);
+    const lw=doc.getTextWidth(label);
+    doc.setFont("times","normal");doc.text(val,marginX+lw,y);
     y+=5;
-    y=pdfDrawGridTable(doc,marginX,y,[30,26,58,36,contentW-30-26-58-36],silicaCoaTestRows(batch.color),{fontSize:8,boldRows:[0],maxY,marginTop});
-    y+=6;
-  }else{
-    doc.setFontSize(11);
-    [["Product: ",COA_PRODUCT_NAME],["Batch/Lot Number: ",batch.batchNo],
-      ["Quantity: ",fmtN(batch.totalPcs)+" pcs"],["Manufacturing Date: ",batch.mfgDate||"—"]].forEach(([label,val])=>{
-      ensure(5);
-      doc.setFont("times","bold");doc.text(label,marginX,y);
-      const lw=doc.getTextWidth(label);
-      doc.setFont("times","normal");doc.text(val,marginX+lw,y);
-      y+=5;
+  });
+  y+=3;
+  // "≤" isn't in the base14 WinAnsi font jsPDF draws with — swap it for plain ASCII in the
+  // PDF only (the on-screen version keeps the real symbol since browsers render it fine).
+  const pdfSafe=s=>s.replace(/≤/g,"<=");
+  COA_SECTIONS.forEach(sec=>{
+    ensure(9);
+    y+=2;
+    doc.setFont("times","bold");doc.text(sec.title,marginX,y); y+=5;
+    doc.setFont("times","normal");
+    sec.items.forEach(([text,level])=>{
+      const ind=marginX+(level===2?12.7:6.35);
+      doc.splitTextToSize("-  "+pdfSafe(text),pageW-ind-marginX).forEach(ln=>{ensure(5);doc.text(ln,ind,y);y+=5;});
     });
-    y+=3;
-    // "≤" isn't in the base14 WinAnsi font jsPDF draws with — swap it for plain ASCII in the
-    // PDF only (the on-screen version keeps the real symbol since browsers render it fine).
-    const pdfSafe=s=>s.replace(/≤/g,"<=");
-    COA_SECTIONS.forEach(sec=>{
-      ensure(9);
-      y+=2;
-      doc.setFont("times","bold");doc.text(sec.title,marginX,y); y+=5;
-      doc.setFont("times","normal");
-      sec.items.forEach(([text,level])=>{
-        const ind=marginX+(level===2?12.7:6.35);
-        doc.splitTextToSize("-  "+pdfSafe(text),pageW-ind-marginX).forEach(ln=>{ensure(5);doc.text(ln,ind,y);y+=5;});
-      });
-    });
-    y+=4;
-    const authX=marginX+79.4;
-    ensure(24);
-    doc.text("Authorization:",authX,y); y+=5;
-    doc.text("QC Analyst: Abdallah Shoukry",authX,y); y+=5;
-    doc.text("QA Reviewer: Roger Gendy",authX,y); y+=5;
-    doc.text("Date of Issue: "+today(),authX,y); y+=8;
-  }
+  });
+  y+=4;
+  const authX=marginX+79.4;
+  ensure(24);
+  doc.text("Authorization:",authX,y); y+=5;
+  doc.text("QC Analyst: Abdallah Shoukry",authX,y); y+=5;
+  doc.text("QA Reviewer: Roger Gendy",authX,y); y+=5;
+  doc.text("Date of Issue: "+today(),authX,y); y+=8;
   ensure(10);
   doc.setDrawColor(31,56,100);doc.setLineWidth(0.4);doc.line(marginX,y,pageW-marginX,y); y+=6;
   doc.setFontSize(10);
@@ -3021,43 +3072,66 @@ function generateCOAPdf(batch){
 }
 // Real bordered <table> — used only for Silica's COA, whose source document is an actual grid
 // table (unlike Flip-Off's bulleted layout).
-function CoaTable({rows,boldRows}){
+// Real bordered <table> — used only for Silica's COA, whose source document is an actual grid
+// table (unlike Flip-Off's bulleted layout). colWidths (percentages) and noBorders let the
+// header-info table (no borders, wide label columns) and the test-items table (bordered, five
+// narrower columns) share the same renderer while matching their very different real layouts.
+function CoaTable({rows,boldRows,colWidths,noBorders}){
   const br=boldRows||[];
-  return(<table style={{width:"100%",borderCollapse:"collapse",fontSize:13,marginBottom:4}}><tbody>
+  return(<table style={{width:"100%",borderCollapse:"collapse",fontSize:13,marginBottom:4,tableLayout:"fixed"}}>
+    {colWidths&&<colgroup>{colWidths.map((w,i)=><col key={i} style={{width:w+"%"}}/>)}</colgroup>}
+    <tbody>
     {rows.map((row,ri)=>(<tr key={ri}>
-      {row.cells.map((c,ci)=><td key={ci} rowSpan={c.rowSpan||1} colSpan={c.colSpan||1} style={{border:"1px solid #000",padding:"4px 6px",fontWeight:br.indexOf(ri)!==-1?700:400,whiteSpace:"pre-wrap",verticalAlign:"top"}}>{c.text}</td>)}
+      {row.cells.map((c,ci)=><td key={ci} rowSpan={c.rowSpan||1} colSpan={c.colSpan||1} style={{border:noBorders?"none":"1px solid #000",padding:noBorders?"2px 4px":"4px 6px",fontWeight:br.indexOf(ri)!==-1?700:400,whiteSpace:"pre-wrap",verticalAlign:"top",textAlign:c.align||"left"}}>
+        {c.runs?c.runs.map((r,i2)=><span key={i2} style={{fontWeight:r.bold?700:400}}>{r.t}</span>):c.text}
+      </td>)}
     </tr>))}
-  </tbody></table>);
+    </tbody>
+  </table>);
 }
 function COADoc({batch,onBack}){
   const isSachets=batch.product==="Silica Gel Sachets";
+  const dlBtn=<button type="button" onClick={()=>generateCOAPdf(batch)} style={{background:NAVY,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>📄 Download PDF</button>;
+  const backBtn=<button type="button" onClick={onBack} style={{background:"#F5F7FA",border:"none",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontWeight:700,fontSize:13,color:"#444"}}>← Back to Certificates</button>;
+  if(isSachets){
+    // Matches COAEPSSS260002.docx exactly: logo top-left, a thin navy rule under it (not
+    // overlapping the title like Flip-Off's letterhead), then a plain centered title, a
+    // borderless header-info table, the bordered test-items table, and a bold contact footer —
+    // Calibri throughout, not Times New Roman.
+    return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"Calibri,'Segoe UI',Arial,sans-serif",color:"#000"}}>
+      <div className="eps-no-print" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,fontFamily:"'Inter',sans-serif"}}>
+        {backBtn}{dlBtn}</div>
+      <img src={COA_LOGO_DATA_URI} alt="" style={{width:170,height:74,display:"block"}}/>
+      <div style={{borderBottom:"1px solid #1E376E",marginTop:8,marginBottom:18}}/>
+      <div style={{textAlign:"center",fontWeight:700,fontSize:26,marginBottom:18}}>Certificate of Analysis</div>
+      <CoaTable rows={silicaCoaHeaderRows(batch)} colWidths={[55,45]} noBorders/>
+      <div style={{height:8}}/>
+      <CoaTable rows={silicaCoaTestRows(batch.color)} boldRows={[0]} colWidths={[13.7,18.3,40.3,14.6,13.1]}/>
+      <div style={{fontSize:13,marginTop:20,fontWeight:700}}>📍  Plot number 602 industrial zone 6th October , Giza government</div>
+      <div style={{fontSize:13,fontWeight:700}}>✉  neweastpharma@gmail.com &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;📱  01222442004 - 01110055538</div>
+    </div>);
+  }
   return(<div style={{maxWidth:760,margin:"0 auto",background:"#fff",borderRadius:12,padding:24,fontFamily:"'Times New Roman',Times,serif",color:"#000"}}>
     <div className="eps-no-print" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,fontFamily:"'Inter',sans-serif"}}>
-      <button type="button" onClick={onBack} style={{background:"#F5F7FA",border:"none",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontWeight:700,fontSize:13,color:"#444"}}>← Back to Certificates</button>
-      <button type="button" onClick={()=>generateCOAPdf(batch)} style={{background:NAVY,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>📄 Download PDF</button></div>
+      {backBtn}{dlBtn}</div>
     <div style={{position:"relative",marginBottom:20}}>
       <img src={COA_LOGO_DATA_URI} alt="" style={{position:"absolute",left:-14,top:-22,width:151,height:66}}/>
       <div style={{textAlign:"center",fontSize:17,paddingTop:6}}>CERTIFICATE OF ANALYSIS (COA)</div>
     </div>
-    {isSachets?(<>
-      <CoaTable rows={silicaCoaHeaderRows(batch)}/>
-      <CoaTable rows={silicaCoaTestRows(batch.color)} boldRows={[0]}/>
-    </>):(<>
-      <div style={{fontSize:15,marginBottom:3}}><strong>Product: </strong>{COA_PRODUCT_NAME}</div>
-      <div style={{fontSize:15,marginBottom:3}}><strong>Batch/Lot Number: </strong>{batch.batchNo}</div>
-      <div style={{fontSize:15,marginBottom:3}}><strong>Quantity: </strong>{fmtN(batch.totalPcs)} pcs</div>
-      <div style={{fontSize:15,marginBottom:3}}><strong>Manufacturing Date: </strong>{batch.mfgDate||"—"}</div>
-      {COA_SECTIONS.map(sec=>(<div key={sec.title}>
-        <div style={{fontSize:15,fontWeight:700,marginTop:14,marginBottom:5}}>{sec.title}</div>
-        {sec.items.map((it,i)=><div key={i} style={{fontSize:15,marginLeft:it[1]===2?48:24,marginBottom:3}}>-  {it[0]}</div>)}
-      </div>))}
-      <div style={{marginLeft:300,marginTop:18}}>
-        <div style={{fontSize:15,marginBottom:3}}>Authorization:</div>
-        <div style={{fontSize:15,marginBottom:3}}>QC Analyst: Abdallah Shoukry</div>
-        <div style={{fontSize:15,marginBottom:3}}>QA Reviewer: Roger Gendy</div>
-        <div style={{fontSize:15,marginBottom:3}}>Date of Issue: {today()}</div>
-      </div>
-    </>)}
+    <div style={{fontSize:15,marginBottom:3}}><strong>Product: </strong>{COA_PRODUCT_NAME}</div>
+    <div style={{fontSize:15,marginBottom:3}}><strong>Batch/Lot Number: </strong>{batch.batchNo}</div>
+    <div style={{fontSize:15,marginBottom:3}}><strong>Quantity: </strong>{fmtN(batch.totalPcs)} pcs</div>
+    <div style={{fontSize:15,marginBottom:3}}><strong>Manufacturing Date: </strong>{batch.mfgDate||"—"}</div>
+    {COA_SECTIONS.map(sec=>(<div key={sec.title}>
+      <div style={{fontSize:15,fontWeight:700,marginTop:14,marginBottom:5}}>{sec.title}</div>
+      {sec.items.map((it,i)=><div key={i} style={{fontSize:15,marginLeft:it[1]===2?48:24,marginBottom:3}}>-  {it[0]}</div>)}
+    </div>))}
+    <div style={{marginLeft:300,marginTop:18}}>
+      <div style={{fontSize:15,marginBottom:3}}>Authorization:</div>
+      <div style={{fontSize:15,marginBottom:3}}>QC Analyst: Abdallah Shoukry</div>
+      <div style={{fontSize:15,marginBottom:3}}>QA Reviewer: Roger Gendy</div>
+      <div style={{fontSize:15,marginBottom:3}}>Date of Issue: {today()}</div>
+    </div>
     <div style={{borderBottom:"1.5px solid #1F3864",marginTop:20,marginBottom:12}}/>
     <div style={{fontSize:13,marginBottom:4}}>Plot number 602 industrial zone 6th October , Giza government</div>
     <div style={{fontSize:13}}>neweastpharma@gmail.com &nbsp;&nbsp; 01222442004 - 01110055538</div>
