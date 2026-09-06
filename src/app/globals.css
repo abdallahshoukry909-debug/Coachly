@@ -43,4 +43,13 @@ body {
     break-after: auto;
     page-break-after: auto;
   }
+  /* Labels only: the 680px reading-width wrapper is for comfortable on-screen viewing before
+     printing — printed, it wastes the sides of the page instead of filling it, so drop it to
+     full width (padding included) only for this view. Other print views (Reports, COA) keep
+     their own .eps-print-page padding untouched. */
+  .eps-label-wrap {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
 }

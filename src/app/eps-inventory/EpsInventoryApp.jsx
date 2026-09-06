@@ -2786,8 +2786,8 @@ function LabelsSection({batches,onClose}){
   const mainBatches=batches.filter(b=>!b.isSubBatch).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
   const batch=pickBatchNo?mainBatches.filter(b=>b.batchNo===pickBatchNo)[0]:null;
   const MODES=[["batch","📦 Full Batch","One label for the whole batch"],["carton","🗃️ Per Carton","One label per carton"],["bag","🛍️ Per Bag","One label per bag inside each carton"]];
-  if(labels)return(<div className="eps-print-page" style={{minHeight:"100vh",background:"#F7F9FC",padding:"20px 16px"}}>
-    <div style={{maxWidth:680,margin:"0 auto"}}>
+  if(labels)return(<div className="eps-print-page" style={{minHeight:"100vh",background:"#F7F9FC"}}>
+    <div className="eps-label-wrap" style={{maxWidth:680,margin:"0 auto",padding:"20px 16px"}}>
       <ReportPrintBar onBack={()=>setLabels(null)} backLabel="Back to Labels"/>
       <div className="eps-no-print" style={{fontSize:12,color:"#888",marginBottom:14}}>{labels.length} label{labels.length===1?"":"s"} — {batch.batchNo}</div>
       {/* 8 labels per printed page — 2 columns × 4 rows — each page is its own grid so a row
