@@ -1051,13 +1051,17 @@ function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
   const [date,setDate]=useState(e.mfgDate||new Date().toISOString().split("T")[0]);
   const [shift,setShift]=useState(e.shift||"Morning"),[operator,setOperator]=useState(e.operator||"");
   const [injections,setInjections]=useState(e.injections||""),[plasticLotId,setPlasticLotId]=useState(e.plasticLotId||"");
+  // Cavities per shot is usually 64, but sometimes one is closed off (e.g. 63) — editable per
+  // shift rather than a fixed constant, since it can change shift to shift.
+  const [cavities,setCavities]=useState(e.cavities!=null?String(e.cavities):String(PCS_INJ));
   const [virginBags,setVirginBags]=useState(e.virginBags||""),[regrindKg,setRegrindKg]=useState(e.regrindKg||"");
   const [weightBefore,setWeightBefore]=useState(e.weightBeforeSorting||""),[notes,setNotes]=useState(e.notes||""),[err,setErr]=useState("");
   const plasticLots=((data&&data["Plastic Material"]&&data["Plastic Material"].lots)||[]).filter(l=>l.status!=="Out of Stock"||l.id===e.plasticLotId);
   const selPlastic=plasticLotId?plasticLots.filter(l=>l.id===plasticLotId)[0]:null;
   const capWt=parentBatch.capWt||CAP_WT,asmWt=parentBatch.asmWt||ASM_WT,wastePerInj=parentBatch.wastePerInj||WASTE_PER_INJ;
   const inj=Number(injections)||0,vBags=Number(virginBags)||0,vKg=vBags*PLASTIC_BAG_KG,rKg=Number(regrindKg)||0,wBef=Number(weightBefore)||0;
-  const thPcs=inj*PCS_INJ,thKg=pcsToKg(thPcs,capWt),totalPlastic=vKg+rKg;
+  const cav=Number(cavities)||PCS_INJ;
+  const thPcs=inj*cav,thKg=pcsToKg(thPcs,capWt),totalPlastic=vKg+rKg;
   // Each shot uses more material than just the cap itself — sprue/runner waste per shot,
   // regardless of mold cavity count — so the material a shift SHOULD need is caps + that waste.
   const theoWasteKg=inj*wastePerInj/1000,theoMaterialKg=thKg+theoWasteKg;
@@ -1074,7 +1078,7 @@ function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
       status:e.stage&&e.stage!=="Injection"?e.status:"Plastic Sorting",stage:e.stage&&e.stage!=="Injection"?e.stage:"Plastic Sorting",
       color:parentBatch.color,client:parentBatch.client,orderNo:parentBatch.orderNo,capWt:capWt,asmWt:asmWt,wastePerInj:wastePerInj,
       cartons:e.cartons||0,bagsPerCarton:e.bagsPerCarton||0,pcsPerBag:e.pcsPerBag||0,partialCartonBags:0,totalPcs:e.totalPcs||0,
-      mfgDate:date,shift:shift,operator:operator,injections:inj,theoreticalPcs:thPcs,theoreticalKg:thKg,
+      mfgDate:date,shift:shift,operator:operator,injections:inj,cavities:cav,theoreticalPcs:thPcs,theoreticalKg:thKg,
       plasticLotId:plasticLotId||null,plasticLotNo:selPlastic?selPlastic.lotNumber:null,
       virginBags:vBags,virginKg:vKg,regrindKg:rKg,totalPlasticKg:totalPlastic,regrindPct:regrindPct,weightBeforeSorting:wBef,
       notes:notes,createdAt:e.createdAt||today()});
@@ -1095,9 +1099,11 @@ function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
         <Field label="Operator" value={operator} onChange={setOperator} ph="Name" accent="#856404"/></div>
       <div style={{background:"#FFF9E6",borderRadius:10,padding:14,marginBottom:14}}>
         <div style={{fontWeight:700,fontSize:13,color:"#856404",marginBottom:10}}>💉 Injection Output</div>
-        <Field label="No. of Injections (× 64 cavities)" value={injections} onChange={v=>{setInjections(v);setErr("");}} type="number" ph="e.g. 200" accent="#856404"/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <Field label="No. of Injections" value={injections} onChange={v=>{setInjections(v);setErr("");}} type="number" ph="e.g. 200" accent="#856404"/>
+          <Field label="Cavities (usually 64)" value={cavities} onChange={setCavities} type="number" ph="64" accent="#856404"/></div>
         {inj>0&&<div style={{marginTop:8,background:"#fff",borderRadius:8,padding:"10px 12px",fontSize:12,display:"flex",gap:20,flexWrap:"wrap"}}>
-          <div>Theoretical: <strong>{thPcs.toLocaleString()} pcs</strong></div><div>Caps: <strong>{thKg.toFixed(2)} KG</strong></div><div style={{color:"#888"}}>@ {capWt} g/cap</div></div>}
+          <div>Theoretical: <strong>{thPcs.toLocaleString()} pcs</strong></div><div>Caps: <strong>{thKg.toFixed(2)} KG</strong></div><div style={{color:"#888"}}>@ {capWt} g/cap · × {cav} cavities</div></div>}
         {inj>0&&<div style={{marginTop:8,background:"#fff",borderRadius:8,padding:"10px 12px",fontSize:12,display:"flex",gap:20,flexWrap:"wrap"}}>
           <div>Expected waste (sprue): <strong>{theoWasteKg.toFixed(2)} KG</strong></div><div style={{color:"#888"}}>@ {wastePerInj} g/shot</div>
           <div>Total material needed: <strong>{theoMaterialKg.toFixed(2)} KG</strong></div></div>}</div>
@@ -1148,7 +1154,7 @@ function PlasticSortingForm({sub,existing,onSave,onCancel}){
       <div style={{background:"#D1ECF1",borderRadius:10,padding:12,marginBottom:14,fontSize:12,color:"#0C5460"}}>
         <div style={{fontWeight:700,marginBottom:4}}>From Injection:</div>
         <div>Pre-sort weight: <strong>{prev.toFixed(2)} KG</strong> ≈ {kgToPcs(prev,capWt).toLocaleString()} pcs</div>
-        <div>{sub.injections} injections × 64 = <strong>{(sub.theoreticalPcs||0).toLocaleString()} pcs theoretical</strong></div></div>
+        <div>{sub.injections} injections × {sub.cavities||PCS_INJ} = <strong>{(sub.theoreticalPcs||0).toLocaleString()} pcs theoretical</strong></div></div>
       <div style={{marginBottom:12}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Sorting Date</label>
         <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
