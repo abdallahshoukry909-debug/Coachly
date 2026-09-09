@@ -32,14 +32,17 @@ const COMPANY_ADDRESS="Plot 602, Industrial Zone, 6th of October City, Giza, Egy
 // Real staff roster, used to replace free-text "Operator" fields with a picker that carries a
 // real wage — so labor cost on a shift can be the actual amount paid instead of only ever the
 // flat DEFAULT_LABOR_RATES estimate. "monthly" people (paid a fixed salary regardless of exactly
-// which days they work) get their effective cost for one day computed as salary ÷ however many
-// distinct days they're actually logged working that calendar month (see effectiveDailyRate) —
-// "perShift" people (daily/casual workers) just use their stored rate directly.
+// which days they work) get their effective cost for one day computed as salary ÷
+// assumedDaysPerMonth — a standard day count (26, the usual Egyptian payroll convention),
+// editable per employee, not however many days they actually happened to be logged this month
+// (that self-adjusting version was tried and dropped: it suggested an entire month's salary as
+// the cost of a single shift the first time someone was logged each month). "perShift" people
+// (daily/casual workers) just use their stored rate directly.
 const EMPLOYEE_STATIONS=["Injection","Assembly","Plastic Sorting","Final Sorting","Silica","Press"];
 const INITIAL_EMPLOYEES=[
-  {id:"emp-ziad",name:"Ziad Menshawy",stations:["Injection"],payType:"monthly",rate:15000,active:true,notes:"12h, 6 days/week"},
-  {id:"emp-mohamed",name:"Mohamed Mousa",stations:["Injection","Silica","Assembly"],payType:"monthly",rate:12000,active:true,notes:"12h, 6 days/week — moves to Silica when it's running, sometimes Assembly"},
-  {id:"emp-ashraf",name:"Ashraf",stations:["Press"],payType:"monthly",rate:12000,active:true,notes:"8h, 4 days/week"},
+  {id:"emp-ziad",name:"Ziad Menshawy",stations:["Injection"],payType:"monthly",rate:15000,assumedDaysPerMonth:26,active:true,notes:"12h, 6 days/week"},
+  {id:"emp-mohamed",name:"Mohamed Mousa",stations:["Injection","Silica","Assembly"],payType:"monthly",rate:12000,assumedDaysPerMonth:26,active:true,notes:"12h, 6 days/week — moves to Silica when it's running, sometimes Assembly"},
+  {id:"emp-ashraf",name:"Ashraf",stations:["Press"],payType:"monthly",rate:12000,assumedDaysPerMonth:26,active:true,notes:"8h, 4 days/week"},
   {id:"emp-nagy",name:"Nagy",stations:["Assembly"],payType:"perShift",rate:500,active:true,notes:"Occasional fill-in"},
   {id:"emp-somia",name:"Somia",stations:["Plastic Sorting","Final Sorting"],payType:"perShift",rate:350,active:true,notes:"Supervises — 300 base + 50"},
   {id:"emp-rahma",name:"Rahma",stations:["Plastic Sorting","Final Sorting"],payType:"perShift",rate:300,active:true,notes:""},
@@ -48,34 +51,14 @@ const INITIAL_EMPLOYEES=[
   {id:"emp-yasmine",name:"Yasmine",stations:["Plastic Sorting","Final Sorting"],payType:"perShift",rate:300,active:true,notes:""},
   {id:"emp-omrahma",name:"Om Rahma",stations:["Plastic Sorting","Final Sorting"],payType:"perShift",rate:300,active:true,notes:""},
 ];
-const monthKey=iso=>iso?String(iso).slice(0,7):"";
-// Every place a worker gets attributed to a real calendar day, across every stage — used to
-// count how many distinct days an employee actually worked in a given month, and (via
-// sorterEmployeeDates for the two Sorting stages) to feed the productivity charts.
-function employeeWorkDates(empId,batches,capsLots){
-  const dates=[];
-  (batches||[]).forEach(b=>{
-    if(!b.isSubBatch)return;
-    (b.injectionWorkers||[]).forEach(w=>{if(w.employeeId===empId&&b.mfgDate)dates.push(b.mfgDate);});
-    (b.assemblyWorkers||[]).forEach(w=>{if(w.employeeId===empId&&b.assemblyDate)dates.push(b.assemblyDate);});
-    (b.workers||[]).forEach(w=>{if(w.employeeId===empId&&b.mfgDate)dates.push(b.mfgDate);});
-    (b.plasticSorters||[]).forEach(w=>{if(w.employeeId===empId&&b.sortingDate)dates.push(b.sortingDate);});
-    (b.finalSorters||[]).forEach(w=>{if(w.employeeId===empId&&b.finalSortDate)dates.push(b.finalSortDate);});
-  });
-  (capsLots||[]).forEach(l=>{if(l.operatorId===empId&&l.dateISO)dates.push(l.dateISO);});
-  return dates;
-}
-function employeeWorkDaysInMonth(empId,mk,batches,capsLots){
-  return new Set(employeeWorkDates(empId,batches,capsLots).filter(d=>monthKey(d)===mk)).size;
-}
 // The default wage suggested when an employee is first added to a shift/lot — a starting point,
 // always editable, and once saved the number stored on that shift/lot is what's actually used
 // everywhere else (never silently recalculated later, so adding more shifts this month doesn't
 // retroactively change what an earlier shift shows it paid).
-function effectiveDailyRate(emp,dateISO,batches,capsLots){
+function effectiveDailyRate(emp){
   if(!emp)return 0;
   if(emp.payType!=="monthly")return Number(emp.rate)||0;
-  const days=employeeWorkDaysInMonth(emp.id,monthKey(dateISO),batches,capsLots)||1;
+  const days=Number(emp.assumedDaysPerMonth)||26;
   return (Number(emp.rate)||0)/days;
 }
 // Aggregates each sorter's total accepted/rejected pcs and shift count across every batch —
@@ -163,13 +146,13 @@ function InjectionPerformanceChart({stats}){
 }
 // Multi-select employee + wage picker — used on Injection/Assembly/Silica shifts, where output
 // is shared (not split per person) but each worker still has their own real wage for that shift.
-function WorkerPicker({employees,batches,capsLots,dateISO,station,value,onChange}){
+function WorkerPicker({employees,station,value,onChange}){
   const list=value||[];
   const candidates=(employees||[]).filter(e=>e.active!==false&&(!station||(e.stations||[]).indexOf(station)>=0)&&list.every(v=>v.employeeId!==e.id));
   const add=id=>{
     const emp=(employees||[]).filter(e=>e.id===id)[0];
     if(!emp)return;
-    const wage=Math.round(effectiveDailyRate(emp,dateISO,batches,capsLots)*100)/100;
+    const wage=Math.round(effectiveDailyRate(emp)*100)/100;
     onChange(list.concat([{employeeId:emp.id,name:emp.name,wage:wage}]));
   };
   const remove=id=>onChange(list.filter(v=>v.employeeId!==id));
@@ -191,13 +174,13 @@ function WorkerPicker({employees,batches,capsLots,dateISO,station,value,onChange
 // Sorting-specific picker — each sorter also gets her own accepted/rejected pcs, since sorting
 // output is naturally per-person (each sorter handles her own tray), unlike the shared-output
 // stages above. Feeds both the labor cost and the sorter productivity charts.
-function SorterPicker({employees,batches,capsLots,dateISO,station,value,onChange}){
+function SorterPicker({employees,station,value,onChange}){
   const list=value||[];
   const candidates=(employees||[]).filter(e=>e.active!==false&&(!station||(e.stations||[]).indexOf(station)>=0)&&list.every(v=>v.employeeId!==e.id));
   const add=id=>{
     const emp=(employees||[]).filter(e=>e.id===id)[0];
     if(!emp)return;
-    const wage=Math.round(effectiveDailyRate(emp,dateISO,batches,capsLots)*100)/100;
+    const wage=Math.round(effectiveDailyRate(emp)*100)/100;
     onChange(list.concat([{employeeId:emp.id,name:emp.name,wage:wage,acceptedPcs:0,rejectedPcs:0}]));
   };
   const remove=id=>onChange(list.filter(v=>v.employeeId!==id));
@@ -230,12 +213,12 @@ function EmployeeStationPicker({stations,onToggle}){
   </div>);
 }
 function NewEmployeeForm({onSave,onCancel}){
-  const [name,setName]=useState(""),[stations,setStations]=useState([]),[payType,setPayType]=useState("perShift"),[rate,setRate]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
+  const [name,setName]=useState(""),[stations,setStations]=useState([]),[payType,setPayType]=useState("perShift"),[rate,setRate]=useState(""),[assumedDaysPerMonth,setAssumedDaysPerMonth]=useState("26"),[notes,setNotes]=useState(""),[err,setErr]=useState("");
   const toggleStation=s=>setStations(stations.indexOf(s)>=0?stations.filter(x=>x!==s):stations.concat([s]));
   const save=()=>{
     if(!name.trim()){setErr("Enter a name.");return;}
     if(stations.length===0){setErr("Pick at least one station.");return;}
-    onSave({id:genId(),name:name.trim(),stations:stations,payType:payType,rate:Number(rate)||0,active:true,notes:notes.trim()});
+    onSave({id:genId(),name:name.trim(),stations:stations,payType:payType,rate:Number(rate)||0,assumedDaysPerMonth:Number(assumedDaysPerMonth)||26,active:true,notes:notes.trim()});
   };
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:14}}>
     <div style={{marginBottom:10}}><Field label="Name" value={name} onChange={v=>{setName(v);setErr("");}} ph="e.g. Mohamed Mousa"/></div>
@@ -247,6 +230,7 @@ function NewEmployeeForm({onSave,onCancel}){
         <select value={payType} onChange={e=>setPayType(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
           <option value="perShift">Per Shift/Day</option><option value="monthly">Monthly Salary</option></select></div>
       <Field label={payType==="monthly"?"Monthly Rate (EGP)":"Rate per Shift (EGP)"} value={rate} onChange={setRate} type="number" ph="e.g. 300"/></div>
+    {payType==="monthly"&&<div style={{marginBottom:10}}><Field label="Assumed Days/Month (for daily cost)" value={assumedDaysPerMonth} onChange={setAssumedDaysPerMonth} type="number" ph="26"/></div>}
     <div style={{marginBottom:14}}><Field label="Notes (optional)" value={notes} onChange={setNotes}/></div>
     {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
     <div style={{display:"flex",gap:8}}>
@@ -258,15 +242,17 @@ function EmployeeRow({emp,onSave,onDelete}){
   const [editing,setEditing]=useState(false),[confDel,setConfDel]=useState(false);
   const [name,setName]=useState(emp.name),[stations,setStations]=useState(emp.stations||[]);
   const [payType,setPayType]=useState(emp.payType),[rate,setRate]=useState(String(emp.rate));
+  const [assumedDaysPerMonth,setAssumedDaysPerMonth]=useState(String(emp.assumedDaysPerMonth||26));
   const [notes,setNotes]=useState(emp.notes||""),[active,setActive]=useState(emp.active!==false);
   const toggleStation=s=>setStations(stations.indexOf(s)>=0?stations.filter(x=>x!==s):stations.concat([s]));
-  const save=()=>{onSave(Object.assign({},emp,{name:name.trim()||emp.name,stations:stations,payType:payType,rate:Number(rate)||0,notes:notes,active:active}));setEditing(false);};
+  const save=()=>{onSave(Object.assign({},emp,{name:name.trim()||emp.name,stations:stations,payType:payType,rate:Number(rate)||0,assumedDaysPerMonth:Number(assumedDaysPerMonth)||26,notes:notes,active:active}));setEditing(false);};
   if(!editing)return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:8,opacity:active?1:0.5}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontWeight:700,fontSize:14}}>{emp.name}{!active?" (inactive)":""}</div>
         <div style={{fontSize:12,color:"#888",marginTop:2}}>{(emp.stations||[]).join(", ")||"—"}</div>
         <div style={{fontSize:13,color:NAVY,fontWeight:700,marginTop:4}}>{fmtN(emp.rate)} EGP {emp.payType==="monthly"?"/ month":"/ shift"}</div>
+        {emp.payType==="monthly"&&<div style={{fontSize:11,color:"#888",marginTop:2}}>≈ {fmtN(Math.round(effectiveDailyRate(emp)))} EGP/day ÷ {emp.assumedDaysPerMonth||26} days</div>}
         {emp.notes&&<div style={{fontSize:11,color:"#999",marginTop:2}}>{emp.notes}</div>}</div>
       <button type="button" onClick={()=>setEditing(true)} style={{background:"#F5F7FA",border:"none",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>✏️ Edit</button></div></div>);
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:8}}>
@@ -279,6 +265,7 @@ function EmployeeRow({emp,onSave,onDelete}){
         <select value={payType} onChange={e=>setPayType(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
           <option value="monthly">Monthly Salary</option><option value="perShift">Per Shift/Day</option></select></div>
       <Field label={payType==="monthly"?"Monthly Rate (EGP)":"Rate per Shift (EGP)"} value={rate} onChange={setRate} type="number"/></div>
+    {payType==="monthly"&&<div style={{marginBottom:10}}><Field label="Assumed Days/Month (for daily cost)" value={assumedDaysPerMonth} onChange={setAssumedDaysPerMonth} type="number" ph="26"/></div>}
     <div style={{marginBottom:10}}><Field label="Notes" value={notes} onChange={setNotes}/></div>
     <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"#555",cursor:"pointer",marginBottom:14}}>
       <input type="checkbox" checked={active} onChange={e=>setActive(e.target.checked)} style={{width:16,height:16}}/> Active</label>
@@ -1037,7 +1024,7 @@ function LotModal({matName,matConfig,lot,onSave,onClose}){
 // Creates a new Aluminum Caps lot (this batch's output) while deducting the coil weight
 // it was stamped from out of the matching Aluminum Coils lot — the link the old Notion
 // tool didn't have between the two materials.
-function AluminumBatchForm({capsLots,coilLots,matConfig,batches,employees,onSave,onClose}){
+function AluminumBatchForm({capsLots,coilLots,matConfig,employees,onSave,onClose}){
   const preview=nextAlLotNo(capsLots);
   const [coilLotId,setCoilLotId]=useState(""),[coilNumber,setCoilNumber]=useState("");
   const [weightTaken,setWeightTaken]=useState(""),[qty,setQty]=useState(""),[unit,setUnit]=useState("Pcs");
@@ -1078,7 +1065,7 @@ function AluminumBatchForm({capsLots,coilLots,matConfig,batches,employees,onSave
     // he's logged on that same date — including this new one — so making 2 coils in one shift
     // doesn't charge each coil a full day's wage.
     const sameDayLots=operatorEmp?capsLots.filter(l=>l.operatorId===operatorEmp.id&&l.dateISO===dateFinished).length+1:0;
-    const laborCostEGP=operatorEmp?effectiveDailyRate(operatorEmp,dateFinished,batches,capsLots)/sameDayLots:0;
+    const laborCostEGP=operatorEmp?effectiveDailyRate(operatorEmp)/sameDayLots:0;
     const newLot={id:genId(),lotNumber:preview,plNo:preview,date:dispDate(dateFinished),dateStarted:dispDate(dateStarted),dateISO:dateFinished,supplier:"In-house production",
       description:"20mm Flip-Off Aluminum Caps – Coil lot "+coil.lotNumber+(coilNumber?" | Coil "+coilNumber:""),
       qtyReceived:isBags?bagsList.length:Number(qty),unit:unit,qtyRemaining:isBags?bagsList.length:Number(qty),
@@ -1359,7 +1346,6 @@ function InjectionForm({parentBatch,batches,data,employees,existing,onSave,onCan
   const [date,setDate]=useState(e.mfgDate||new Date().toISOString().split("T")[0]);
   const [shift,setShift]=useState(e.shift||"Morning");
   const [injectionWorkers,setInjectionWorkers]=useState(e.injectionWorkers||[]);
-  const capsLots=(data&&data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[];
   const [injections,setInjections]=useState(e.injections||""),[plasticLotId,setPlasticLotId]=useState(e.plasticLotId||"");
   // Cavities per shot is usually 64, but sometimes one is closed off (e.g. 63) — editable per
   // shift rather than a fixed constant, since it can change shift to shift.
@@ -1407,7 +1393,7 @@ function InjectionForm({parentBatch,batches,data,employees,existing,onSave,onCan
             {["Morning","Afternoon","Night"].map(s=><option key={s}>{s}</option>)}</select></div></div>
       <div style={{background:"#FFF3E0",borderRadius:10,padding:14,marginBottom:14}}>
         <div style={{fontWeight:700,fontSize:13,color:"#856404",marginBottom:10}}>👷 Workers on this shift</div>
-        <WorkerPicker employees={employees} batches={batches} capsLots={capsLots} dateISO={date} station="Injection" value={injectionWorkers} onChange={setInjectionWorkers}/></div>
+        <WorkerPicker employees={employees} station="Injection" value={injectionWorkers} onChange={setInjectionWorkers}/></div>
       <div style={{background:"#FFF9E6",borderRadius:10,padding:14,marginBottom:14}}>
         <div style={{fontWeight:700,fontSize:13,color:"#856404",marginBottom:10}}>💉 Injection Output</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
@@ -1445,10 +1431,9 @@ function InjectionForm({parentBatch,batches,data,employees,existing,onSave,onCan
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#856404",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>{existing?"💾 Save Changes":"Save Injection → Plastic Sorting"}</button>
     </div></div>);
 }
-function PlasticSortingForm({sub,batches,data,employees,existing,onSave,onCancel}){
+function PlasticSortingForm({sub,employees,existing,onSave,onCancel}){
   const [accKg,setAccKg]=useState(sub.acceptedWeightKg||""),[rejKg,setRejKg]=useState(sub.rejectedWeightKg||""),[date,setDate]=useState(sub.sortingDate||today()),[err,setErr]=useState("");
   const [plasticSorters,setPlasticSorters]=useState(sub.plasticSorters||[]);
-  const capsLots=(data&&data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[];
   const capWt=sub.capWt||CAP_WT;
   const acc=Number(accKg)||0,rej=Number(rejKg)||0,total=acc+rej,prev=sub.weightBeforeSorting||0;
   const accPcs=kgToPcs(acc,capWt),rejPcs=kgToPcs(rej,capWt);
@@ -1477,18 +1462,17 @@ function PlasticSortingForm({sub,batches,data,employees,existing,onSave,onCancel
       <div style={{background:"#D1ECF1",borderRadius:10,padding:14,marginBottom:12}}>
         <div style={{fontWeight:700,fontSize:13,color:"#0C5460",marginBottom:4}}>👷 Who sorted this shift</div>
         <div style={{fontSize:11,color:"#0C5460",opacity:0.8,marginBottom:10}}>Optional — add each sorter and what she personally sorted, for accurate wages and the productivity charts. Leave empty to skip.</div>
-        <SorterPicker employees={employees} batches={batches} capsLots={capsLots} dateISO={date} station="Plastic Sorting" value={plasticSorters} onChange={setPlasticSorters}/></div>
+        <SorterPicker employees={employees} station="Plastic Sorting" value={plasticSorters} onChange={setPlasticSorters}/></div>
       {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#0C5460",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>{existing?"💾 Save Changes":"Save Sorting → Assembly"}</button>
     </div></div>);
 }
-function AssemblyForm({sub,data,batches,employees,existing,onSave,onCancel}){
+function AssemblyForm({sub,data,employees,existing,onSave,onCancel}){
   const e=existing?sub:{};
   const [sels,setSels]=useState((sub.aluminumSelections&&sub.aluminumSelections.length)?sub.aluminumSelections:[]);
   const [pickLotId,setPickLotId]=useState(""),[pickBags,setPickBags]=useState([]);
   const [asmKg,setAsmKg]=useState(sub.assembledWeightKg||""),[date,setDate]=useState(sub.assemblyDate||today()),[err,setErr]=useState("");
   const [assemblyWorkers,setAssemblyWorkers]=useState(sub.assemblyWorkers||[]);
-  const capsLots=(data&&data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[];
   const alLots=((data&&data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[]).filter(l=>(l.status==="In Stock"||l.status==="Low Stock")&&l.bags&&l.bags.length);
   const pickLot=pickLotId?alLots.filter(l=>l.id===pickLotId)[0]:null;
   const alreadyUsed={};sels.forEach(s=>{s.bagIds.forEach(b=>{alreadyUsed[s.lotId+"|"+b]=1;});});
@@ -1522,7 +1506,7 @@ function AssemblyForm({sub,data,batches,employees,existing,onSave,onCancel}){
       <div style={{background:"#EDE0FF",borderRadius:10,padding:14,marginBottom:12}}>
         <div style={{fontWeight:700,fontSize:13,color:"#4A1A6E",marginBottom:4}}>👷 Workers on this shift</div>
         <div style={{fontSize:11,color:"#7B3FB5",marginBottom:10}}>Leave empty if a sorting girl covered this for free — only add someone (e.g. Mohamed, Nagy) if it&apos;s a real added cost.</div>
-        <WorkerPicker employees={employees} batches={batches} capsLots={capsLots} dateISO={date} station="Assembly" value={assemblyWorkers} onChange={setAssemblyWorkers}/></div>
+        <WorkerPicker employees={employees} station="Assembly" value={assemblyWorkers} onChange={setAssemblyWorkers}/></div>
       <div style={{background:"#F7F0FF",borderRadius:10,padding:14,marginBottom:12}}>
         <div style={{fontWeight:700,fontSize:13,color:"#4A1A6E",marginBottom:4}}>🔘 Aluminum Caps Used</div>
         <div style={{fontSize:11,color:"#7B3FB5",marginBottom:10}}>Add from as many lots as you need — lots often run out mid-shift</div>
@@ -1560,11 +1544,10 @@ function AssemblyForm({sub,data,batches,employees,existing,onSave,onCancel}){
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#4A1A6E",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>{existing?"💾 Save Changes":"Save Assembly → Final Sorting"}</button>
     </div></div>);
 }
-function FinalSortingForm({sub,parentBatch,data,batches,employees,existing,onSave,onCancel}){
+function FinalSortingForm({sub,parentBatch,data,employees,existing,onSave,onCancel}){
   const [accKg,setAccKg]=useState(sub.finalAcceptedKg||""),[rejKg,setRejKg]=useState(sub.finalRejectedKg||"");
   const [date,setDate]=useState(sub.finalSortDate||today()),[err,setErr]=useState("");
   const [finalSorters,setFinalSorters]=useState(sub.finalSorters||[]);
-  const capsLots=(data&&data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[];
   const [packedCartons,setPackedCartons]=useState(sub.finalCartons||""),[packedBags,setPackedBags]=useState(sub.finalPartialBags||""),[packedKg,setPackedKg]=useState(sub.finalPartialKg||"");
   const [cartonsLotId,setCartonsLotId]=useState(sub.cartonsLotId||"");
   const cartonsLots=((data&&data["Cartons"]&&data["Cartons"].lots)||[]).filter(l=>l.status!=="Out of Stock"||l.id===sub.cartonsLotId);
@@ -1601,7 +1584,7 @@ function FinalSortingForm({sub,parentBatch,data,batches,employees,existing,onSav
       <div style={{background:"#FFF8DC",borderRadius:10,padding:14,marginBottom:12}}>
         <div style={{fontWeight:700,fontSize:13,color:"#8B6914",marginBottom:4}}>👷 Who sorted this shift</div>
         <div style={{fontSize:11,color:"#A08030",marginBottom:10}}>Optional — add each sorter and what she personally sorted, for accurate wages and the productivity charts. Leave empty to skip.</div>
-        <SorterPicker employees={employees} batches={batches} capsLots={capsLots} dateISO={date} station="Final Sorting" value={finalSorters} onChange={setFinalSorters}/></div>
+        <SorterPicker employees={employees} station="Final Sorting" value={finalSorters} onChange={setFinalSorters}/></div>
       <div style={{background:"#FFFCF0",borderRadius:10,padding:14,marginBottom:12}}>
         <div style={{fontWeight:700,fontSize:13,color:"#8B6914",marginBottom:10}}>⚖️ Final Sort Results</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
@@ -2003,7 +1986,6 @@ function SilicaShiftForm({parentBatch,batches,data,employees,existing,onSave,onC
   const e=existing||{};
   const [date,setDate]=useState(e.mfgDate||new Date().toISOString().split("T")[0]);
   const [workers,setWorkers]=useState(e.workers||[]);
-  const capsLots=(data&&data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[];
   const [amount,setAmount]=useState(e.amountPcs!=null?String(e.amountPcs):"");
   const [silicaLotId,setSilicaLotId]=useState(e.silicaLotId||"");
   const [silicaBags,setSilicaBags]=useState(e.silicaKg!=null?String(e.silicaKg/BAG_KG):"");
@@ -2057,7 +2039,7 @@ function SilicaShiftForm({parentBatch,batches,data,employees,existing,onSave,onC
         <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
       <div style={{background:"#D0F0E0",borderRadius:10,padding:14,marginBottom:14}}>
         <div style={{fontWeight:700,fontSize:13,color:"#0E4A2A",marginBottom:10}}>👷 Workers on this shift</div>
-        <WorkerPicker employees={employees} batches={batches} capsLots={capsLots} dateISO={date} station="Silica" value={workers} onChange={v=>{setWorkers(v);setErr("");}}/>
+        <WorkerPicker employees={employees} station="Silica" value={workers} onChange={v=>{setWorkers(v);setErr("");}}/>
         {err==="Add at least one worker on this shift."&&<div style={{fontSize:11,color:"#DC3545",marginTop:6}}>{err}</div>}</div>
       <div style={{marginBottom:14}}><Field label="Amount Made (pcs)" value={amount} onChange={v=>{setAmount(v);setErr("");}} type="number" ph="e.g. 25000" accent="#0E4A2A" error={err==="Enter the amount made."}/>
         {err==="Enter the amount made."&&<div style={{fontSize:11,color:"#DC3545",marginTop:4}}>↑ This field, not the rolls below — the rolls value you typed is fine.</div>}</div>
