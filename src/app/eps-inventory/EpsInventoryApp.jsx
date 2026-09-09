@@ -312,6 +312,149 @@ function EmployeesSection({employees,batches,onSave,onDelete,onClose}){
     </div></div>);
 }
 
+// ══ CASH LEDGER ═══════════════════════════════════════════════════════════
+// A second, separate money-tracking system from the estimate-based Finance tab. Finance builds
+// cost estimates from batch/order data (what things SHOULD cost); this ledger only records real
+// cash that has actually moved, logged as it's paid or received, so its running balance is always
+// the true amount on hand — never an estimate. Money owed but not yet paid/received is
+// deliberately NOT entered here until it actually moves, so a pending customer payment can never
+// inflate the balance. "Owner Capital" is its own income category, separate from "Customer
+// Payment", since the starting balance is mostly money the owner put in, not revenue collected.
+const CASH_CATEGORIES_IN=["Customer Payment","Owner Capital","Asset Sale","Other Income"];
+const CASH_CATEGORIES_OUT=["Material Purchase","Wages","Maintenance","Utilities","Rent","Transport","Other Expense"];
+function cashRunningBalance(opening,ledger){
+  const start=opening?Number(opening.balance)||0:0;
+  return (ledger||[]).reduce((s,e)=>s+(e.type==="in"?Number(e.amount)||0:-(Number(e.amount)||0)),start);
+}
+function cashMonthlySummary(ledger){
+  const map={};
+  (ledger||[]).forEach(e=>{
+    const mk=e.date?String(e.date).slice(0,7):"—";
+    if(!map[mk])map[mk]={month:mk,in:0,out:0};
+    if(e.type==="in")map[mk].in+=Number(e.amount)||0;else map[mk].out+=Number(e.amount)||0;
+  });
+  return Object.values(map).sort((a,b)=>b.month.localeCompare(a.month));
+}
+function CashEntryForm({existing,onSave,onCancel}){
+  const e=existing||{};
+  const [date,setDate]=useState(e.date||new Date().toISOString().split("T")[0]);
+  const [type,setType]=useState(e.type||"out");
+  const cats=type==="in"?CASH_CATEGORIES_IN:CASH_CATEGORIES_OUT;
+  const [category,setCategory]=useState(e.category||cats[0]);
+  const [amount,setAmount]=useState(e.amount!=null?String(e.amount):"");
+  const [note,setNote]=useState(e.note||"");
+  const [err,setErr]=useState("");
+  const switchType=t=>{setType(t);const nc=t==="in"?CASH_CATEGORIES_IN:CASH_CATEGORIES_OUT;setCategory(nc.indexOf(category)>=0?category:nc[0]);};
+  const save=()=>{
+    const amt=Number(amount)||0;
+    if(amt<=0){setErr("Enter an amount.");return;}
+    onSave({id:e.id||genId(),date:date,type:type,category:category,amount:amt,note:note.trim(),createdAt:e.createdAt||new Date().toISOString()});
+  };
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:14}}>
+    <div style={{display:"flex",gap:8,marginBottom:12}}>
+      {[["in","🟢 Money In"],["out","🔴 Money Out"]].map(x=>(
+        <button type="button" key={x[0]} onClick={()=>switchType(x[0])}
+          style={{flex:1,padding:11,borderRadius:8,fontWeight:700,fontSize:13,cursor:"pointer",border:"1.5px solid "+(type===x[0]?(x[0]==="in"?"#1A7A45":"#DC3545"):"#E2E8F0"),background:type===x[0]?(x[0]==="in"?"#E8F5E9":"#FFF0F0"):"#fff",color:type===x[0]?(x[0]==="in"?"#1A7A45":"#DC3545"):"#666"}}>{x[1]}</button>))}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date</label>
+        <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+      <Field label="Amount (EGP)" value={amount} onChange={v=>{setAmount(v);setErr("");}} type="number" ph="0.00"/></div>
+    <div style={{marginBottom:10}}>
+      <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Category</label>
+      <select value={category} onChange={ev=>setCategory(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+        {cats.map(c=><option key={c}>{c}</option>)}</select></div>
+    <div style={{marginBottom:14}}><Field label="Note (optional)" value={note} onChange={setNote} ph="e.g. Paid Ahmed for coil delivery"/></div>
+    {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
+    <div style={{display:"flex",gap:8}}>
+      <button type="button" onClick={save} style={{flex:1,padding:11,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 {existing?"Save Changes":"Add Entry"}</button>
+      <button type="button" onClick={onCancel} style={{padding:"11px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>Cancel</button></div>
+  </div>);
+}
+function CashEntryRow({entry,onSave,onDelete}){
+  const [editing,setEditing]=useState(false),[confDel,setConfDel]=useState(false);
+  if(editing)return <CashEntryForm existing={entry} onSave={u=>{onSave(u);setEditing(false);}} onCancel={()=>setEditing(false)}/>;
+  const isIn=entry.type==="in";
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:"12px 14px",marginBottom:8}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <span style={{background:isIn?"#C6EFCE":"#FDDEDE",color:isIn?"#1A6B2A":"#8B1A1A",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700}}>{isIn?"🟢 In":"🔴 Out"}</span>
+          <span style={{fontSize:12,fontWeight:700,color:"#333"}}>{entry.category}</span>
+          <span style={{fontSize:11,color:"#999"}}>{entry.date}</span></div>
+        {entry.note&&<div style={{fontSize:12,color:"#888",marginTop:4}}>{entry.note}</div>}</div>
+      <div style={{textAlign:"right"}}>
+        <div style={{fontWeight:800,fontSize:15,color:isIn?"#1A6B2A":"#DC3545",whiteSpace:"nowrap"}}>{isIn?"+":"-"}{fmtN(entry.amount)} EGP</div>
+        <div style={{display:"flex",gap:10,marginTop:4,justifyContent:"flex-end"}}>
+          <button type="button" onClick={()=>setEditing(true)} style={{background:"none",border:"none",color:NAVY,cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>Edit</button>
+          {confDel?<>
+            <button type="button" onClick={()=>onDelete()} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:11,fontWeight:700,padding:0}}>Confirm?</button>
+            <button type="button" onClick={()=>setConfDel(false)} style={{background:"none",border:"none",color:"#888",cursor:"pointer",fontSize:11,padding:0}}>Cancel</button></>
+          :<button type="button" onClick={()=>setConfDel(true)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>Delete</button>}
+        </div></div></div>
+  </div>);
+}
+function CashOpeningSetup({opening,onSave}){
+  const [editing,setEditing]=useState(!opening);
+  const [date,setDate]=useState(opening?opening.date:new Date().toISOString().split("T")[0]);
+  const [balance,setBalance]=useState(opening?String(opening.balance):"");
+  const [err,setErr]=useState("");
+  const save=()=>{
+    const b=Number(balance);
+    if(balance===""||isNaN(b)){setErr("Enter the actual cash balance.");return;}
+    onSave({balance:b,date:date});
+    setEditing(false);
+  };
+  if(!editing)return(<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11,color:"#888",marginBottom:10}}>
+    <span>Opening balance: <strong style={{color:"#555"}}>{fmtN(opening.balance)} EGP</strong> as of {opening.date}</span>
+    <button type="button" onClick={()=>setEditing(true)} style={{background:"none",border:"none",color:NAVY,cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>Edit</button></div>);
+  return(<div style={{background:"#FFF9E6",border:"1.5px solid #E6A817",borderRadius:12,padding:14,marginBottom:14}}>
+    <div style={{fontWeight:800,fontSize:13,color:"#856404",marginBottom:4}}>💵 Set Your Starting Cash Balance</div>
+    <div style={{fontSize:11,color:"#856404",opacity:0.85,marginBottom:10}}>The real amount of cash you have on hand right now — everything logged after this date adds to or subtracts from it. It&apos;s fine if most of it is capital the owner put in rather than customer payments — that&apos;s what the &quot;Owner Capital&quot; category on each entry is for.</div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>As Of Date</label>
+        <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+      <Field label="Actual Balance (EGP)" value={balance} onChange={v=>{setBalance(v);setErr("");}} type="number" ph="e.g. 50000"/></div>
+    {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
+    <button type="button" onClick={save} style={{width:"100%",padding:11,background:"#856404",color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 Save Starting Balance</button>
+  </div>);
+}
+function CashLedgerSection({cashLedger,cashOpening,onSaveEntry,onDeleteEntry,onSetOpening,onClose}){
+  const [showAdd,setShowAdd]=useState(false);
+  const balance=cashRunningBalance(cashOpening,cashLedger);
+  const sorted=cashLedger.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||"").localeCompare(a.createdAt||""));
+  const monthly=cashMonthlySummary(cashLedger);
+  const totalIn=cashLedger.reduce((s,e)=>e.type==="in"?s+(Number(e.amount)||0):s,0);
+  const totalOut=cashLedger.reduce((s,e)=>e.type==="out"?s+(Number(e.amount)||0):s,0);
+  return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
+    <div style={{background:"linear-gradient(135deg,#0E4A2A,#1A7A45)",position:"sticky",top:0,zIndex:100}}>
+      <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13}}>← Back</button>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:17}}>💵 Cash Ledger</div>
+          <div style={{color:"rgba(255,255,255,0.6)",fontSize:11}}>Actual money in/out — separate from Finance estimates</div></div></div></div>
+    <div style={{maxWidth:700,margin:"0 auto",padding:16}}>
+      <CashOpeningSetup opening={cashOpening} onSave={onSetOpening}/>
+      {cashOpening&&<>
+      <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #EEF2F7",padding:18,marginBottom:14,textAlign:"center"}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase"}}>Current Cash Balance</div>
+        <div style={{fontSize:32,fontWeight:900,color:balance>=0?"#1A6B2A":"#DC3545",marginTop:4}}>{fmtN(balance)} EGP</div>
+        <div style={{display:"flex",justifyContent:"center",gap:20,marginTop:10,fontSize:12}}>
+          <div>🟢 In: <strong style={{color:"#1A6B2A"}}>{fmtN(totalIn)}</strong></div>
+          <div>🔴 Out: <strong style={{color:"#DC3545"}}>{fmtN(totalOut)}</strong></div></div></div>
+      {monthly.length>0&&<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
+        <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>📅 Monthly Summary</div>
+        {monthly.map(m=>(<div key={m.month} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
+          <span style={{fontWeight:700,color:"#555"}}>{m.month}</span>
+          <span>🟢 {fmtN(m.in)} · 🔴 {fmtN(m.out)} · <strong style={{color:m.in-m.out>=0?"#1A6B2A":"#DC3545"}}>{fmtN(m.in-m.out)} net</strong></span></div>))}
+      </div>}
+      {!showAdd&&<button type="button" onClick={()=>setShowAdd(true)} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:14}}>+ Add Entry</button>}
+      {showAdd&&<CashEntryForm onSave={en=>{onSaveEntry(en);setShowAdd(false);}} onCancel={()=>setShowAdd(false)}/>}
+      {sorted.map(en=><CashEntryRow key={en.id} entry={en} onSave={onSaveEntry} onDelete={()=>onDeleteEntry(en.id)}/>)}
+      {cashLedger.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No entries yet — log your first payment in or out above.</div>}
+      </>}
+    </div></div>);
+}
+
 const MATERIAL_META={
   "Aluminum Coils":{color:"#1A3C5E",accent:"#2D6A9F",light:"#D6E8FA",emoji:"🪙",trackCoils:true},
   "Aluminum Caps":{color:"#37474F",accent:"#607D8B",light:"#ECEFF1",emoji:"🔘"},
@@ -2807,7 +2950,9 @@ function Dashboard({data,batches,orders,onSelect,onLogout,onExport,onImportFile,
         <button type="button" onClick={()=>onSection("certificates")} style={{background:"#1B5A4E",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🧪 Certificates
           <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Certificate of Analysis (COA)</div></button>
         <button type="button" onClick={()=>onSection("employees")} style={{background:"#6E3A1B",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>👷 Employees
-          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Roster, stations &amp; wages</div></button></div>
+          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Roster, stations &amp; wages</div></button>
+        <button type="button" onClick={()=>onSection("cashledger")} style={{background:"#0E4A2A",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>💵 Cash Ledger
+          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Real money in &amp; out</div></button></div>
       <div onClick={()=>onSelect("Aluminum Caps")} style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:18,cursor:"pointer"}}>
         <div style={{fontSize:11,fontWeight:800,color:"#37474F",textTransform:"uppercase",marginBottom:8}}>🔘 Aluminum Availability</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:8}}>
@@ -3798,6 +3943,8 @@ export default function EpsInventoryApp(){
   const [batches,setBatches]=useState([]),[orders,setOrders]=useState([]);
   const [laborRates,setLaborRates]=useState(DEFAULT_LABOR_RATES);
   const [employees,setEmployees]=useState(INITIAL_EMPLOYEES);
+  const [cashLedger,setCashLedger]=useState([]);
+  const [cashOpening,setCashOpening]=useState(null);
   const [activeMat,setActiveMat]=useState(null),[section,setSection]=useState("inventory");
   const [toast,setToast]=useState(null),[lastSync,setLastSync]=useState(null);
   const [dataLoaded,setDataLoaded]=useState(false);
@@ -3805,7 +3952,7 @@ export default function EpsInventoryApp(){
   const showToast=(msg,type)=>{setToast({msg:msg,type:type||"ok"});setTimeout(()=>setToast(null),2500);};
 
   useEffect(()=>{(async()=>{
-    let merged={},bs=INITIAL_BATCHES,os=INITIAL_ORDERS,lr=DEFAULT_LABOR_RATES,emps=INITIAL_EMPLOYEES;
+    let merged={},bs=INITIAL_BATCHES,os=INITIAL_ORDERS,lr=DEFAULT_LABOR_RATES,emps=INITIAL_EMPLOYEES,cl=[],co=null;
     try{
       const supabase=createClient();
       const {data:row,error}=await supabase.from("eps_inventory_data").select("value").eq("key",SHARED_KEY).maybeSingle();
@@ -3840,6 +3987,11 @@ export default function EpsInventoryApp(){
           const ids={};p._employees.forEach(x=>{ids[x.id]=1;});
           emps=p._employees.concat(INITIAL_EMPLOYEES.filter(x=>!ids[x.id]));
         }
+        // Cash Ledger — a fully separate real-money tracker from the estimate-based Finance tab
+        // and from everything above, so it's loaded/saved independently with no merge-by-id
+        // logic needed (there's no starter seed data for it, just whatever the user has logged).
+        if(Array.isArray(p._cashLedger))cl=p._cashLedger;
+        if(p._cashOpening)co=p._cashOpening;
         // pressCostPerPc used to mean the combined "Press/Assembly" rate before they were split
         // into two real machines — a saved rate under that old key is really the Assembly rate,
         // so carry it forward under the new assemblyCostPerPc key instead of misapplying it to
@@ -3855,10 +4007,10 @@ export default function EpsInventoryApp(){
       }
     }catch(e){console.error("Load failed",e);showToast("⚠️ Couldn't load saved data — showing starter data","error");
       Object.keys(MATERIAL_META).forEach(k=>{merged[k]=Object.assign({},MATERIAL_META[k],{lots:INITIAL_LOTS[k],coils:INITIAL_COILS[k]||[]});});}
-    setData(merged);setBatches(bs);setOrders(os);setLaborRates(lr);setEmployees(emps);
+    setData(merged);setBatches(bs);setOrders(os);setLaborRates(lr);setEmployees(emps);setCashLedger(cl);setCashOpening(co);
     // Snapshot what we just loaded so the effect doesn't immediately re-write identical data
     const snap={};Object.keys(merged).forEach(k=>{snap[k]={lots:merged[k].lots.map(l=>Object.assign({},l,{image:null})),coils:merged[k].coils||[]};});
-    snap._batches=bs;snap._orders=os;snap._laborRates=lr;snap._employees=emps;
+    snap._batches=bs;snap._orders=os;snap._laborRates=lr;snap._employees=emps;snap._cashLedger=cl;snap._cashOpening=co;
     skipSave.current=JSON.stringify(snap);
     setDataLoaded(true);
   })();},[]);
@@ -3867,6 +4019,7 @@ export default function EpsInventoryApp(){
     if(!data||!dataLoaded)return;
     const toSave={};Object.keys(data).forEach(k=>{toSave[k]={lots:data[k].lots.map(l=>Object.assign({},l,{image:null})),coils:data[k].coils||[]};});
     toSave._batches=batches;toSave._orders=orders;toSave._laborRates=laborRates;toSave._employees=employees;
+    toSave._cashLedger=cashLedger;toSave._cashOpening=cashOpening;
     const json=JSON.stringify(toSave);
     // Only skip when the payload is byte-identical to what we loaded — never skip a real change
     if(skipSave.current===json){return;}
@@ -3882,12 +4035,12 @@ export default function EpsInventoryApp(){
       }catch(e){lastErr=e;if(a<2)await new Promise(r=>setTimeout(r,800));}}
       throw lastErr;
     }catch(e){console.error("Save failed",e);showToast("⚠️ Save failed — check your connection","error");}})();
-  },[data,batches,orders,laborRates,employees,dataLoaded]);
+  },[data,batches,orders,laborRates,employees,cashLedger,cashOpening,dataLoaded]);
 
   const logout=async()=>{const supabase=createClient();await supabase.auth.signOut();router.push("/auth/login");router.refresh();};
 
   const exportBackup=()=>{
-    const payload={exportedAt:new Date().toISOString(),data:data,batches:batches,orders:orders,laborRates:laborRates,employees:employees};
+    const payload={exportedAt:new Date().toISOString(),data:data,batches:batches,orders:orders,laborRates:laborRates,employees:employees,cashLedger:cashLedger,cashOpening:cashOpening};
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
@@ -3911,6 +4064,8 @@ export default function EpsInventoryApp(){
           setLaborRates(Object.assign({},DEFAULT_LABOR_RATES,lr2));
         }
         if(Array.isArray(p.employees))setEmployees(p.employees);
+        if(Array.isArray(p.cashLedger))setCashLedger(p.cashLedger);
+        if(p.cashOpening)setCashOpening(p.cashOpening);
         showToast("Backup restored ✓ — review, then it will auto-save");
       }catch(e){console.error("Import failed",e);showToast("⚠️ That file doesn't look like a valid backup","error");}
     };
@@ -3919,6 +4074,9 @@ export default function EpsInventoryApp(){
 
   const saveEmployee=emp=>{setEmployees(es=>es.some(x=>x.id===emp.id)?es.map(x=>x.id===emp.id?emp:x):es.concat([emp]));showToast("Saved ✓");};
   const deleteEmployee=id=>{setEmployees(es=>es.filter(x=>x.id!==id));showToast("Deleted","error");};
+  const saveCashEntry=entry=>{setCashLedger(es=>es.some(x=>x.id===entry.id)?es.map(x=>x.id===entry.id?entry:x):es.concat([entry]));showToast("Saved ✓");};
+  const deleteCashEntry=id=>{setCashLedger(es=>es.filter(x=>x.id!==id));showToast("Deleted","error");};
+  const setCashOpeningBalance=o=>{setCashOpening(o);showToast("Saved ✓");};
   const updateLot=(mat,u)=>{setData(d=>Object.assign({},d,{[mat]:Object.assign({},d[mat],{lots:d[mat].lots.map(l=>l.id===u.id?u:l)})}));showToast("Saved ✓");};
   const deleteLot=(mat,id)=>{setData(d=>Object.assign({},d,{[mat]:Object.assign({},d[mat],{lots:d[mat].lots.filter(l=>l.id!==id)})}));showToast("Deleted","error");};
   const addLot=(mat,lot)=>{setData(d=>Object.assign({},d,{[mat]:Object.assign({},d[mat],{lots:d[mat].lots.concat([lot])})}));showToast("Added ✓");};
@@ -4089,6 +4247,7 @@ export default function EpsInventoryApp(){
   else if(section==="labels")content=<LabelsSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="certificates")content=<CertificatesSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="employees")content=<EmployeesSection employees={employees} batches={batches} onSave={saveEmployee} onDelete={deleteEmployee} onClose={()=>setSection("inventory")}/>;
+  else if(section==="cashledger")content=<CashLedgerSection cashLedger={cashLedger} cashOpening={cashOpening} onSaveEntry={saveCashEntry} onDeleteEntry={deleteCashEntry} onSetOpening={setCashOpeningBalance} onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
     <ProductionSection data={data} batches={batches} orders={orders} employees={employees} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onApplyMaterial={applyMaterialQty} onDeleteSub={deleteSub} onSaveLeftover={lot=>addLot("WIP Inventory",lot)} onMarkUnpricedSamples={markUnpricedAsSamples}/></div>;
   else if(section==="orders")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
@@ -4102,7 +4261,7 @@ export default function EpsInventoryApp(){
     onToggleBag={(lid,bid)=>toggleBag(activeMat,lid,bid)} onCreateAlBatch={createAlBatch}/>;
   else content=<Dashboard data={data} batches={batches} orders={orders} onSelect={setActiveMat} onLogout={logout} onExport={exportBackup} onImportFile={importBackup} lastSync={lastSync} onSection={s=>{setSection(s);setActiveMat(null);}}/>;
 
-  const showTabs=section!=="log"&&section!=="reports"&&section!=="finance"&&section!=="labels"&&section!=="certificates"&&section!=="employees"&&!activeMat;
+  const showTabs=section!=="log"&&section!=="reports"&&section!=="finance"&&section!=="labels"&&section!=="certificates"&&section!=="employees"&&section!=="cashledger"&&!activeMat;
   return(<div style={{fontFamily:"'Inter',sans-serif"}}>
     {showTabs&&<div style={{background:"#142540",position:"sticky",top:0,zIndex:200,borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
       <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
