@@ -115,6 +115,52 @@ function SorterPerformanceChart({title,accent,stats}){
     })}
   </div>);
 }
+// Aggregates each Injection worker's totals across every shift they're logged on — injection
+// count, actual pcs produced (weighed output before sorting, not the theoretical figure),
+// plastic used, and pcs later rejected at Plastic Sorting. Injection output is a shared machine
+// total, not split per person like Sorting, so when more than one worker is on a shift, each of
+// them is credited with that shift's full numbers (the normal case is one operator per shift).
+function injectionWorkerStats(batches){
+  const map={};
+  (batches||[]).forEach(b=>{
+    if(!b.isSubBatch)return;
+    (b.injectionWorkers||[]).forEach(w=>{
+      if(!w.employeeId)return;
+      if(!map[w.employeeId])map[w.employeeId]={employeeId:w.employeeId,name:w.name,shifts:0,injections:0,producedPcs:0,plasticKg:0,rejectedPcs:0};
+      const capWt=b.capWt||CAP_WT;
+      const s=map[w.employeeId];
+      s.shifts+=1;
+      s.injections+=Number(b.injections)||0;
+      s.producedPcs+=kgToPcs(Number(b.weightBeforeSorting)||0,capWt);
+      s.plasticKg+=Number(b.totalPlasticKg||b.virginKg)||0;
+      s.rejectedPcs+=Number(b.rejectedPcs)||0;
+      s.name=w.name||s.name;
+    });
+  });
+  return Object.values(map).sort((a,b)=>b.producedPcs-a.producedPcs);
+}
+function InjectionPerformanceChart({stats}){
+  const maxProduced=Math.max(1,...stats.map(s=>s.producedPcs));
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:16,marginBottom:14}}>
+    <div style={{fontWeight:800,fontSize:14,color:"#856404",marginBottom:12}}>💉 Injection</div>
+    {stats.length===0&&<div style={{fontSize:12,color:"#999"}}>No injection shifts logged with a worker picked yet.</div>}
+    {stats.map(s=>{
+      const rejRate=s.producedPcs>0?(s.rejectedPcs/s.producedPcs*100):0;
+      const pct=Math.round(s.producedPcs/maxProduced*100);
+      return(<div key={s.employeeId} style={{marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:12,marginBottom:4,gap:8}}>
+          <span style={{fontWeight:700,color:"#333"}}>{s.name}</span>
+          <span style={{color:"#888",whiteSpace:"nowrap"}}>{s.shifts} shift{s.shifts!==1?"s":""} · {fmtN(s.injections)} injections</span></div>
+        <div style={{height:10,background:"#F0F0F0",borderRadius:6,overflow:"hidden",marginBottom:8}}>
+          <div style={{height:"100%",width:pct+"%",background:rejRate>10?"#E6A817":"#856404",borderRadius:6}}/></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:11,color:"#666"}}>
+          <div>Produced<div style={{fontWeight:700,fontSize:13,color:"#333"}}>{fmtN(s.producedPcs)} pcs</div></div>
+          <div>Plastic used<div style={{fontWeight:700,fontSize:13,color:"#333"}}>{fmtN(s.plasticKg)} KG</div></div>
+          <div>Rejected<div style={{fontWeight:700,fontSize:13,color:rejRate>10?"#DC3545":"#1A6B2A"}}>{fmtN(s.rejectedPcs)} pcs{s.producedPcs>0?" ("+rejRate.toFixed(1)+"%)":""}</div></div>
+        </div></div>);
+    })}
+  </div>);
+}
 // Multi-select employee + wage picker — used on Injection/Assembly/Silica shifts, where output
 // is shared (not split per person) but each worker still has their own real wage for that shift.
 function WorkerPicker({employees,batches,capsLots,dateISO,station,value,onChange}){
@@ -251,6 +297,7 @@ function EmployeesSection({employees,batches,onSave,onDelete,onClose}){
   const sorted=employees.slice().sort((a,b)=>(b.active!==false?1:0)-(a.active!==false?1:0)||a.name.localeCompare(b.name));
   const plasticStats=tab==="performance"?sorterStats("plasticSorters",batches):[];
   const finalStats=tab==="performance"?sorterStats("finalSorters",batches):[];
+  const injectionStats=tab==="performance"?injectionWorkerStats(batches):[];
   return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"linear-gradient(135deg,#0D1F3C,"+NAVY+")",position:"sticky",top:0,zIndex:100}}>
       <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
@@ -270,7 +317,8 @@ function EmployeesSection({employees,batches,onSave,onDelete,onClose}){
         {employees.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No employees yet — add your first one above.</div>}
       </>}
       {tab==="performance"&&<>
-        <div style={{fontSize:12,color:"#888",marginBottom:14}}>Total accepted pcs and reject rate per sorter, across every shift logged with a sorter picked. Use this to see who&apos;s most productive and who to keep on extra.</div>
+        <div style={{fontSize:12,color:"#888",marginBottom:14}}>Totals per worker, across every shift logged with them picked. Use this to see who&apos;s most productive and who to keep on extra.</div>
+        <InjectionPerformanceChart stats={injectionStats}/>
         <SorterPerformanceChart title="🔍 Plastic Sorting" accent="#0C5460" stats={plasticStats}/>
         <SorterPerformanceChart title="📦 Final Sorting" accent="#B8860B" stats={finalStats}/>
       </>}
