@@ -320,8 +320,11 @@ function EmployeesSection({employees,batches,onSave,onDelete,onClose}){
 // deliberately NOT entered here until it actually moves, so a pending customer payment can never
 // inflate the balance. "Owner Capital" is its own income category, separate from "Customer
 // Payment", since the starting balance is mostly money the owner put in, not revenue collected.
+// "Owner Draw" (money the owner takes out personally) is likewise its own expense category,
+// separate from real business expenses — both exist so Profit & Loss can exclude owner
+// capital/draws from income/expenses (they're equity movements, not business performance).
 const CASH_CATEGORIES_IN=["Customer Payment","Owner Capital","Asset Sale","Other Income"];
-const CASH_CATEGORIES_OUT=["Material Purchase","Wages","Maintenance","Utilities","Rent","Transport","Other Expense"];
+const CASH_CATEGORIES_OUT=["Material Purchase","Wages","Maintenance","Utilities","Rent","Transport","Owner Draw","Other Expense"];
 function cashRunningBalance(opening,ledger){
   const start=opening?Number(opening.balance)||0:0;
   return (ledger||[]).reduce((s,e)=>s+(e.type==="in"?Number(e.amount)||0:-(Number(e.amount)||0)),start);
@@ -334,6 +337,153 @@ function cashMonthlySummary(ledger){
     if(e.type==="in")map[mk].in+=Number(e.amount)||0;else map[mk].out+=Number(e.amount)||0;
   });
   return Object.values(map).sort((a,b)=>b.month.localeCompare(a.month));
+}
+// Profit & Loss excludes equity movements (Owner Capital coming in, Owner Draw going out) from
+// income/expenses — those are money moving between the owner and the business, not revenue
+// earned or cost incurred, so counting them as profit/loss would misstate performance.
+function cashPnL(entries){
+  const incomeByCat={},expenseByCat={};
+  let totalIncome=0,totalExpense=0,ownerCapital=0,ownerDraws=0;
+  (entries||[]).forEach(e=>{
+    const amt=Number(e.amount)||0;
+    if(e.type==="in"){
+      if(e.category==="Owner Capital"){ownerCapital+=amt;return;}
+      incomeByCat[e.category]=(incomeByCat[e.category]||0)+amt;totalIncome+=amt;
+    }else{
+      if(e.category==="Owner Draw"){ownerDraws+=amt;return;}
+      expenseByCat[e.category]=(expenseByCat[e.category]||0)+amt;totalExpense+=amt;
+    }
+  });
+  return {incomeByCat:incomeByCat,expenseByCat:expenseByCat,totalIncome:totalIncome,totalExpense:totalExpense,
+    netProfit:totalIncome-totalExpense,ownerCapital:ownerCapital,ownerDraws:ownerDraws};
+}
+// Net profit per month (income/expense only, same exclusions as cashPnL) — feeds the P&L trend
+// chart so the owner can see which months were actually profitable, not just cash-positive.
+function cashMonthlyNetProfit(ledger){
+  const map={};
+  (ledger||[]).forEach(e=>{
+    if(e.category==="Owner Capital"||e.category==="Owner Draw")return;
+    const mk=e.date?String(e.date).slice(0,7):"—";
+    if(!map[mk])map[mk]=0;
+    map[mk]+=(e.type==="in"?1:-1)*(Number(e.amount)||0);
+  });
+  return Object.keys(map).sort().map(mk=>({month:mk,net:map[mk]}));
+}
+// Inventory value for the Balance Sheet — same USD→EGP conversion convention used everywhere
+// else in Finance: a lot's own purchase-time rate when set, otherwise the Finance fallback rate;
+// a USD lot with neither is excluded rather than guessed at.
+function inventoryValueEGP(data,laborRates){
+  const fallbackRate=Number(laborRates&&laborRates.usdToEgpFallbackRate)||0;
+  let total=0;
+  Object.keys(data||{}).forEach(matKey=>{
+    ((data[matKey]&&data[matKey].lots)||[]).forEach(l=>{
+      const qty=Number(l.qtyRemaining)||0,cost=Number(l.unitCost)||0;
+      if(qty<=0||cost<=0)return;
+      const cur=l.unitCostCurrency||"EGP";
+      let lineEGP=qty*cost;
+      if(cur!=="EGP"){
+        if(l.usdToEgpRate)lineEGP*=Number(l.usdToEgpRate);
+        else if(fallbackRate>0)lineEGP*=fallbackRate;
+        else return;
+      }
+      total+=lineEGP;
+    });
+  });
+  return total;
+}
+// A cash-basis snapshot, not a fully reconciled accrual balance sheet — Material Purchases are
+// expensed the moment they're paid (matching how the ledger is logged), while the material
+// itself keeps counting as an Inventory asset until it's used up, so Assets will generally run
+// ahead of Equity by roughly the value of inventory still on hand. That gap is real, not a bug —
+// see the note rendered alongside this in BalanceSheetView.
+function cashBalanceSheet(opening,ledger,data,laborRates){
+  const cash=cashRunningBalance(opening,ledger);
+  const inventory=inventoryValueEGP(data,laborRates);
+  const pnl=cashPnL(ledger);
+  const openingBalance=opening?Number(opening.balance)||0:0;
+  const equity=openingBalance+pnl.ownerCapital-pnl.ownerDraws+pnl.netProfit;
+  return {cash:cash,inventory:inventory,totalAssets:cash+inventory,
+    openingBalance:openingBalance,ownerCapital:pnl.ownerCapital,ownerDraws:pnl.ownerDraws,retainedEarnings:pnl.netProfit,
+    totalEquity:equity,unreconciled:(cash+inventory)-equity};
+}
+function cashPeriodFilter(ledger,period){
+  const now=new Date();
+  const thisMonth=now.toISOString().slice(0,7),thisYear=String(now.getFullYear());
+  if(period==="month")return (ledger||[]).filter(e=>e.date&&e.date.slice(0,7)===thisMonth);
+  if(period==="year")return (ledger||[]).filter(e=>e.date&&e.date.slice(0,4)===thisYear);
+  return ledger||[];
+}
+function PnLView({cashLedger}){
+  const [period,setPeriod]=useState("month");
+  const entries=cashPeriodFilter(cashLedger,period);
+  const pnl=cashPnL(entries);
+  const monthly=cashMonthlyNetProfit(cashLedger).slice(-12);
+  const maxAbs=Math.max(1,...monthly.map(m=>Math.abs(m.net)));
+  return(<div>
+    <div style={{display:"flex",gap:8,marginBottom:14}}>
+      {[["month","This Month"],["year","This Year"],["all","All Time"]].map(x=>(
+        <button type="button" key={x[0]} onClick={()=>setPeriod(x[0])}
+          style={{flex:1,padding:9,borderRadius:8,fontWeight:700,fontSize:12,cursor:"pointer",border:"1.5px solid "+(period===x[0]?NAVY:"#E2E8F0"),background:period===x[0]?NAVY:"#fff",color:period===x[0]?"#fff":"#666"}}>{x[1]}</button>))}
+    </div>
+    <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #EEF2F7",padding:18,marginBottom:14,textAlign:"center"}}>
+      <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase"}}>Net Profit / Loss</div>
+      <div style={{fontSize:30,fontWeight:900,color:pnl.netProfit>=0?"#1A6B2A":"#DC3545",marginTop:4}}>{fmtN(pnl.netProfit)} EGP</div>
+      <div style={{fontSize:11,color:"#999",marginTop:6}}>Income {fmtN(pnl.totalIncome)} − Expenses {fmtN(pnl.totalExpense)}</div></div>
+    <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
+      <div style={{fontWeight:800,fontSize:13,color:"#1A6B2A",marginBottom:10}}>🟢 Income (excl. Owner Capital)</div>
+      {Object.keys(pnl.incomeByCat).length===0&&<div style={{fontSize:12,color:"#999"}}>None this period.</div>}
+      {Object.keys(pnl.incomeByCat).map(c=>(<div key={c} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderBottom:"1px solid #F5F5F5"}}>
+        <span>{c}</span><strong>{fmtN(pnl.incomeByCat[c])}</strong></div>))}
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:800,marginTop:8,paddingTop:8,borderTop:"1.5px solid #E2E8F0"}}>
+        <span>Total Income</span><span style={{color:"#1A6B2A"}}>{fmtN(pnl.totalIncome)}</span></div></div>
+    <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
+      <div style={{fontWeight:800,fontSize:13,color:"#DC3545",marginBottom:10}}>🔴 Expenses (excl. Owner Draw)</div>
+      {Object.keys(pnl.expenseByCat).length===0&&<div style={{fontSize:12,color:"#999"}}>None this period.</div>}
+      {Object.keys(pnl.expenseByCat).map(c=>(<div key={c} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderBottom:"1px solid #F5F5F5"}}>
+        <span>{c}</span><strong>{fmtN(pnl.expenseByCat[c])}</strong></div>))}
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:800,marginTop:8,paddingTop:8,borderTop:"1.5px solid #E2E8F0"}}>
+        <span>Total Expenses</span><span style={{color:"#DC3545"}}>{fmtN(pnl.totalExpense)}</span></div></div>
+    {(pnl.ownerCapital>0||pnl.ownerDraws>0)&&<div style={{background:"#FFF9E6",borderRadius:12,border:"1px solid #E6A817",padding:14,marginBottom:14,fontSize:12,color:"#856404"}}>
+      <div style={{fontWeight:700,marginBottom:6}}>Not counted as profit/loss (equity movements, this period):</div>
+      {pnl.ownerCapital>0&&<div>Owner Capital in: <strong>{fmtN(pnl.ownerCapital)} EGP</strong></div>}
+      {pnl.ownerDraws>0&&<div>Owner Draws out: <strong>{fmtN(pnl.ownerDraws)} EGP</strong></div>}</div>}
+    <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14}}>
+      <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:12}}>📈 Monthly Net Profit Trend</div>
+      {monthly.length===0&&<div style={{fontSize:12,color:"#999"}}>No entries yet.</div>}
+      {monthly.map(m=>{
+        const pct=Math.round(Math.abs(m.net)/maxAbs*100);
+        return(<div key={m.month} style={{marginBottom:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}>
+            <span style={{fontWeight:700,color:"#555"}}>{m.month}</span>
+            <span style={{fontWeight:700,color:m.net>=0?"#1A6B2A":"#DC3545"}}>{fmtN(m.net)}</span></div>
+          <div style={{height:8,background:"#F0F0F0",borderRadius:4,overflow:"hidden"}}>
+            <div style={{height:"100%",width:pct+"%",background:m.net>=0?"#1A7A45":"#DC3545",borderRadius:4}}/></div></div>);})}
+    </div>
+  </div>);
+}
+function BalanceSheetView({cashOpening,cashLedger,data,laborRates}){
+  const bs=cashBalanceSheet(cashOpening,cashLedger,data,laborRates);
+  return(<div>
+    <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
+      <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>💼 Assets</div>
+      <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",marginBottom:6}}>Current Assets</div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>Cash</span><strong>{fmtN(bs.cash)} EGP</strong></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>Inventory (raw materials, at cost)</span><strong>{fmtN(bs.inventory)} EGP</strong></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:800,marginTop:8,paddingTop:8,borderTop:"1.5px solid #E2E8F0"}}><span>Total Assets</span><span style={{color:NAVY}}>{fmtN(bs.totalAssets)} EGP</span></div></div>
+    <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
+      <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>🏛️ Liabilities</div>
+      <div style={{fontSize:12,color:"#999"}}>Not tracked yet — nothing owed to suppliers is logged here, so this shows as zero rather than a guessed number. Ask to add Accounts Payable tracking whenever you&apos;re ready to log it.</div></div>
+    <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
+      <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>👤 Owner Equity</div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>Opening Balance (as of {cashOpening?cashOpening.date:"—"})</span><strong>{fmtN(bs.openingBalance)} EGP</strong></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>+ Owner Capital Contributed</span><strong>{fmtN(bs.ownerCapital)} EGP</strong></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>− Owner Draws</span><strong>{fmtN(bs.ownerDraws)} EGP</strong></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>+ Retained Earnings (all-time net profit)</span><strong style={{color:bs.retainedEarnings>=0?"#1A6B2A":"#DC3545"}}>{fmtN(bs.retainedEarnings)} EGP</strong></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:800,marginTop:8,paddingTop:8,borderTop:"1.5px solid #E2E8F0"}}><span>Total Equity</span><span style={{color:NAVY}}>{fmtN(bs.totalEquity)} EGP</span></div></div>
+    <div style={{background:"#FFF9E6",border:"1px solid #E6A817",borderRadius:12,padding:14,fontSize:12,color:"#856404"}}>
+      <div style={{fontWeight:700,marginBottom:6}}>⚠️ Why Assets and Equity don&apos;t match exactly</div>
+      <div>Material purchases count as an expense the moment they&apos;re paid (matching how you log the ledger), but the material itself keeps counting as Inventory until it&apos;s used up. So Assets normally run ahead of Equity by roughly the value of unconsumed inventory — right now that gap is <strong>{fmtN(bs.unreconciled)} EGP</strong>. That&apos;s not an error to fix — it&apos;s the tradeoff of a simple cash-basis ledger. A fully reconciled balance sheet would need proper accrual accounting (tracking cost of goods sold as material is actually consumed), which is a bigger step we can take later if you want it.</div></div>
+  </div>);
 }
 function CashEntryForm({existing,onSave,onCancel}){
   const e=existing||{};
@@ -419,8 +569,9 @@ function CashOpeningSetup({opening,onSave}){
     <button type="button" onClick={save} style={{width:"100%",padding:11,background:"#856404",color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 Save Starting Balance</button>
   </div>);
 }
-function CashLedgerSection({cashLedger,cashOpening,onSaveEntry,onDeleteEntry,onSetOpening,onClose}){
+function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,onDeleteEntry,onSetOpening,onClose}){
   const [showAdd,setShowAdd]=useState(false);
+  const [tab,setTab]=useState("ledger");
   const balance=cashRunningBalance(cashOpening,cashLedger);
   const sorted=cashLedger.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||"").localeCompare(a.createdAt||""));
   const monthly=cashMonthlySummary(cashLedger);
@@ -430,11 +581,17 @@ function CashLedgerSection({cashLedger,cashOpening,onSaveEntry,onDeleteEntry,onS
     <div style={{background:"linear-gradient(135deg,#0E4A2A,#1A7A45)",position:"sticky",top:0,zIndex:100}}>
       <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
         <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13}}>← Back</button>
-        <div><div style={{color:"#fff",fontWeight:800,fontSize:17}}>💵 Cash Ledger</div>
-          <div style={{color:"rgba(255,255,255,0.6)",fontSize:11}}>Actual money in/out — separate from Finance estimates</div></div></div></div>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:17}}>🏦 East Pharma Finance</div>
+          <div style={{color:"rgba(255,255,255,0.6)",fontSize:11}}>Actual money in/out — separate from Finance estimates</div></div></div>
+      <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
+        {[["ledger","📒 Ledger"],["pnl","📈 Profit & Loss"],["balance","🧾 Balance Sheet"]].map(x=>(
+          <button type="button" key={x[0]} onClick={()=>setTab(x[0])}
+            style={{flex:1,background:"none",border:"none",color:tab===x[0]?"#fff":"rgba(255,255,255,0.45)",padding:"11px 8px",fontSize:12,fontWeight:tab===x[0]?700:400,cursor:"pointer",borderBottom:"2px solid "+(tab===x[0]?"#fff":"transparent"),fontFamily:"inherit"}}>{x[1]}</button>))}
+      </div></div>
     <div style={{maxWidth:700,margin:"0 auto",padding:16}}>
       <CashOpeningSetup opening={cashOpening} onSave={onSetOpening}/>
       {cashOpening&&<>
+      {tab==="ledger"&&<>
       <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #EEF2F7",padding:18,marginBottom:14,textAlign:"center"}}>
         <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase"}}>Current Cash Balance</div>
         <div style={{fontSize:32,fontWeight:900,color:balance>=0?"#1A6B2A":"#DC3545",marginTop:4}}>{fmtN(balance)} EGP</div>
@@ -451,6 +608,9 @@ function CashLedgerSection({cashLedger,cashOpening,onSaveEntry,onDeleteEntry,onS
       {showAdd&&<CashEntryForm onSave={en=>{onSaveEntry(en);setShowAdd(false);}} onCancel={()=>setShowAdd(false)}/>}
       {sorted.map(en=><CashEntryRow key={en.id} entry={en} onSave={onSaveEntry} onDelete={()=>onDeleteEntry(en.id)}/>)}
       {cashLedger.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No entries yet — log your first payment in or out above.</div>}
+      </>}
+      {tab==="pnl"&&<PnLView cashLedger={cashLedger}/>}
+      {tab==="balance"&&<BalanceSheetView cashOpening={cashOpening} cashLedger={cashLedger} data={data} laborRates={laborRates}/>}
       </>}
     </div></div>);
 }
@@ -2951,8 +3111,8 @@ function Dashboard({data,batches,orders,onSelect,onLogout,onExport,onImportFile,
           <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Certificate of Analysis (COA)</div></button>
         <button type="button" onClick={()=>onSection("employees")} style={{background:"#6E3A1B",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>👷 Employees
           <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Roster, stations &amp; wages</div></button>
-        <button type="button" onClick={()=>onSection("cashledger")} style={{background:"#0E4A2A",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>💵 Cash Ledger
-          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Real money in &amp; out</div></button></div>
+        <button type="button" onClick={()=>onSection("cashledger")} style={{background:"#0E4A2A",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🏦 East Pharma Finance
+          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Real cash, P&amp;L &amp; balance sheet</div></button></div>
       <div onClick={()=>onSelect("Aluminum Caps")} style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:18,cursor:"pointer"}}>
         <div style={{fontSize:11,fontWeight:800,color:"#37474F",textTransform:"uppercase",marginBottom:8}}>🔘 Aluminum Availability</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:8}}>
@@ -4247,7 +4407,7 @@ export default function EpsInventoryApp(){
   else if(section==="labels")content=<LabelsSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="certificates")content=<CertificatesSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="employees")content=<EmployeesSection employees={employees} batches={batches} onSave={saveEmployee} onDelete={deleteEmployee} onClose={()=>setSection("inventory")}/>;
-  else if(section==="cashledger")content=<CashLedgerSection cashLedger={cashLedger} cashOpening={cashOpening} onSaveEntry={saveCashEntry} onDeleteEntry={deleteCashEntry} onSetOpening={setCashOpeningBalance} onClose={()=>setSection("inventory")}/>;
+  else if(section==="cashledger")content=<CashLedgerSection cashLedger={cashLedger} cashOpening={cashOpening} data={data} laborRates={laborRates} onSaveEntry={saveCashEntry} onDeleteEntry={deleteCashEntry} onSetOpening={setCashOpeningBalance} onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
     <ProductionSection data={data} batches={batches} orders={orders} employees={employees} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onApplyMaterial={applyMaterialQty} onDeleteSub={deleteSub} onSaveLeftover={lot=>addLot("WIP Inventory",lot)} onMarkUnpricedSamples={markUnpricedAsSamples}/></div>;
   else if(section==="orders")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
@@ -4265,7 +4425,7 @@ export default function EpsInventoryApp(){
   return(<div style={{fontFamily:"'Inter',sans-serif"}}>
     {showTabs&&<div style={{background:"#142540",position:"sticky",top:0,zIndex:200,borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
       <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
-        {[["📦 Inventory","inventory"],["🏭 Production","production"],["📋 Orders","orders"],["🧾 Reports","reports"],["💰 Finance","finance"],["📊 Log","log"]].map(x=>(
+        {[["📦 Inventory","inventory"],["🏭 Production","production"],["📋 Orders","orders"],["🧾 Reports","reports"],["💰 Finance","finance"],["🏦 EP Finance","cashledger"],["📊 Log","log"]].map(x=>(
           <button type="button" key={x[1]} onClick={()=>{setSection(x[1]);setActiveMat(null);}}
             style={{flex:1,background:"none",border:"none",color:section===x[1]?"#fff":"rgba(255,255,255,0.45)",padding:"11px 8px",fontSize:12,fontWeight:section===x[1]?700:400,cursor:"pointer",borderBottom:"2px solid "+(section===x[1]?ACCENT:"transparent"),fontFamily:"inherit",whiteSpace:"nowrap"}}>{x[0]}</button>))}
       </div></div>}
