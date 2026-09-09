@@ -20,7 +20,11 @@ const ALCAP_WT_KG=0.405,COIL_KG_TO_CAPS=1972.4;
 // Press: 12,000 EGP/month salary, ~18 visits/month, 240,000 pcs/visit; Assembly: 500 EGP paid
 // per visit, ~160,000 pcs/visit. Keeping the "pressCostPerPc" key for its real meaning (Press)
 // and adding assemblyCostPerPc for what used to be lumped in under that same name.
-const DEFAULT_LABOR_RATES={sortingCostPerPc:0.015,injectionCostPerShift:519.23,pressCostPerPc:12000/(18*240000),assemblyCostPerPc:500/160000,silicaLaborCostPerShift:461,usdToEgpFallbackRate:50};
+// assemblyCostPerPc is now only a fallback for shifts saved before Assembly workers were
+// tracked (assemblyWorkers undefined) — a shift that DOES use the picker but has nobody
+// selected (a sorting girl covered it for free, unrecorded) instead uses the flat
+// assemblyDefaultShiftEGP, and a shift with real workers picked uses their actual wages.
+const DEFAULT_LABOR_RATES={sortingCostPerPc:0.015,injectionCostPerShift:519.23,pressCostPerPc:12000/(18*240000),assemblyCostPerPc:500/160000,assemblyDefaultShiftEGP:500,silicaLaborCostPerShift:461,usdToEgpFallbackRate:50};
 const ALU_DEN=2700/1e9;
 const COMPANY_NAME="EAST PHARMACEUTICAL SERVICES";
 const COMPANY_CERT="GMP & ISO 9001:2015 CERTIFIED";
@@ -146,9 +150,13 @@ function InjectionPerformanceChart({stats}){
 }
 // Multi-select employee + wage picker — used on Injection/Assembly/Silica shifts, where output
 // is shared (not split per person) but each worker still has their own real wage for that shift.
+// "station" is usually one station name, but Assembly passes an array — a sorting girl covering
+// assembly (double duty) isn't an "Assembly" employee by station, so the candidate filter needs
+// to accept any of several stations rather than just one exact match.
 function WorkerPicker({employees,station,value,onChange}){
   const list=value||[];
-  const candidates=(employees||[]).filter(e=>e.active!==false&&(!station||(e.stations||[]).indexOf(station)>=0)&&list.every(v=>v.employeeId!==e.id));
+  const stationList=station==null?null:Array.isArray(station)?station:[station];
+  const candidates=(employees||[]).filter(e=>e.active!==false&&(!stationList||stationList.some(st=>(e.stations||[]).indexOf(st)>=0))&&list.every(v=>v.employeeId!==e.id));
   const add=id=>{
     const emp=(employees||[]).filter(e=>e.id===id)[0];
     if(!emp)return;
@@ -1005,7 +1013,16 @@ function buildBatchCost(batch,batches,data,laborRates){
     pressPcs=alPcsCosted+alPcsUncosted;
     laborInjectionEGP=injectionShifts*(Number(rates.injectionCostPerShift)||0);
     laborSortingEGP=sortingPcs*(Number(rates.sortingCostPerPc)||0);
-    laborAssemblyEGP=assemblyPcs*(Number(rates.assemblyCostPerPc)||0);
+    // Real wages when Assembly workers were actually picked on a shift; the flat
+    // assemblyDefaultShiftEGP when the picker was used but nobody was picked (unrecorded free
+    // double duty); the old flat per-pc estimate only for shifts saved before this was tracked
+    // at all (assemblyWorkers still undefined) — see the DEFAULT_LABOR_RATES comment above.
+    laborAssemblyEGP=shifts.reduce((s,x)=>{
+      if(x.isCarryover)return s;
+      if(x.assemblyWorkers==null)return s+(x.assembledPcs||0)*(Number(rates.assemblyCostPerPc)||0);
+      if(x.assemblyWorkers.length===0)return s+(Number(rates.assemblyDefaultShiftEGP)||0);
+      return s+x.assemblyWorkers.reduce((ws,w)=>ws+(Number(w.wage)||0),0);
+    },0);
     laborPressEGP=pressPcs*(Number(rates.pressCostPerPc)||0);
   }
   const laborTotalEGP=laborInjectionEGP+laborSortingEGP+laborAssemblyEGP+laborPressEGP+laborSilicaEGP;
@@ -1808,8 +1825,8 @@ function AssemblyForm({sub,data,employees,existing,onSave,onCancel}){
         <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
       <div style={{background:"#EDE0FF",borderRadius:10,padding:14,marginBottom:12}}>
         <div style={{fontWeight:700,fontSize:13,color:"#4A1A6E",marginBottom:4}}>👷 Workers on this shift</div>
-        <div style={{fontSize:11,color:"#7B3FB5",marginBottom:10}}>Leave empty if a sorting girl covered this for free — only add someone (e.g. Mohamed, Nagy) if it&apos;s a real added cost.</div>
-        <WorkerPicker employees={employees} station="Assembly" value={assemblyWorkers} onChange={setAssemblyWorkers}/></div>
+        <div style={{fontSize:11,color:"#7B3FB5",marginBottom:10}}>If a sorting girl covered this, add her here and set her wage to 0 if it&apos;s free double duty (or leave it if you&apos;re paying extra) — otherwise add whoever did it (e.g. Mohamed, Nagy) with their real wage. Leave empty only if you don&apos;t know/care who — that counts as a flat cost instead (set in Finance settings).</div>
+        <WorkerPicker employees={employees} station={["Assembly","Plastic Sorting","Final Sorting"]} value={assemblyWorkers} onChange={setAssemblyWorkers}/></div>
       <div style={{background:"#F7F0FF",borderRadius:10,padding:14,marginBottom:12}}>
         <div style={{fontWeight:700,fontSize:13,color:"#4A1A6E",marginBottom:4}}>🔘 Aluminum Caps Used</div>
         <div style={{fontSize:11,color:"#7B3FB5",marginBottom:10}}>Add from as many lots as you need — lots often run out mid-shift</div>
@@ -3901,9 +3918,10 @@ function LaborRatesModal({rates,onSave,onClose}){
   const [injection,setInjection]=useState(String(rates.injectionCostPerShift));
   const [press,setPress]=useState(String(rates.pressCostPerPc));
   const [assembly,setAssembly]=useState(String(rates.assemblyCostPerPc));
+  const [assemblyDefault,setAssemblyDefault]=useState(String(rates.assemblyDefaultShiftEGP));
   const [silicaLabor,setSilicaLabor]=useState(String(rates.silicaLaborCostPerShift));
   const [fxRate,setFxRate]=useState(String(rates.usdToEgpFallbackRate));
-  const save=()=>onSave({sortingCostPerPc:Number(sorting)||0,injectionCostPerShift:Number(injection)||0,pressCostPerPc:Number(press)||0,assemblyCostPerPc:Number(assembly)||0,silicaLaborCostPerShift:Number(silicaLabor)||0,usdToEgpFallbackRate:Number(fxRate)||0});
+  const save=()=>onSave({sortingCostPerPc:Number(sorting)||0,injectionCostPerShift:Number(injection)||0,pressCostPerPc:Number(press)||0,assemblyCostPerPc:Number(assembly)||0,assemblyDefaultShiftEGP:Number(assemblyDefault)||0,silicaLaborCostPerShift:Number(silicaLabor)||0,usdToEgpFallbackRate:Number(fxRate)||0});
   return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:440,overflow:"hidden"}}>
       <div style={{background:NAVY,padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -3917,7 +3935,9 @@ function LaborRatesModal({rates,onSave,onClose}){
         <div style={{marginBottom:14}}><Field label="Press — stamps coil into caps (EGP per pc)" value={press} onChange={setPress} type="number" ph="0.0027778"/>
           <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 12,000 EGP salary ÷ 18 visits/month ÷ 240,000 pcs/visit</div></div>
         <div style={{marginBottom:14}}><Field label="Assembly — plastic + caps (EGP per pc)" value={assembly} onChange={setAssembly} type="number" ph="0.003125"/>
-          <div style={{fontSize:11,color:"#999",marginTop:3}}>e.g. 500 EGP paid per visit ÷ 160,000 pcs/visit</div></div>
+          <div style={{fontSize:11,color:"#999",marginTop:3}}>Fallback only, for shifts saved before workers were tracked. e.g. 500 EGP paid per visit ÷ 160,000 pcs/visit</div></div>
+        <div style={{marginBottom:14}}><Field label="Assembly — unassigned shift (flat EGP)" value={assemblyDefault} onChange={setAssemblyDefault} type="number" ph="500"/>
+          <div style={{fontSize:11,color:"#999",marginTop:3}}>Used when a shift picks no Assembly worker at all (a sorting girl covered it for free, unrecorded) — the flat cost assumed instead.</div></div>
         <div style={{marginBottom:14}}><Field label="Silica Gel Sachets Labor (EGP per shift)" value={silicaLabor} onChange={setSilicaLabor} type="number" ph="461"/>
           <div style={{fontSize:11,color:"#999",marginTop:3}}>One person tending the machine, flat rate per shift regardless of pcs made.</div></div>
         <div style={{marginBottom:18}}><Field label="USD → EGP Fallback Rate" value={fxRate} onChange={setFxRate} type="number" ph="50"/>
