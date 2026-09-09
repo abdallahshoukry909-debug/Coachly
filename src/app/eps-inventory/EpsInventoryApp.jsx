@@ -28,6 +28,255 @@ const COMPANY_PHONE="+20 100 208 9590 | +20 111 005 5538 | Factory: 02 3833 6566
 const COMPANY_EMAIL="neweastpharma@gmail.com | www.eastpharmaceutical.com";
 const COMPANY_ADDRESS="Plot 602, Industrial Zone, 6th of October City, Giza, Egypt";
 
+// ══ EMPLOYEES ═══════════════════════════════════════════════════════════
+// Real staff roster, used to replace free-text "Operator" fields with a picker that carries a
+// real wage — so labor cost on a shift can be the actual amount paid instead of only ever the
+// flat DEFAULT_LABOR_RATES estimate. "monthly" people (paid a fixed salary regardless of exactly
+// which days they work) get their effective cost for one day computed as salary ÷ however many
+// distinct days they're actually logged working that calendar month (see effectiveDailyRate) —
+// "perShift" people (daily/casual workers) just use their stored rate directly.
+const EMPLOYEE_STATIONS=["Injection","Assembly","Plastic Sorting","Final Sorting","Silica","Press"];
+const INITIAL_EMPLOYEES=[
+  {id:"emp-ziad",name:"Ziad Menshawy",stations:["Injection"],payType:"monthly",rate:15000,active:true,notes:"12h, 6 days/week"},
+  {id:"emp-mohamed",name:"Mohamed Mousa",stations:["Injection","Silica","Assembly"],payType:"monthly",rate:12000,active:true,notes:"12h, 6 days/week — moves to Silica when it's running, sometimes Assembly"},
+  {id:"emp-ashraf",name:"Ashraf",stations:["Press"],payType:"monthly",rate:12000,active:true,notes:"8h, 4 days/week"},
+  {id:"emp-nagy",name:"Nagy",stations:["Assembly"],payType:"perShift",rate:500,active:true,notes:"Occasional fill-in"},
+  {id:"emp-somia",name:"Somia",stations:["Plastic Sorting","Final Sorting"],payType:"perShift",rate:350,active:true,notes:"Supervises — 300 base + 50"},
+  {id:"emp-rahma",name:"Rahma",stations:["Plastic Sorting","Final Sorting"],payType:"perShift",rate:300,active:true,notes:""},
+  {id:"emp-mena",name:"Mena",stations:["Plastic Sorting","Final Sorting"],payType:"perShift",rate:300,active:true,notes:""},
+  {id:"emp-habiba",name:"Habiba",stations:["Plastic Sorting","Final Sorting"],payType:"perShift",rate:300,active:true,notes:""},
+  {id:"emp-yasmine",name:"Yasmine",stations:["Plastic Sorting","Final Sorting"],payType:"perShift",rate:300,active:true,notes:""},
+  {id:"emp-omrahma",name:"Om Rahma",stations:["Plastic Sorting","Final Sorting"],payType:"perShift",rate:300,active:true,notes:""},
+];
+const monthKey=iso=>iso?String(iso).slice(0,7):"";
+// Every place a worker gets attributed to a real calendar day, across every stage — used to
+// count how many distinct days an employee actually worked in a given month, and (via
+// sorterEmployeeDates for the two Sorting stages) to feed the productivity charts.
+function employeeWorkDates(empId,batches,capsLots){
+  const dates=[];
+  (batches||[]).forEach(b=>{
+    if(!b.isSubBatch)return;
+    (b.injectionWorkers||[]).forEach(w=>{if(w.employeeId===empId&&b.mfgDate)dates.push(b.mfgDate);});
+    (b.assemblyWorkers||[]).forEach(w=>{if(w.employeeId===empId&&b.assemblyDate)dates.push(b.assemblyDate);});
+    (b.workers||[]).forEach(w=>{if(w.employeeId===empId&&b.mfgDate)dates.push(b.mfgDate);});
+    (b.plasticSorters||[]).forEach(w=>{if(w.employeeId===empId&&b.sortingDate)dates.push(b.sortingDate);});
+    (b.finalSorters||[]).forEach(w=>{if(w.employeeId===empId&&b.finalSortDate)dates.push(b.finalSortDate);});
+  });
+  (capsLots||[]).forEach(l=>{if(l.operatorId===empId&&l.dateISO)dates.push(l.dateISO);});
+  return dates;
+}
+function employeeWorkDaysInMonth(empId,mk,batches,capsLots){
+  return new Set(employeeWorkDates(empId,batches,capsLots).filter(d=>monthKey(d)===mk)).size;
+}
+// The default wage suggested when an employee is first added to a shift/lot — a starting point,
+// always editable, and once saved the number stored on that shift/lot is what's actually used
+// everywhere else (never silently recalculated later, so adding more shifts this month doesn't
+// retroactively change what an earlier shift shows it paid).
+function effectiveDailyRate(emp,dateISO,batches,capsLots){
+  if(!emp)return 0;
+  if(emp.payType!=="monthly")return Number(emp.rate)||0;
+  const days=employeeWorkDaysInMonth(emp.id,monthKey(dateISO),batches,capsLots)||1;
+  return (Number(emp.rate)||0)/days;
+}
+// Aggregates each sorter's total accepted/rejected pcs and shift count across every batch —
+// "field" is plasticSorters or finalSorters — feeding the productivity comparison charts so the
+// user can see "who is good, who we should keep extra" for Plastic Sorting and Final Sorting.
+function sorterStats(field,batches){
+  const map={};
+  (batches||[]).forEach(b=>{
+    if(!b.isSubBatch)return;
+    (b[field]||[]).forEach(s=>{
+      if(!s.employeeId)return;
+      if(!map[s.employeeId])map[s.employeeId]={employeeId:s.employeeId,name:s.name,acceptedPcs:0,rejectedPcs:0,wagePaid:0,shifts:0};
+      map[s.employeeId].acceptedPcs+=Number(s.acceptedPcs)||0;
+      map[s.employeeId].rejectedPcs+=Number(s.rejectedPcs)||0;
+      map[s.employeeId].wagePaid+=Number(s.wage)||0;
+      map[s.employeeId].shifts+=1;
+      map[s.employeeId].name=s.name||map[s.employeeId].name;
+    });
+  });
+  return Object.values(map).sort((a,b)=>b.acceptedPcs-a.acceptedPcs);
+}
+function SorterPerformanceChart({title,accent,stats}){
+  const maxAcc=Math.max(1,...stats.map(s=>s.acceptedPcs));
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:16,marginBottom:14}}>
+    <div style={{fontWeight:800,fontSize:14,color:accent,marginBottom:12}}>{title}</div>
+    {stats.length===0&&<div style={{fontSize:12,color:"#999"}}>No sorting data logged yet — record who sorted on a shift to see comparisons here.</div>}
+    {stats.map(s=>{
+      const total=s.acceptedPcs+s.rejectedPcs;
+      const rejRate=total>0?(s.rejectedPcs/total*100):0;
+      const pct=Math.round(s.acceptedPcs/maxAcc*100);
+      return(<div key={s.employeeId} style={{marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:12,marginBottom:4,gap:8}}>
+          <span style={{fontWeight:700,color:"#333"}}>{s.name}</span>
+          <span style={{color:"#888",whiteSpace:"nowrap"}}>{fmtN(s.acceptedPcs)} pcs · {s.shifts} shift{s.shifts!==1?"s":""}{total>0?" · "+rejRate.toFixed(1)+"% rejected":""}</span></div>
+        <div style={{height:10,background:"#F0F0F0",borderRadius:6,overflow:"hidden"}}>
+          <div style={{height:"100%",width:pct+"%",background:rejRate>10?"#E6A817":accent,borderRadius:6}}/></div></div>);
+    })}
+  </div>);
+}
+// Multi-select employee + wage picker — used on Injection/Assembly/Silica shifts, where output
+// is shared (not split per person) but each worker still has their own real wage for that shift.
+function WorkerPicker({employees,batches,capsLots,dateISO,station,value,onChange}){
+  const list=value||[];
+  const candidates=(employees||[]).filter(e=>e.active!==false&&(!station||(e.stations||[]).indexOf(station)>=0)&&list.every(v=>v.employeeId!==e.id));
+  const add=id=>{
+    const emp=(employees||[]).filter(e=>e.id===id)[0];
+    if(!emp)return;
+    const wage=Math.round(effectiveDailyRate(emp,dateISO,batches,capsLots)*100)/100;
+    onChange(list.concat([{employeeId:emp.id,name:emp.name,wage:wage}]));
+  };
+  const remove=id=>onChange(list.filter(v=>v.employeeId!==id));
+  const setWage=(id,w)=>onChange(list.map(v=>v.employeeId===id?Object.assign({},v,{wage:Number(w)||0}):v));
+  const total=list.reduce((s,v)=>s+(Number(v.wage)||0),0);
+  return(<div>
+    {list.map(v=>(<div key={v.employeeId} style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+      <div style={{flex:1,fontSize:13,fontWeight:600,color:"#333"}}>{v.name}</div>
+      <input type="number" value={v.wage} onChange={e=>setWage(v.employeeId,e.target.value)} style={{width:100,border:"1.5px solid #E2E8F0",borderRadius:8,padding:"7px 10px",fontSize:13,boxSizing:"border-box"}}/>
+      <span style={{fontSize:11,color:"#888"}}>EGP</span>
+      <button type="button" onClick={()=>remove(v.employeeId)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:16,padding:"0 4px"}}>✕</button></div>))}
+    {candidates.length>0&&<select value="" onChange={e=>{if(e.target.value)add(e.target.value);}} style={{width:"100%",border:"1.5px dashed #CBD5E0",borderRadius:8,padding:"8px 10px",fontSize:13,background:"#fff",color:"#555"}}>
+      <option value="">+ Add worker…</option>
+      {candidates.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select>}
+    {list.length===0&&candidates.length===0&&<div style={{fontSize:12,color:"#999"}}>No employees set up for this station yet — add them under Employees.</div>}
+    {list.length>0&&<div style={{marginTop:6,fontSize:12,color:"#666"}}>Labor: <strong>{fmtN(total)} EGP</strong></div>}
+  </div>);
+}
+// Sorting-specific picker — each sorter also gets her own accepted/rejected pcs, since sorting
+// output is naturally per-person (each sorter handles her own tray), unlike the shared-output
+// stages above. Feeds both the labor cost and the sorter productivity charts.
+function SorterPicker({employees,batches,capsLots,dateISO,station,value,onChange}){
+  const list=value||[];
+  const candidates=(employees||[]).filter(e=>e.active!==false&&(!station||(e.stations||[]).indexOf(station)>=0)&&list.every(v=>v.employeeId!==e.id));
+  const add=id=>{
+    const emp=(employees||[]).filter(e=>e.id===id)[0];
+    if(!emp)return;
+    const wage=Math.round(effectiveDailyRate(emp,dateISO,batches,capsLots)*100)/100;
+    onChange(list.concat([{employeeId:emp.id,name:emp.name,wage:wage,acceptedPcs:0,rejectedPcs:0}]));
+  };
+  const remove=id=>onChange(list.filter(v=>v.employeeId!==id));
+  const setField=(id,field,v)=>onChange(list.map(x=>x.employeeId===id?Object.assign({},x,{[field]:field==="acceptedPcs"||field==="rejectedPcs"?Number(v)||0:(Number(v)||0)}):x));
+  const total=list.reduce((s,v)=>s+(Number(v.wage)||0),0);
+  const totalAcc=list.reduce((s,v)=>s+(Number(v.acceptedPcs)||0),0),totalRej=list.reduce((s,v)=>s+(Number(v.rejectedPcs)||0),0);
+  return(<div>
+    {list.map(v=>(<div key={v.employeeId} style={{background:"#fff",border:"1px solid #E2E8F0",borderRadius:8,padding:10,marginBottom:8}}>
+      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+        <div style={{flex:1,fontSize:13,fontWeight:700,color:"#333"}}>{v.name}</div>
+        <button type="button" onClick={()=>remove(v.employeeId)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:16,padding:"0 4px"}}>✕</button></div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+        <div><label style={{display:"block",fontSize:10,fontWeight:700,color:"#888",marginBottom:3,textTransform:"uppercase"}}>Wage (EGP)</label>
+          <input type="number" value={v.wage} onChange={e=>setField(v.employeeId,"wage",e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:6,padding:"6px 8px",fontSize:13,boxSizing:"border-box"}}/></div>
+        <div><label style={{display:"block",fontSize:10,fontWeight:700,color:"#888",marginBottom:3,textTransform:"uppercase"}}>Accepted (pcs)</label>
+          <input type="number" value={v.acceptedPcs} onChange={e=>setField(v.employeeId,"acceptedPcs",e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:6,padding:"6px 8px",fontSize:13,boxSizing:"border-box"}}/></div>
+        <div><label style={{display:"block",fontSize:10,fontWeight:700,color:"#888",marginBottom:3,textTransform:"uppercase"}}>Rejected (pcs)</label>
+          <input type="number" value={v.rejectedPcs} onChange={e=>setField(v.employeeId,"rejectedPcs",e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:6,padding:"6px 8px",fontSize:13,boxSizing:"border-box"}}/></div>
+      </div></div>))}
+    {candidates.length>0&&<select value="" onChange={e=>{if(e.target.value)add(e.target.value);}} style={{width:"100%",border:"1.5px dashed #CBD5E0",borderRadius:8,padding:"8px 10px",fontSize:13,background:"#fff",color:"#555"}}>
+      <option value="">+ Add sorter…</option>
+      {candidates.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select>}
+    {list.length===0&&candidates.length===0&&<div style={{fontSize:12,color:"#999"}}>No employees set up for this station yet — add them under Employees.</div>}
+    {list.length>0&&<div style={{marginTop:6,fontSize:12,color:"#666"}}>Labor: <strong>{fmtN(total)} EGP</strong> · Attributed: <strong>{fmtN(totalAcc)} accepted</strong>{totalRej>0?", "+fmtN(totalRej)+" rejected":""}</div>}
+  </div>);
+}
+function EmployeeStationPicker({stations,onToggle}){
+  return(<div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+    {EMPLOYEE_STATIONS.map(s=><button type="button" key={s} onClick={()=>onToggle(s)} style={{padding:"5px 12px",borderRadius:20,fontSize:11,fontWeight:600,cursor:"pointer",border:"1.5px solid "+(stations.indexOf(s)>=0?NAVY:"#E2E8F0"),background:stations.indexOf(s)>=0?NAVY:"#fff",color:stations.indexOf(s)>=0?"#fff":"#666"}}>{s}</button>)}
+  </div>);
+}
+function NewEmployeeForm({onSave,onCancel}){
+  const [name,setName]=useState(""),[stations,setStations]=useState([]),[payType,setPayType]=useState("perShift"),[rate,setRate]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
+  const toggleStation=s=>setStations(stations.indexOf(s)>=0?stations.filter(x=>x!==s):stations.concat([s]));
+  const save=()=>{
+    if(!name.trim()){setErr("Enter a name.");return;}
+    if(stations.length===0){setErr("Pick at least one station.");return;}
+    onSave({id:genId(),name:name.trim(),stations:stations,payType:payType,rate:Number(rate)||0,active:true,notes:notes.trim()});
+  };
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:14}}>
+    <div style={{marginBottom:10}}><Field label="Name" value={name} onChange={v=>{setName(v);setErr("");}} ph="e.g. Mohamed Mousa"/></div>
+    <div style={{marginBottom:10}}>
+      <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Stations</label>
+      <EmployeeStationPicker stations={stations} onToggle={s=>{toggleStation(s);setErr("");}}/></div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Pay Type</label>
+        <select value={payType} onChange={e=>setPayType(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+          <option value="perShift">Per Shift/Day</option><option value="monthly">Monthly Salary</option></select></div>
+      <Field label={payType==="monthly"?"Monthly Rate (EGP)":"Rate per Shift (EGP)"} value={rate} onChange={setRate} type="number" ph="e.g. 300"/></div>
+    <div style={{marginBottom:14}}><Field label="Notes (optional)" value={notes} onChange={setNotes}/></div>
+    {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
+    <div style={{display:"flex",gap:8}}>
+      <button type="button" onClick={save} style={{flex:1,padding:11,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 Add</button>
+      <button type="button" onClick={onCancel} style={{padding:"11px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>Cancel</button></div>
+  </div>);
+}
+function EmployeeRow({emp,onSave,onDelete}){
+  const [editing,setEditing]=useState(false),[confDel,setConfDel]=useState(false);
+  const [name,setName]=useState(emp.name),[stations,setStations]=useState(emp.stations||[]);
+  const [payType,setPayType]=useState(emp.payType),[rate,setRate]=useState(String(emp.rate));
+  const [notes,setNotes]=useState(emp.notes||""),[active,setActive]=useState(emp.active!==false);
+  const toggleStation=s=>setStations(stations.indexOf(s)>=0?stations.filter(x=>x!==s):stations.concat([s]));
+  const save=()=>{onSave(Object.assign({},emp,{name:name.trim()||emp.name,stations:stations,payType:payType,rate:Number(rate)||0,notes:notes,active:active}));setEditing(false);};
+  if(!editing)return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:8,opacity:active?1:0.5}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontWeight:700,fontSize:14}}>{emp.name}{!active?" (inactive)":""}</div>
+        <div style={{fontSize:12,color:"#888",marginTop:2}}>{(emp.stations||[]).join(", ")||"—"}</div>
+        <div style={{fontSize:13,color:NAVY,fontWeight:700,marginTop:4}}>{fmtN(emp.rate)} EGP {emp.payType==="monthly"?"/ month":"/ shift"}</div>
+        {emp.notes&&<div style={{fontSize:11,color:"#999",marginTop:2}}>{emp.notes}</div>}</div>
+      <button type="button" onClick={()=>setEditing(true)} style={{background:"#F5F7FA",border:"none",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>✏️ Edit</button></div></div>);
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:8}}>
+    <div style={{marginBottom:10}}><Field label="Name" value={name} onChange={setName}/></div>
+    <div style={{marginBottom:10}}>
+      <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Stations</label>
+      <EmployeeStationPicker stations={stations} onToggle={toggleStation}/></div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Pay Type</label>
+        <select value={payType} onChange={e=>setPayType(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+          <option value="monthly">Monthly Salary</option><option value="perShift">Per Shift/Day</option></select></div>
+      <Field label={payType==="monthly"?"Monthly Rate (EGP)":"Rate per Shift (EGP)"} value={rate} onChange={setRate} type="number"/></div>
+    <div style={{marginBottom:10}}><Field label="Notes" value={notes} onChange={setNotes}/></div>
+    <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"#555",cursor:"pointer",marginBottom:14}}>
+      <input type="checkbox" checked={active} onChange={e=>setActive(e.target.checked)} style={{width:16,height:16}}/> Active</label>
+    <div style={{display:"flex",gap:8,marginBottom:10}}>
+      <button type="button" onClick={save} style={{flex:1,padding:11,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 Save</button>
+      <button type="button" onClick={()=>setEditing(false)} style={{padding:"11px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>Cancel</button></div>
+    {confDel?(<div style={{display:"flex",gap:8}}>
+      <button type="button" onClick={()=>{onDelete();setConfDel(false);}} style={{padding:"8px 14px",background:"#DC3545",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700}}>Yes, delete</button>
+      <button type="button" onClick={()=>setConfDel(false)} style={{padding:"8px 14px",border:"1.5px solid #E2E8F0",borderRadius:6,background:"#fff",cursor:"pointer",fontSize:12}}>Cancel</button></div>)
+    :(<button type="button" onClick={()=>setConfDel(true)} style={{padding:"8px 14px",border:"1.5px solid #F1948A",color:"#DC3545",background:"#FFF0F0",borderRadius:6,cursor:"pointer",fontSize:12}}>Delete employee</button>)}
+  </div>);
+}
+function EmployeesSection({employees,batches,onSave,onDelete,onClose}){
+  const [showAdd,setShowAdd]=useState(false);
+  const [tab,setTab]=useState("roster");
+  const sorted=employees.slice().sort((a,b)=>(b.active!==false?1:0)-(a.active!==false?1:0)||a.name.localeCompare(b.name));
+  const plasticStats=tab==="performance"?sorterStats("plasticSorters",batches):[];
+  const finalStats=tab==="performance"?sorterStats("finalSorters",batches):[];
+  return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
+    <div style={{background:"linear-gradient(135deg,#0D1F3C,"+NAVY+")",position:"sticky",top:0,zIndex:100}}>
+      <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13}}>← Back</button>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:17}}>👷 Employees</div>
+          <div style={{color:"rgba(255,255,255,0.5)",fontSize:11}}>Staff roster, stations & wages</div></div></div>
+      <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
+        {[["roster","Roster"],["performance","📊 Sorting Performance"]].map(x=>(
+          <button type="button" key={x[0]} onClick={()=>setTab(x[0])}
+            style={{flex:1,background:"none",border:"none",color:tab===x[0]?"#fff":"rgba(255,255,255,0.45)",padding:"11px 8px",fontSize:12,fontWeight:tab===x[0]?700:400,cursor:"pointer",borderBottom:"2px solid "+(tab===x[0]?ACCENT:"transparent"),fontFamily:"inherit"}}>{x[1]}</button>))}
+      </div></div>
+    <div style={{maxWidth:700,margin:"0 auto",padding:16}}>
+      {tab==="roster"&&<>
+        {!showAdd&&<button type="button" onClick={()=>setShowAdd(true)} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:14}}>+ Add Employee</button>}
+        {showAdd&&<NewEmployeeForm onSave={emp=>{onSave(emp);setShowAdd(false);}} onCancel={()=>setShowAdd(false)}/>}
+        {sorted.map(e=><EmployeeRow key={e.id} emp={e} onSave={onSave} onDelete={()=>onDelete(e.id)}/>)}
+        {employees.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No employees yet — add your first one above.</div>}
+      </>}
+      {tab==="performance"&&<>
+        <div style={{fontSize:12,color:"#888",marginBottom:14}}>Total accepted pcs and reject rate per sorter, across every shift logged with a sorter picked. Use this to see who&apos;s most productive and who to keep on extra.</div>
+        <SorterPerformanceChart title="🔍 Plastic Sorting" accent="#0C5460" stats={plasticStats}/>
+        <SorterPerformanceChart title="📦 Final Sorting" accent="#B8860B" stats={finalStats}/>
+      </>}
+    </div></div>);
+}
+
 const MATERIAL_META={
   "Aluminum Coils":{color:"#1A3C5E",accent:"#2D6A9F",light:"#D6E8FA",emoji:"🪙",trackCoils:true},
   "Aluminum Caps":{color:"#37474F",accent:"#607D8B",light:"#ECEFF1",emoji:"🔘"},
@@ -740,14 +989,16 @@ function LotModal({matName,matConfig,lot,onSave,onClose}){
 // Creates a new Aluminum Caps lot (this batch's output) while deducting the coil weight
 // it was stamped from out of the matching Aluminum Coils lot — the link the old Notion
 // tool didn't have between the two materials.
-function AluminumBatchForm({capsLots,coilLots,matConfig,onSave,onClose}){
+function AluminumBatchForm({capsLots,coilLots,matConfig,batches,employees,onSave,onClose}){
   const preview=nextAlLotNo(capsLots);
   const [coilLotId,setCoilLotId]=useState(""),[coilNumber,setCoilNumber]=useState("");
   const [weightTaken,setWeightTaken]=useState(""),[qty,setQty]=useState(""),[unit,setUnit]=useState("Pcs");
   const [scrapPct,setScrapPct]=useState("27.4");
   const [dateStarted,setDateStarted]=useState(""),[dateFinished,setDateFinished]=useState(new Date().toISOString().split("T")[0]);
   const [bagQty,setBagQty]=useState(""),[bagUnit,setBagUnit]=useState("Pcs"),[bagCount,setBagCount]=useState("1"),[bagsList,setBagsList]=useState([]);
-  const [operator,setOperator]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
+  const [operatorId,setOperatorId]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
+  const pressEmployees=(employees||[]).filter(x=>x.active!==false&&(x.stations||[]).indexOf("Press")>=0);
+  const operatorEmp=operatorId?pressEmployees.filter(x=>x.id===operatorId)[0]:null;
   const coil=coilLotId?coilLots.filter(l=>l.id===coilLotId)[0]:null;
   const wt=Number(weightTaken)||0,availKg=coil?Number(coil.qtyRemaining)||0:0;
   const scrapKg=wt*(Number(scrapPct)||0)/100;
@@ -775,12 +1026,18 @@ function AluminumBatchForm({capsLots,coilLots,matConfig,onSave,onClose}){
     const totalPcsProduced=isBags?bagsTotalPcs:(unit==="KG"?kgToPcs(Number(qty)||0,0.405):Number(qty)||0);
     const capUnitCost=(coil.unitCost&&qtyReceivedVal>0)?(wt*Number(coil.unitCost))/qtyReceivedVal:"";
     const capCostPerPc=(coil.unitCost&&totalPcsProduced>0)?(wt*Number(coil.unitCost))/totalPcsProduced:"";
-    const newLot={id:genId(),lotNumber:preview,plNo:preview,date:dispDate(dateFinished),dateStarted:dispDate(dateStarted),supplier:"In-house production",
+    // Ashraf's (or whoever's) wage for the day is split across however many Aluminum Cap lots
+    // he's logged on that same date — including this new one — so making 2 coils in one shift
+    // doesn't charge each coil a full day's wage.
+    const sameDayLots=operatorEmp?capsLots.filter(l=>l.operatorId===operatorEmp.id&&l.dateISO===dateFinished).length+1:0;
+    const laborCostEGP=operatorEmp?effectiveDailyRate(operatorEmp,dateFinished,batches,capsLots)/sameDayLots:0;
+    const newLot={id:genId(),lotNumber:preview,plNo:preview,date:dispDate(dateFinished),dateStarted:dispDate(dateStarted),dateISO:dateFinished,supplier:"In-house production",
       description:"20mm Flip-Off Aluminum Caps – Coil lot "+coil.lotNumber+(coilNumber?" | Coil "+coilNumber:""),
       qtyReceived:isBags?bagsList.length:Number(qty),unit:unit,qtyRemaining:isBags?bagsList.length:Number(qty),
       unitCost:capUnitCost,unitCostCurrency:coil.unitCostCurrency||"USD",costPerPc:capCostPerPc,
+      operatorId:operatorEmp?operatorEmp.id:null,laborCostEGP:laborCostEGP,laborCostPerPc:totalPcsProduced>0?laborCostEGP/totalPcsProduced:0,
       sourceCoilLotNo:coil.lotNumber,scrapKg:scrapKg,status:"In Stock",
-      notes:(operator?"Operator: "+operator:"")+(coil.notes?" | Source: "+coil.notes:""),image:null,usageLog:[]};
+      notes:(operatorEmp?"Operator: "+operatorEmp.name:"")+(coil.notes?" | Source: "+coil.notes:""),image:null,usageLog:[]};
     if(isBags)newLot.bags=bagsList.map((b,i)=>{const n=pad(i+1,2);const isSt=b.unit==="Stamps";
       return{id:"B"+n,label:preview+"-B"+n,qty:isSt?b.qty*6:b.qty,qtyUnit:isSt?"Pcs":b.unit,used:false,usedDate:null};});
     onSave(newLot,{coilLotId:coilLotId,weightTaken:wt,coilNumber:coilNumber,scrapKg:scrapKg});
@@ -816,7 +1073,10 @@ function AluminumBatchForm({capsLots,coilLots,matConfig,onSave,onClose}){
             <input type="date" value={dateStarted} onChange={e=>setDateStarted(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
           <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date Finished</label>
             <input type="date" value={dateFinished} onChange={e=>setDateFinished(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
-          <Field label="Operator" value={operator} onChange={setOperator} ph="Name" accent={matConfig.accent}/></div>
+          <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Operator</label>
+            <select value={operatorId} onChange={e=>setOperatorId(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+              <option value="">— not specified —</option>
+              {pressEmployees.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></div></div>
         {isBags&&<div style={{background:"#F7F9FC",borderRadius:10,padding:14,marginBottom:14}}>
           <div style={{fontWeight:700,fontSize:13,color:matConfig.color,marginBottom:2}}>Bags Produced</div>
           <div style={{fontSize:11,color:"#888",marginBottom:10}}>Add several identical bags at once, then add the odd one out separately — Pcs, KG, or Stamps (1 stamp = 6 pcs)</div>
@@ -967,7 +1227,7 @@ function ActiveCoilTracker({coils,boxLots,matConfig,onStart,onMeasure,onFinish})
 }
 
 // ══ MATERIAL VIEW ═════════════════════════════════════════════════════════
-function MaterialView({matName,matConfig,lots,coils,coilLots,onUpdate,onDelete,onAdd,onBack,onStartCoil,onMeasureCoil,onFinishCoil,onToggleBag,onCreateAlBatch,onUseCoilStock}){
+function MaterialView({matName,matConfig,lots,coils,coilLots,batches,employees,onUpdate,onDelete,onAdd,onBack,onStartCoil,onMeasureCoil,onFinishCoil,onToggleBag,onCreateAlBatch,onUseCoilStock}){
   const [editLot,setEditLot]=useState(null),[showAdd,setShowAdd]=useState(false),[detailId,setDetailId]=useState(null);
   const [useStock,setUseStock]=useState(null),[search,setSearch]=useState(""),[confirmDel,setConfirmDel]=useState(null),[coilModal,setCoilModal]=useState(null);
   const [showAlBatch,setShowAlBatch]=useState(false),[sellScrap,setSellScrap]=useState(null);
@@ -1031,7 +1291,7 @@ function MaterialView({matName,matConfig,lots,coils,coilLots,onUpdate,onDelete,o
       onSave={form=>{if(editLot)onUpdate(Object.assign({},form,{id:editLot.id}));else onAdd(Object.assign({},form,{id:genId()}));setShowAdd(false);setEditLot(null);}}/>}
     {coilModal&&<CoilModal mode={coilModal} coil={coils.filter(c=>c.status==="active")[0]} boxLots={lots} matConfig={matConfig}
       onClose={()=>setCoilModal(null)} onSave={p=>{if(coilModal==="start")onStartCoil(p);else onMeasureCoil(p);setCoilModal(null);}}/>}
-    {showAlBatch&&<AluminumBatchForm capsLots={lots} coilLots={coilLots||[]} matConfig={matConfig}
+    {showAlBatch&&<AluminumBatchForm capsLots={lots} coilLots={coilLots||[]} matConfig={matConfig} batches={batches} employees={employees}
       onClose={()=>setShowAlBatch(false)} onSave={(newLot,consumption)=>{onCreateAlBatch(newLot,consumption);setShowAlBatch(false);}}/>}
     {confirmDel&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:"#fff",borderRadius:14,padding:26,maxWidth:300,width:"100%",textAlign:"center"}}>
@@ -1043,34 +1303,35 @@ function MaterialView({matName,matConfig,lots,coils,coilLots,onUpdate,onDelete,o
 }
 
 // ══ SHIFT STAGE FORMS ═════════════════════════════════════════════════════
-function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
+function InjectionForm({parentBatch,batches,data,employees,existing,onSave,onCancel}){
   const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch);
   const realShifts=mySubs.filter(b=>!b.isCarryover);
   const subNo=existing?existing.batchNo:parentBatch.batchNo+"-"+String.fromCharCode(65+realShifts.length);
   const e=existing||{};
   const [date,setDate]=useState(e.mfgDate||new Date().toISOString().split("T")[0]);
-  const [shift,setShift]=useState(e.shift||"Morning"),[operator,setOperator]=useState(e.operator||"");
+  const [shift,setShift]=useState(e.shift||"Morning");
+  const [injectionWorkers,setInjectionWorkers]=useState(e.injectionWorkers||[]);
+  const capsLots=(data&&data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[];
   const [injections,setInjections]=useState(e.injections||""),[plasticLotId,setPlasticLotId]=useState(e.plasticLotId||"");
   // Cavities per shot is usually 64, but sometimes one is closed off (e.g. 63) — editable per
   // shift rather than a fixed constant, since it can change shift to shift.
   const [cavities,setCavities]=useState(e.cavities!=null?String(e.cavities):String(PCS_INJ));
-  const [virginBags,setVirginBags]=useState(e.virginBags||""),[regrindKg,setRegrindKg]=useState(e.regrindKg||"");
+  const [virginBags,setVirginBags]=useState(e.virginBags||"");
   const [weightBefore,setWeightBefore]=useState(e.weightBeforeSorting||""),[notes,setNotes]=useState(e.notes||""),[err,setErr]=useState("");
   const plasticLots=((data&&data["Plastic Material"]&&data["Plastic Material"].lots)||[]).filter(l=>l.status!=="Out of Stock"||l.id===e.plasticLotId);
   const selPlastic=plasticLotId?plasticLots.filter(l=>l.id===plasticLotId)[0]:null;
   const capWt=parentBatch.capWt||CAP_WT,asmWt=parentBatch.asmWt||ASM_WT,wastePerInj=parentBatch.wastePerInj||WASTE_PER_INJ;
-  const inj=Number(injections)||0,vBags=Number(virginBags)||0,vKg=vBags*PLASTIC_BAG_KG,rKg=Number(regrindKg)||0,wBef=Number(weightBefore)||0;
+  const inj=Number(injections)||0,vBags=Number(virginBags)||0,vKg=vBags*PLASTIC_BAG_KG,wBef=Number(weightBefore)||0;
   const cav=Number(cavities)||PCS_INJ;
-  const thPcs=inj*cav,thKg=pcsToKg(thPcs,capWt),totalPlastic=vKg+rKg;
+  const thPcs=inj*cav,thKg=pcsToKg(thPcs,capWt),totalPlastic=vKg;
   // Each shot uses more material than just the cap itself — sprue/runner waste per shot,
   // regardless of mold cavity count — so the material a shift SHOULD need is caps + that waste.
   const theoWasteKg=inj*wastePerInj/1000,theoMaterialKg=thKg+theoWasteKg;
   const actualLossKg=totalPlastic>0&&wBef>0?Math.max(0,totalPlastic-wBef):0;
-  const regrindPct=totalPlastic>0?(rKg/totalPlastic*100):0;
   const availBags=selPlastic?Number(selPlastic.qtyRemaining):0;
   const save=()=>{
     if(inj<1){setErr("Enter number of injections.");return;}
-    if(!vBags&&!rKg){setErr("Enter plastic material used.");return;}
+    if(!vBags){setErr("Enter plastic material used.");return;}
     if(vBags>0&&!plasticLotId){setErr("Select which plastic lot the bags came from — otherwise inventory can't be deducted.");return;}
     if(selPlastic&&!existing&&vBags>availBags){setErr("Only "+availBags+" bags available.");return;}
     if(!wBef){setErr("Enter weight before sorting.");return;}
@@ -1078,9 +1339,9 @@ function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
       status:e.stage&&e.stage!=="Injection"?e.status:"Plastic Sorting",stage:e.stage&&e.stage!=="Injection"?e.stage:"Plastic Sorting",
       color:parentBatch.color,client:parentBatch.client,orderNo:parentBatch.orderNo,capWt:capWt,asmWt:asmWt,wastePerInj:wastePerInj,
       cartons:e.cartons||0,bagsPerCarton:e.bagsPerCarton||0,pcsPerBag:e.pcsPerBag||0,partialCartonBags:0,totalPcs:e.totalPcs||0,
-      mfgDate:date,shift:shift,operator:operator,injections:inj,cavities:cav,theoreticalPcs:thPcs,theoreticalKg:thKg,
+      mfgDate:date,shift:shift,operator:injectionWorkers.map(w=>w.name).join(", "),injectionWorkers:injectionWorkers,injections:inj,cavities:cav,theoreticalPcs:thPcs,theoreticalKg:thKg,
       plasticLotId:plasticLotId||null,plasticLotNo:selPlastic?selPlastic.lotNumber:null,
-      virginBags:vBags,virginKg:vKg,regrindKg:rKg,totalPlasticKg:totalPlastic,regrindPct:regrindPct,weightBeforeSorting:wBef,
+      virginBags:vBags,virginKg:vKg,totalPlasticKg:totalPlastic,weightBeforeSorting:wBef,
       notes:notes,createdAt:e.createdAt||today()});
     if(!existing){payload.acceptedWeightKg=null;payload.rejectedWeightKg=null;payload.acceptedPcs=null;payload.aluminumSelections=[];payload.assembledPcs=null;payload.goodPcs=null;}
     onSave(payload,{plasticLotId:plasticLotId,plasticBags:vBags});
@@ -1090,13 +1351,15 @@ function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
       <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>💉 Injection — {subNo}</div><div style={{color:"rgba(255,255,255,0.65)",fontSize:12}}>{existing?"Editing saved data":"Stage 1 of 4"}</div></div>
       <button type="button" onClick={onCancel} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:13}}>Cancel</button></div>
     <div style={{background:"#fff",borderRadius:"0 0 12px 12px",border:"1.5px solid #EEF2F7",borderTop:"none",padding:20}}>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:14}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
         <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date</label>
           <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
         <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Shift</label>
           <select value={shift} onChange={ev=>setShift(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
-            {["Morning","Afternoon","Night"].map(s=><option key={s}>{s}</option>)}</select></div>
-        <Field label="Operator" value={operator} onChange={setOperator} ph="Name" accent="#856404"/></div>
+            {["Morning","Afternoon","Night"].map(s=><option key={s}>{s}</option>)}</select></div></div>
+      <div style={{background:"#FFF3E0",borderRadius:10,padding:14,marginBottom:14}}>
+        <div style={{fontWeight:700,fontSize:13,color:"#856404",marginBottom:10}}>👷 Workers on this shift</div>
+        <WorkerPicker employees={employees} batches={batches} capsLots={capsLots} dateISO={date} station="Injection" value={injectionWorkers} onChange={setInjectionWorkers}/></div>
       <div style={{background:"#FFF9E6",borderRadius:10,padding:14,marginBottom:14}}>
         <div style={{fontWeight:700,fontSize:13,color:"#856404",marginBottom:10}}>💉 Injection Output</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
@@ -1116,13 +1379,9 @@ function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
             {plasticLots.map(l=><option key={l.id} value={l.id}>{l.lotNumber} · {fmtN(l.qtyRemaining)} bags available</option>)}</select>
           {plasticLots.length===0&&<div style={{fontSize:11,color:"#DC3545",marginTop:5,fontWeight:600,background:"#FFF0F0",padding:"7px 10px",borderRadius:6}}>⚠️ No plastic lots in inventory. Go to Inventory → Plastic Material → + Add Lot (set unit to &quot;Bags&quot;) before recording usage, or inventory won&apos;t be deducted.</div>}
           {selPlastic&&<div style={{fontSize:11,color:"#7B3FB5",marginTop:4}}>{availBags} bags available · 1 bag = {PLASTIC_BAG_KG} KG</div>}</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <Field label="Virgin Plastic (BAGS)" value={virginBags} onChange={v=>{setVirginBags(v);setErr("");}} type="number" ph="e.g. 3" accent="#7B3FB5"/>
-          <Field label="Regrind/Recycled (KG)" value={regrindKg} onChange={v=>{setRegrindKg(v);setErr("");}} type="number" ph="0.00" accent="#7B3FB5"/></div>
+        <Field label="Virgin Plastic (BAGS)" value={virginBags} onChange={v=>{setVirginBags(v);setErr("");}} type="number" ph="e.g. 3" accent="#7B3FB5"/>
         {totalPlastic>0&&<div style={{marginTop:8,background:"#fff",borderRadius:8,padding:"10px 12px",fontSize:12,display:"flex",gap:20,flexWrap:"wrap"}}>
-          <div>Virgin: <strong>{vBags} bags = {vKg.toFixed(0)} KG</strong></div>
-          <div>Total in: <strong>{totalPlastic.toFixed(2)} KG</strong></div>
-          <div>Regrind: <strong style={{color:regrindPct>30?"#DC3545":"#4A1A6E"}}>{regrindPct.toFixed(1)}%</strong></div></div>}</div>
+          <div>Virgin: <strong>{vBags} bags = {vKg.toFixed(0)} KG</strong></div></div>}</div>
       <div style={{background:"#F0F4F8",borderRadius:10,padding:14,marginBottom:14}}>
         <div style={{fontWeight:700,fontSize:13,color:NAVY,marginBottom:10}}>⚖️ Weigh Output (before sorting)</div>
         <Field label="Actual Weight (KG)" value={weightBefore} onChange={v=>{setWeightBefore(v);setErr("");}} type="number" ph="0.00" accent={ACCENT}/>
@@ -1138,14 +1397,16 @@ function InjectionForm({parentBatch,batches,data,existing,onSave,onCancel}){
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#856404",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>{existing?"💾 Save Changes":"Save Injection → Plastic Sorting"}</button>
     </div></div>);
 }
-function PlasticSortingForm({sub,existing,onSave,onCancel}){
+function PlasticSortingForm({sub,batches,data,employees,existing,onSave,onCancel}){
   const [accKg,setAccKg]=useState(sub.acceptedWeightKg||""),[rejKg,setRejKg]=useState(sub.rejectedWeightKg||""),[date,setDate]=useState(sub.sortingDate||today()),[err,setErr]=useState("");
+  const [plasticSorters,setPlasticSorters]=useState(sub.plasticSorters||[]);
+  const capsLots=(data&&data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[];
   const capWt=sub.capWt||CAP_WT;
   const acc=Number(accKg)||0,rej=Number(rejKg)||0,total=acc+rej,prev=sub.weightBeforeSorting||0;
   const accPcs=kgToPcs(acc,capWt),rejPcs=kgToPcs(rej,capWt);
   const save=()=>{if(acc<=0){setErr("Enter accepted weight.");return;}
     onSave(Object.assign({},sub,{stage:sub.stage==="Plastic Sorting"?"Assembly":sub.stage,status:sub.stage==="Plastic Sorting"?"Assembly":sub.status,
-      acceptedWeightKg:acc,rejectedWeightKg:rej,acceptedPcs:accPcs,rejectedPcs:rejPcs,sortingDate:date}));};
+      acceptedWeightKg:acc,rejectedWeightKg:rej,acceptedPcs:accPcs,rejectedPcs:rejPcs,sortingDate:date,plasticSorters:plasticSorters}));};
   return(<div style={{maxWidth:640,fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"#0C5460",borderRadius:"12px 12px 0 0",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
       <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>🔍 Plastic Sorting — {sub.batchNo}</div><div style={{color:"rgba(255,255,255,0.65)",fontSize:12}}>{existing?"Editing saved data":"Stage 2 of 4"}</div></div>
@@ -1165,16 +1426,21 @@ function PlasticSortingForm({sub,existing,onSave,onCancel}){
           <div><div style={{color:"#888",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>Accepted</div><div style={{fontWeight:900,fontSize:16,color:"#1A6B2A"}}>{acc.toFixed(2)} KG</div><div style={{color:"#888"}}>{accPcs.toLocaleString()} pcs</div></div>
           <div><div style={{color:"#888",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>Rejected</div><div style={{fontWeight:900,fontSize:16,color:"#DC3545"}}>{rej.toFixed(2)} KG</div><div style={{color:"#888"}}>{rejPcs.toLocaleString()} pcs</div></div>
           <div><div style={{color:"#888",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>Total vs Pre-sort</div><div style={{fontWeight:900,fontSize:14,color:NAVY}}>{total.toFixed(2)} KG</div><CheckBadge actual={total} expected={prev}/></div></div></div>}
+      <div style={{background:"#D1ECF1",borderRadius:10,padding:14,marginBottom:12}}>
+        <div style={{fontWeight:700,fontSize:13,color:"#0C5460",marginBottom:4}}>👷 Who sorted this shift</div>
+        <div style={{fontSize:11,color:"#0C5460",opacity:0.8,marginBottom:10}}>Optional — add each sorter and what she personally sorted, for accurate wages and the productivity charts. Leave empty to skip.</div>
+        <SorterPicker employees={employees} batches={batches} capsLots={capsLots} dateISO={date} station="Plastic Sorting" value={plasticSorters} onChange={setPlasticSorters}/></div>
       {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#0C5460",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>{existing?"💾 Save Changes":"Save Sorting → Assembly"}</button>
     </div></div>);
 }
-function AssemblyForm({sub,data,existing,onSave,onCancel}){
+function AssemblyForm({sub,data,batches,employees,existing,onSave,onCancel}){
   const e=existing?sub:{};
   const [sels,setSels]=useState((sub.aluminumSelections&&sub.aluminumSelections.length)?sub.aluminumSelections:[]);
   const [pickLotId,setPickLotId]=useState(""),[pickBags,setPickBags]=useState([]);
   const [asmKg,setAsmKg]=useState(sub.assembledWeightKg||""),[date,setDate]=useState(sub.assemblyDate||today()),[err,setErr]=useState("");
-  const [asmOperator,setAsmOperator]=useState(sub.assemblyOperator||"");
+  const [assemblyWorkers,setAssemblyWorkers]=useState(sub.assemblyWorkers||[]);
+  const capsLots=(data&&data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[];
   const alLots=((data&&data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[]).filter(l=>(l.status==="In Stock"||l.status==="Low Stock")&&l.bags&&l.bags.length);
   const pickLot=pickLotId?alLots.filter(l=>l.id===pickLotId)[0]:null;
   const alreadyUsed={};sels.forEach(s=>{s.bagIds.forEach(b=>{alreadyUsed[s.lotId+"|"+b]=1;});});
@@ -1192,7 +1458,7 @@ function AssemblyForm({sub,data,existing,onSave,onCancel}){
   };
   const save=()=>{if(asm<=0){setErr("Enter assembly output weight.");return;}
     onSave(Object.assign({},sub,{stage:sub.stage==="Assembly"?"Final Sorting":sub.stage,status:sub.stage==="Assembly"?"Final Sorting":sub.status,
-      assemblyDate:date,assemblyOperator:asmOperator,aluminumSelections:sels,aluminumLotNo:sels.map(s=>s.lotNo).join(", ")||null,aluminumPcsIn:alPcsIn||null,
+      assemblyDate:date,assemblyOperator:assemblyWorkers.map(w=>w.name).join(", "),assemblyWorkers:assemblyWorkers,aluminumSelections:sels,aluminumLotNo:sels.map(s=>s.lotNo).join(", ")||null,aluminumPcsIn:alPcsIn||null,
       assembledWeightKg:asm,assembledPcs:asmPcs}),{selections:sels});};
   return(<div style={{maxWidth:680,fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"#4A1A6E",borderRadius:"12px 12px 0 0",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -1202,10 +1468,13 @@ function AssemblyForm({sub,data,existing,onSave,onCancel}){
       <div style={{background:"#EDE0FF",borderRadius:10,padding:12,marginBottom:14,fontSize:12,color:"#4A1A6E"}}>
         <div style={{fontWeight:700,marginBottom:4}}>From Plastic Sorting:</div>
         <div>Accepted plastic caps in: <strong>{accPcs.toLocaleString()} pcs</strong> ({(sub.acceptedWeightKg||0).toFixed(2)} KG)</div></div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-        <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Assembly Date</label>
-          <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
-        <Field label="Operator" value={asmOperator} onChange={setAsmOperator} ph="Name" accent="#4A1A6E"/></div>
+      <div style={{marginBottom:12}}>
+        <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Assembly Date</label>
+        <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+      <div style={{background:"#EDE0FF",borderRadius:10,padding:14,marginBottom:12}}>
+        <div style={{fontWeight:700,fontSize:13,color:"#4A1A6E",marginBottom:4}}>👷 Workers on this shift</div>
+        <div style={{fontSize:11,color:"#7B3FB5",marginBottom:10}}>Leave empty if a sorting girl covered this for free — only add someone (e.g. Mohamed, Nagy) if it&apos;s a real added cost.</div>
+        <WorkerPicker employees={employees} batches={batches} capsLots={capsLots} dateISO={date} station="Assembly" value={assemblyWorkers} onChange={setAssemblyWorkers}/></div>
       <div style={{background:"#F7F0FF",borderRadius:10,padding:14,marginBottom:12}}>
         <div style={{fontWeight:700,fontSize:13,color:"#4A1A6E",marginBottom:4}}>🔘 Aluminum Caps Used</div>
         <div style={{fontSize:11,color:"#7B3FB5",marginBottom:10}}>Add from as many lots as you need — lots often run out mid-shift</div>
@@ -1243,9 +1512,11 @@ function AssemblyForm({sub,data,existing,onSave,onCancel}){
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#4A1A6E",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>{existing?"💾 Save Changes":"Save Assembly → Final Sorting"}</button>
     </div></div>);
 }
-function FinalSortingForm({sub,parentBatch,data,existing,onSave,onCancel}){
+function FinalSortingForm({sub,parentBatch,data,batches,employees,existing,onSave,onCancel}){
   const [accKg,setAccKg]=useState(sub.finalAcceptedKg||""),[rejKg,setRejKg]=useState(sub.finalRejectedKg||"");
-  const [date,setDate]=useState(sub.finalSortDate||today()),[operator,setOperator]=useState(sub.finalSortOperator||""),[err,setErr]=useState("");
+  const [date,setDate]=useState(sub.finalSortDate||today()),[err,setErr]=useState("");
+  const [finalSorters,setFinalSorters]=useState(sub.finalSorters||[]);
+  const capsLots=(data&&data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[];
   const [packedCartons,setPackedCartons]=useState(sub.finalCartons||""),[packedBags,setPackedBags]=useState(sub.finalPartialBags||""),[packedKg,setPackedKg]=useState(sub.finalPartialKg||"");
   const [cartonsLotId,setCartonsLotId]=useState(sub.cartonsLotId||"");
   const cartonsLots=((data&&data["Cartons"]&&data["Cartons"].lots)||[]).filter(l=>l.status!=="Out of Stock"||l.id===sub.cartonsLotId);
@@ -1263,7 +1534,7 @@ function FinalSortingForm({sub,parentBatch,data,existing,onSave,onCancel}){
   const save=()=>{if(acc<=0){setErr("Enter accepted weight.");return;}
     if(cartonsUsed>0&&!cartonsLotId){setErr("Select which Cartons lot was used.");return;}
     if(selCartons&&!existing&&cartonsUsed>Number(selCartons.qtyRemaining)+0.01){setErr("Only "+fmtN(selCartons.qtyRemaining)+" cartons available in that lot.");return;}
-    onSave(Object.assign({},sub,{stage:"Complete",status:"Complete",finalSortDate:date,finalSortOperator:operator,
+    onSave(Object.assign({},sub,{stage:"Complete",status:"Complete",finalSortDate:date,finalSortOperator:finalSorters.map(w=>w.name).join(", "),finalSorters:finalSorters,
       finalAcceptedKg:acc,finalRejectedKg:rej,finalAcceptedPcs:accPcs,finalRejectedPcs:rejPcs,
       finalCartons:cartonsUsed,finalPartialBags:Number(packedBags)||0,finalPartialKg:Number(packedKg)||0,
       cartonsLotId:cartonsLotId||null,cartonsLotNo:selCartons?selCartons.lotNumber:null,cartonsUsed:cartonsUsed,
@@ -1276,10 +1547,13 @@ function FinalSortingForm({sub,parentBatch,data,existing,onSave,onCancel}){
       <div style={{background:"#FFF8DC",borderRadius:10,padding:12,marginBottom:14,fontSize:12,color:"#8B6914"}}>
         <div style={{fontWeight:700,marginBottom:4}}>From Assembly:</div>
         <div>Assembled caps in: <strong>{asmIn.toLocaleString()} pcs</strong> ({(sub.assembledWeightKg||0).toFixed(2)} KG)</div></div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-        <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date</label>
-          <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
-        <Field label="Sorting Operator" value={operator} onChange={setOperator} ph="Name" accent="#B8860B"/></div>
+      <div style={{marginBottom:12}}>
+        <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date</label>
+        <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+      <div style={{background:"#FFF8DC",borderRadius:10,padding:14,marginBottom:12}}>
+        <div style={{fontWeight:700,fontSize:13,color:"#8B6914",marginBottom:4}}>👷 Who sorted this shift</div>
+        <div style={{fontSize:11,color:"#A08030",marginBottom:10}}>Optional — add each sorter and what she personally sorted, for accurate wages and the productivity charts. Leave empty to skip.</div>
+        <SorterPicker employees={employees} batches={batches} capsLots={capsLots} dateISO={date} station="Final Sorting" value={finalSorters} onChange={setFinalSorters}/></div>
       <div style={{background:"#FFFCF0",borderRadius:10,padding:14,marginBottom:12}}>
         <div style={{fontWeight:700,fontSize:13,color:"#8B6914",marginBottom:10}}>⚖️ Final Sort Results</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
@@ -1513,7 +1787,7 @@ function MoveShiftModal({shift,parentBatch,batches,onMove,onCancel}){
         </>)}
       </div></div></div>);
 }
-function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,onDeleteSub,onSaveLeftover}){
+function ShiftManager({parentBatch,batches,data,employees,onClose,onCreateSub,onUpdateSub,onDeleteSub,onSaveLeftover}){
   const [form,setForm]=useState(null);      // {mode:"new"} | {mode:"carryover"} | {subId, stage, editing:bool}
   const [confDel,setConfDel]=useState(null);
   const [showLeftover,setShowLeftover]=useState(false);
@@ -1570,12 +1844,12 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
   const cur=form&&form.subId?mySubs.filter(b=>b.id===form.subId)[0]:null;
   const close=()=>setForm(null);
 
-  if(form&&form.mode==="new")return <InjectionForm parentBatch={parentBatch} batches={batches} data={data} onSave={(b,m)=>{onCreateSub(b,m);close();}} onCancel={close}/>;
+  if(form&&form.mode==="new")return <InjectionForm parentBatch={parentBatch} batches={batches} data={data} employees={employees} onSave={(b,m)=>{onCreateSub(b,m);close();}} onCancel={close}/>;
   if(form&&form.mode==="carryover")return <CarryoverForm parentBatch={parentBatch} batches={batches} data={data} onSave={(b,m)=>{onCreateSub(b,m);close();}} onCancel={close}/>;
-  if(cur&&form.stage==="Injection")return <InjectionForm parentBatch={parentBatch} batches={batches} data={data} existing={cur} onSave={(b,m)=>{onUpdateSub(b,m,cur);close();}} onCancel={close}/>;
-  if(cur&&form.stage==="Plastic Sorting")return <PlasticSortingForm sub={cur} existing={form.editing} onSave={u=>{onUpdateSub(u,null,cur);close();}} onCancel={close}/>;
-  if(cur&&form.stage==="Assembly")return <AssemblyForm sub={cur} data={data} existing={form.editing} onSave={(u,m)=>{onUpdateSub(u,m,cur);close();}} onCancel={close}/>;
-  if(cur&&form.stage==="Final Sorting")return <FinalSortingForm sub={cur} parentBatch={parentBatch} data={data} existing={form.editing} onSave={(u,m)=>{onUpdateSub(u,m,cur);close();}} onCancel={close}/>;
+  if(cur&&form.stage==="Injection")return <InjectionForm parentBatch={parentBatch} batches={batches} data={data} employees={employees} existing={cur} onSave={(b,m)=>{onUpdateSub(b,m,cur);close();}} onCancel={close}/>;
+  if(cur&&form.stage==="Plastic Sorting")return <PlasticSortingForm sub={cur} batches={batches} data={data} employees={employees} existing={form.editing} onSave={u=>{onUpdateSub(u,null,cur);close();}} onCancel={close}/>;
+  if(cur&&form.stage==="Assembly")return <AssemblyForm sub={cur} data={data} batches={batches} employees={employees} existing={form.editing} onSave={(u,m)=>{onUpdateSub(u,m,cur);close();}} onCancel={close}/>;
+  if(cur&&form.stage==="Final Sorting")return <FinalSortingForm sub={cur} parentBatch={parentBatch} data={data} batches={batches} employees={employees} existing={form.editing} onSave={(u,m)=>{onUpdateSub(u,m,cur);close();}} onCancel={close}/>;
 
   const doneStages=sub=>{
     const out=[];
@@ -1644,7 +1918,7 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
                 style={{background:"#fff",border:"1px solid "+stageColor[s],color:stageColor[s],borderRadius:20,padding:"3px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>✏️ {s}</button>)}</div>}
             <div style={{display:"flex",gap:14,fontSize:11,color:"#666",flexWrap:"wrap"}}>
               {sub.injections?<span>💉 {sub.injections} inj</span>:null}
-              {sub.totalPlasticKg?<span>🧴 {sub.virginBags||0} bags + {(sub.regrindKg||0).toFixed(1)} KG regrind</span>:null}
+              {sub.totalPlasticKg?<span>🧴 {sub.virginBags||0} bags{sub.regrindKg?" + "+sub.regrindKg.toFixed(1)+" KG regrind":""}</span>:null}
               {sub.acceptedPcs?<span>✅ {sub.acceptedPcs.toLocaleString()} sorted</span>:null}
               {sub.aluminumLotNo?<span>🔘 {sub.aluminumLotNo}</span>:null}
               {sub.assembledPcs?<span>⚙️ {sub.assembledPcs.toLocaleString()} asm</span>:null}
@@ -1675,12 +1949,13 @@ function ShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,
 // Sachets/Capsules production doesn't go through Injection→Sorting→Assembly like Flip-Off
 // Caps — it's packed straight from silica gel beads and packaging film rolls in one pass, so
 // each shift just records who ran it, how much came out, and what it used.
-function SilicaShiftForm({parentBatch,batches,data,existing,onSave,onCancel}){
+function SilicaShiftForm({parentBatch,batches,data,employees,existing,onSave,onCancel}){
   const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch);
   const subNo=existing?existing.batchNo:parentBatch.batchNo+"-"+String.fromCharCode(65+mySubs.length);
   const e=existing||{};
   const [date,setDate]=useState(e.mfgDate||new Date().toISOString().split("T")[0]);
-  const [operator,setOperator]=useState(e.operator||"");
+  const [workers,setWorkers]=useState(e.workers||[]);
+  const capsLots=(data&&data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[];
   const [amount,setAmount]=useState(e.amountPcs!=null?String(e.amountPcs):"");
   const [silicaLotId,setSilicaLotId]=useState(e.silicaLotId||"");
   const [silicaBags,setSilicaBags]=useState(e.silicaKg!=null?String(e.silicaKg/BAG_KG):"");
@@ -1705,7 +1980,7 @@ function SilicaShiftForm({parentBatch,batches,data,existing,onSave,onCancel}){
   const availRolls=selRolls?Number(selRolls.qtyRemaining):0;
   const save=()=>{
     if(amt<1){setErr("Enter the amount made.");return;}
-    if(!operator.trim()){setErr("Enter the operator's name.");return;}
+    if(workers.length===0){setErr("Add at least one worker on this shift.");return;}
     if(sBags>0&&!silicaLotId){setErr("Select which Silica Gel lot was used.");return;}
     if(selSilica&&!existing&&sBags>availSilicaBags+0.01){setErr("Only "+fmt(availSilicaBags)+" bags available in that lot.");return;}
     if(rQty>0&&!rollsLotId){setErr("Select which Sachets Paper lot was used.");return;}
@@ -1716,7 +1991,7 @@ function SilicaShiftForm({parentBatch,batches,data,existing,onSave,onCancel}){
       product:parentBatch.product,color:parentBatch.color,client:parentBatch.client,orderNo:parentBatch.orderNo,
       stage:"Complete",status:"Complete",
       cartons:0,bagsPerCarton:0,pcsPerBag:0,partialCartonBags:0,totalPcs:0,
-      mfgDate:date,operator:operator.trim(),amountPcs:amt,goodPcs:amt,
+      mfgDate:date,operator:workers.map(w=>w.name).join(", "),workers:workers,amountPcs:amt,goodPcs:amt,
       silicaLotId:silicaLotId||null,silicaLotNo:selSilica?selSilica.lotNumber:null,silicaKg:sKg,
       rollsLotId:rollsLotId||null,rollsLotNo:selRolls?selRolls.lotNumber:null,rollsUsed:rQty,
       cartonsLotId:noCartons?null:(cartonsLotId||null),cartonsLotNo:noCartons?null:(selCartons?selCartons.lotNumber:null),cartonsUsed:cartonsUsed,noCartons:noCartons,
@@ -1729,10 +2004,13 @@ function SilicaShiftForm({parentBatch,batches,data,existing,onSave,onCancel}){
       <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>🟡 Shift — {subNo}</div><div style={{color:"rgba(255,255,255,0.65)",fontSize:12}}>{existing?"Editing saved data":"Silica Gel Sachets production"}</div></div>
       <button type="button" onClick={onCancel} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:13}}>Cancel</button></div>
     <div style={{background:"#fff",borderRadius:"0 0 12px 12px",border:"1.5px solid #EEF2F7",borderTop:"none",padding:20}}>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
-        <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date of Production</label>
-          <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
-        <Field label="Operator" value={operator} onChange={setOperator} ph="Name" accent="#0E4A2A" error={err==="Enter the operator's name."}/></div>
+      <div style={{marginBottom:14}}>
+        <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date of Production</label>
+        <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+      <div style={{background:"#D0F0E0",borderRadius:10,padding:14,marginBottom:14}}>
+        <div style={{fontWeight:700,fontSize:13,color:"#0E4A2A",marginBottom:10}}>👷 Workers on this shift</div>
+        <WorkerPicker employees={employees} batches={batches} capsLots={capsLots} dateISO={date} station="Silica" value={workers} onChange={v=>{setWorkers(v);setErr("");}}/>
+        {err==="Add at least one worker on this shift."&&<div style={{fontSize:11,color:"#DC3545",marginTop:6}}>{err}</div>}</div>
       <div style={{marginBottom:14}}><Field label="Amount Made (pcs)" value={amount} onChange={v=>{setAmount(v);setErr("");}} type="number" ph="e.g. 25000" accent="#0E4A2A" error={err==="Enter the amount made."}/>
         {err==="Enter the amount made."&&<div style={{fontSize:11,color:"#DC3545",marginTop:4}}>↑ This field, not the rolls below — the rolls value you typed is fine.</div>}</div>
       <div style={{background:"#D0F0E0",borderRadius:10,padding:14,marginBottom:14}}>
@@ -1875,7 +2153,7 @@ function SilicaSaveLeftoverForm({parentBatch,onSave,onClose}){
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:mc.accent,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save to WIP Inventory</button>
       </div></div></div>);
 }
-function SilicaShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpdateSub,onDeleteSub,onSaveLeftover}){
+function SilicaShiftManager({parentBatch,batches,data,employees,onClose,onCreateSub,onUpdateSub,onDeleteSub,onSaveLeftover}){
   const [form,setForm]=useState(null);      // {mode:"new"} | {mode:"carryover"} | {mode:"leftover"} | {subId, editing:true}
   const [confDel,setConfDel]=useState(null);
   const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch).sort((a,b)=>a.batchNo.localeCompare(b.batchNo));
@@ -1888,10 +2166,10 @@ function SilicaShiftManager({parentBatch,batches,data,onClose,onCreateSub,onUpda
   const cur=form&&form.subId?mySubs.filter(b=>b.id===form.subId)[0]:null;
   const close=()=>setForm(null);
 
-  if(form&&form.mode==="new")return <SilicaShiftForm parentBatch={parentBatch} batches={batches} data={data} onSave={(b,m)=>{onCreateSub(b,m);close();}} onCancel={close}/>;
+  if(form&&form.mode==="new")return <SilicaShiftForm parentBatch={parentBatch} batches={batches} data={data} employees={employees} onSave={(b,m)=>{onCreateSub(b,m);close();}} onCancel={close}/>;
   if(form&&form.mode==="carryover")return <SilicaCarryoverForm parentBatch={parentBatch} batches={batches} data={data} onSave={(b,m)=>{onCreateSub(b,m);close();}} onCancel={close}/>;
   if(form&&form.mode==="leftover")return <SilicaSaveLeftoverForm parentBatch={parentBatch} onSave={lot=>{onSaveLeftover(lot);close();}} onClose={close}/>;
-  if(cur)return <SilicaShiftForm parentBatch={parentBatch} batches={batches} data={data} existing={cur} onSave={(b,m)=>{onUpdateSub(b,m,cur);close();}} onCancel={close}/>;
+  if(cur)return <SilicaShiftForm parentBatch={parentBatch} batches={batches} data={data} employees={employees} existing={cur} onSave={(b,m)=>{onUpdateSub(b,m,cur);close();}} onCancel={close}/>;
 
   return(<div style={{fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"#0E4A2A",padding:"14px 18px",borderRadius:"12px 12px 0 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -2196,7 +2474,7 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts,onUp
     {showQty&&<BatchQuantityModal batch={batch} onSave={u=>{onUpdateBatch(u);setShowQty(false);}} onClose={()=>setShowQty(false)}/>}
   </div>);
 }
-function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic,onApplyMaterial,onDeleteSub,onSaveLeftover,onMarkUnpricedSamples}){
+function ProductionSection({data,batches,orders,employees,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic,onApplyMaterial,onDeleteSub,onSaveLeftover,onMarkUnpricedSamples}){
   const [showForm,setShowForm]=useState(false),[filterSt,setFilterSt]=useState(""),[search,setSearch]=useState(""),[shiftId,setShiftId]=useState(null);
   const [confSamples,setConfSamples]=useState(false);
   const all=batches||[];
@@ -2206,7 +2484,7 @@ function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDe
   BSTATUSES.forEach(s=>{stats[s]=main.filter(b=>b.status===s).length;});
   const parent=shiftId?main.filter(b=>b.id===shiftId)[0]:null;
 
-  if(parent&&parent.product==="Silica Gel Sachets")return <SilicaShiftManager parentBatch={parent} batches={all} data={data} onClose={()=>setShiftId(null)}
+  if(parent&&parent.product==="Silica Gel Sachets")return <SilicaShiftManager parentBatch={parent} batches={all} data={data} employees={employees} onClose={()=>setShiftId(null)}
     onCreateSub={(b,m)=>{onCreateBatch(b);
       if(m){
         if(m.silicaKg)onApplyMaterial("Silica Gel",null,0,m.silicaLotId,m.silicaKg,b.batchNo);
@@ -2221,7 +2499,7 @@ function ProductionSection({data,batches,orders,onCreateBatch,onUpdateBatch,onDe
         onApplyMaterial("Cartons",old?old.cartonsLotId:null,old?(old.cartonsUsed||0):0,m.cartonsLotId,m.cartonsUsed,b.batchNo);
       }}}
     onDeleteSub={onDeleteSub} onSaveLeftover={onSaveLeftover}/>;
-  if(parent)return <ShiftManager parentBatch={parent} batches={all} data={data} onClose={()=>setShiftId(null)}
+  if(parent)return <ShiftManager parentBatch={parent} batches={all} data={data} employees={employees} onClose={()=>setShiftId(null)}
     onCreateSub={(b,m)=>{onCreateBatch(b);
       if(m&&m.plasticLotId!==undefined)onApplyPlastic(null,0,m.plasticLotId,m.plasticBags,b.batchNo);
       if(m&&m.wipLotId)onApplyMaterial("WIP Inventory",null,0,m.wipLotId,m.wipPcsUsed,b.batchNo);}}
@@ -2497,7 +2775,9 @@ function Dashboard({data,batches,orders,onSelect,onLogout,onExport,onImportFile,
         <button type="button" onClick={()=>onSection("labels")} style={{background:"#5A3E1B",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🏷️ Labels
           <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Batch, carton &amp; bag labels</div></button>
         <button type="button" onClick={()=>onSection("certificates")} style={{background:"#1B5A4E",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🧪 Certificates
-          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Certificate of Analysis (COA)</div></button></div>
+          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Certificate of Analysis (COA)</div></button>
+        <button type="button" onClick={()=>onSection("employees")} style={{background:"#6E3A1B",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>👷 Employees
+          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Roster, stations &amp; wages</div></button></div>
       <div onClick={()=>onSelect("Aluminum Caps")} style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:18,cursor:"pointer"}}>
         <div style={{fontSize:11,fontWeight:800,color:"#37474F",textTransform:"uppercase",marginBottom:8}}>🔘 Aluminum Availability</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:8}}>
@@ -2591,7 +2871,7 @@ function MaterialsUsageTable({rows}){
 function ShiftMaterialsBlock({materials}){
   const alLotRows=Object.keys(materials.alLots);
   return(<div>
-    <StatRow items={[["Virgin Plastic",fmtN(materials.virginBags)+" bags"],["Regrind",fmt(materials.regrindKg)+" KG"],["Total Plastic",fmt(materials.totalPlasticKg)+" KG"],["Aluminum Caps Used",fmtN(materials.alPcs)+" pcs"]]}/>
+    <StatRow items={[["Virgin Plastic",fmtN(materials.virginBags)+" bags"],["Total Plastic",fmt(materials.totalPlasticKg)+" KG"],["Aluminum Caps Used",fmtN(materials.alPcs)+" pcs"]]}/>
     {alLotRows.length>0&&<div style={{marginTop:10,fontSize:12,color:"#555"}}>
       <strong>Aluminum lots drawn from:</strong> {alLotRows.map(l=>l+" ("+fmtN(materials.alLots[l])+" pcs)").join(", ")}</div>}
   </div>);
@@ -3487,6 +3767,7 @@ export default function EpsInventoryApp(){
   const [data,setData]=useState(null);
   const [batches,setBatches]=useState([]),[orders,setOrders]=useState([]);
   const [laborRates,setLaborRates]=useState(DEFAULT_LABOR_RATES);
+  const [employees,setEmployees]=useState(INITIAL_EMPLOYEES);
   const [activeMat,setActiveMat]=useState(null),[section,setSection]=useState("inventory");
   const [toast,setToast]=useState(null),[lastSync,setLastSync]=useState(null);
   const [dataLoaded,setDataLoaded]=useState(false);
@@ -3494,7 +3775,7 @@ export default function EpsInventoryApp(){
   const showToast=(msg,type)=>{setToast({msg:msg,type:type||"ok"});setTimeout(()=>setToast(null),2500);};
 
   useEffect(()=>{(async()=>{
-    let merged={},bs=INITIAL_BATCHES,os=INITIAL_ORDERS,lr=DEFAULT_LABOR_RATES;
+    let merged={},bs=INITIAL_BATCHES,os=INITIAL_ORDERS,lr=DEFAULT_LABOR_RATES,emps=INITIAL_EMPLOYEES;
     try{
       const supabase=createClient();
       const {data:row,error}=await supabase.from("eps_inventory_data").select("value").eq("key",SHARED_KEY).maybeSingle();
@@ -3521,6 +3802,14 @@ export default function EpsInventoryApp(){
         // in the saved arrays, which silently undid every delete of a starter record).
         bs=p._batches||[];
         os=p._orders||[];
+        // Merge any newly-added starter employees (e.g. a fresh seed roster entry) into what's
+        // already saved by id, same principle as the material-lot merge above — but never drop
+        // a saved employee, since that would silently undo a real edit (e.g. deactivating
+        // someone) on every reload.
+        if(Array.isArray(p._employees)){
+          const ids={};p._employees.forEach(x=>{ids[x.id]=1;});
+          emps=p._employees.concat(INITIAL_EMPLOYEES.filter(x=>!ids[x.id]));
+        }
         // pressCostPerPc used to mean the combined "Press/Assembly" rate before they were split
         // into two real machines — a saved rate under that old key is really the Assembly rate,
         // so carry it forward under the new assemblyCostPerPc key instead of misapplying it to
@@ -3536,10 +3825,10 @@ export default function EpsInventoryApp(){
       }
     }catch(e){console.error("Load failed",e);showToast("⚠️ Couldn't load saved data — showing starter data","error");
       Object.keys(MATERIAL_META).forEach(k=>{merged[k]=Object.assign({},MATERIAL_META[k],{lots:INITIAL_LOTS[k],coils:INITIAL_COILS[k]||[]});});}
-    setData(merged);setBatches(bs);setOrders(os);setLaborRates(lr);
+    setData(merged);setBatches(bs);setOrders(os);setLaborRates(lr);setEmployees(emps);
     // Snapshot what we just loaded so the effect doesn't immediately re-write identical data
     const snap={};Object.keys(merged).forEach(k=>{snap[k]={lots:merged[k].lots.map(l=>Object.assign({},l,{image:null})),coils:merged[k].coils||[]};});
-    snap._batches=bs;snap._orders=os;snap._laborRates=lr;
+    snap._batches=bs;snap._orders=os;snap._laborRates=lr;snap._employees=emps;
     skipSave.current=JSON.stringify(snap);
     setDataLoaded(true);
   })();},[]);
@@ -3547,7 +3836,7 @@ export default function EpsInventoryApp(){
   useEffect(()=>{
     if(!data||!dataLoaded)return;
     const toSave={};Object.keys(data).forEach(k=>{toSave[k]={lots:data[k].lots.map(l=>Object.assign({},l,{image:null})),coils:data[k].coils||[]};});
-    toSave._batches=batches;toSave._orders=orders;toSave._laborRates=laborRates;
+    toSave._batches=batches;toSave._orders=orders;toSave._laborRates=laborRates;toSave._employees=employees;
     const json=JSON.stringify(toSave);
     // Only skip when the payload is byte-identical to what we loaded — never skip a real change
     if(skipSave.current===json){return;}
@@ -3563,12 +3852,12 @@ export default function EpsInventoryApp(){
       }catch(e){lastErr=e;if(a<2)await new Promise(r=>setTimeout(r,800));}}
       throw lastErr;
     }catch(e){console.error("Save failed",e);showToast("⚠️ Save failed — check your connection","error");}})();
-  },[data,batches,orders,laborRates,dataLoaded]);
+  },[data,batches,orders,laborRates,employees,dataLoaded]);
 
   const logout=async()=>{const supabase=createClient();await supabase.auth.signOut();router.push("/auth/login");router.refresh();};
 
   const exportBackup=()=>{
-    const payload={exportedAt:new Date().toISOString(),data:data,batches:batches,orders:orders,laborRates:laborRates};
+    const payload={exportedAt:new Date().toISOString(),data:data,batches:batches,orders:orders,laborRates:laborRates,employees:employees};
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
@@ -3591,12 +3880,15 @@ export default function EpsInventoryApp(){
           }
           setLaborRates(Object.assign({},DEFAULT_LABOR_RATES,lr2));
         }
+        if(Array.isArray(p.employees))setEmployees(p.employees);
         showToast("Backup restored ✓ — review, then it will auto-save");
       }catch(e){console.error("Import failed",e);showToast("⚠️ That file doesn't look like a valid backup","error");}
     };
     r.readAsText(file);
   };
 
+  const saveEmployee=emp=>{setEmployees(es=>es.some(x=>x.id===emp.id)?es.map(x=>x.id===emp.id?emp:x):es.concat([emp]));showToast("Saved ✓");};
+  const deleteEmployee=id=>{setEmployees(es=>es.filter(x=>x.id!==id));showToast("Deleted","error");};
   const updateLot=(mat,u)=>{setData(d=>Object.assign({},d,{[mat]:Object.assign({},d[mat],{lots:d[mat].lots.map(l=>l.id===u.id?u:l)})}));showToast("Saved ✓");};
   const deleteLot=(mat,id)=>{setData(d=>Object.assign({},d,{[mat]:Object.assign({},d[mat],{lots:d[mat].lots.filter(l=>l.id!==id)})}));showToast("Deleted","error");};
   const addLot=(mat,lot)=>{setData(d=>Object.assign({},d,{[mat]:Object.assign({},d[mat],{lots:d[mat].lots.concat([lot])})}));showToast("Added ✓");};
@@ -3766,19 +4058,21 @@ export default function EpsInventoryApp(){
   else if(section==="finance")content=<FinanceSection data={data} batches={batches} orders={orders} laborRates={laborRates} onSaveLaborRates={setLaborRates} onUpdateBatch={updateBatch} onClose={()=>setSection("inventory")}/>;
   else if(section==="labels")content=<LabelsSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="certificates")content=<CertificatesSection batches={batches} onClose={()=>setSection("inventory")}/>;
+  else if(section==="employees")content=<EmployeesSection employees={employees} batches={batches} onSave={saveEmployee} onDelete={deleteEmployee} onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
-    <ProductionSection data={data} batches={batches} orders={orders} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onApplyMaterial={applyMaterialQty} onDeleteSub={deleteSub} onSaveLeftover={lot=>addLot("WIP Inventory",lot)} onMarkUnpricedSamples={markUnpricedAsSamples}/></div>;
+    <ProductionSection data={data} batches={batches} orders={orders} employees={employees} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onApplyMaterial={applyMaterialQty} onDeleteSub={deleteSub} onSaveLeftover={lot=>addLot("WIP Inventory",lot)} onMarkUnpricedSamples={markUnpricedAsSamples}/></div>;
   else if(section==="orders")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
     <OrdersSection batches={batches} orders={orders} onCreateOrder={createOrder} onDeleteOrder={deleteOrder} onDeleteAllOrders={deleteAllOrders} onUpdateOrder={updateOrder}/></div>;
   else if(activeMat)content=<MaterialView matName={activeMat} matConfig={data[activeMat]} lots={data[activeMat].lots} coils={data[activeMat].coils||[]}
     coilLots={(data["Aluminum Coils"]&&data["Aluminum Coils"].lots)||[]}
+    batches={batches} employees={employees}
     onUpdate={l=>updateLot(activeMat,l)} onDelete={id=>deleteLot(activeMat,id)} onAdd={l=>addLot(activeMat,l)} onBack={()=>setActiveMat(null)}
     onUseCoilStock={useCoilStock}
     onStartCoil={p=>startCoil(activeMat,p)} onMeasureCoil={p=>measureCoil(activeMat,p)} onFinishCoil={()=>finishCoil(activeMat)}
     onToggleBag={(lid,bid)=>toggleBag(activeMat,lid,bid)} onCreateAlBatch={createAlBatch}/>;
   else content=<Dashboard data={data} batches={batches} orders={orders} onSelect={setActiveMat} onLogout={logout} onExport={exportBackup} onImportFile={importBackup} lastSync={lastSync} onSection={s=>{setSection(s);setActiveMat(null);}}/>;
 
-  const showTabs=section!=="log"&&section!=="reports"&&section!=="finance"&&section!=="labels"&&section!=="certificates"&&!activeMat;
+  const showTabs=section!=="log"&&section!=="reports"&&section!=="finance"&&section!=="labels"&&section!=="certificates"&&section!=="employees"&&!activeMat;
   return(<div style={{fontFamily:"'Inter',sans-serif"}}>
     {showTabs&&<div style={{background:"#142540",position:"sticky",top:0,zIndex:200,borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
       <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
