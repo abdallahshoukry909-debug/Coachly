@@ -578,9 +578,9 @@ function CashOpeningSetup({opening,onSave}){
   </div>);
 }
 function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,onDeleteEntry,onSetOpening,
-  orders,silicaEntries,silicaSettings,silicaWithdrawals,flipOffSettings,flipOffWithdrawals,
+  batches,silicaEntries,silicaSettings,silicaWithdrawals,flipOffSettings,flipOffWithdrawals,
   onSaveSilicaEntry,onDeleteSilicaEntry,onSaveSilicaSettings,onAddSilicaWithdrawal,onDeleteSilicaWithdrawal,
-  onSaveOrder,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal,onClose}){
+  onSaveBatch,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal,onClose}){
   const [showAdd,setShowAdd]=useState(false);
   const [tab,setTab]=useState("ledger");
   const balance=cashRunningBalance(cashOpening,cashLedger);
@@ -601,12 +601,12 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
       </div></div>
     <div style={{maxWidth:700,margin:"0 auto",padding:16}}>
       {tab!=="commissions"&&<CashOpeningSetup opening={cashOpening} onSave={onSetOpening}/>}
-      {tab==="commissions"&&<CommissionsView orders={orders}
+      {tab==="commissions"&&<CommissionsView batches={batches} data={data} laborRates={laborRates}
         silicaEntries={silicaEntries} silicaSettings={silicaSettings} silicaWithdrawals={silicaWithdrawals}
         flipOffSettings={flipOffSettings} flipOffWithdrawals={flipOffWithdrawals}
         onSaveSilicaEntry={onSaveSilicaEntry} onDeleteSilicaEntry={onDeleteSilicaEntry} onSaveSilicaSettings={onSaveSilicaSettings}
         onAddSilicaWithdrawal={onAddSilicaWithdrawal} onDeleteSilicaWithdrawal={onDeleteSilicaWithdrawal}
-        onSaveOrder={onSaveOrder} onSaveFlipOffSettings={onSaveFlipOffSettings}
+        onSaveBatch={onSaveBatch} onSaveFlipOffSettings={onSaveFlipOffSettings}
         onAddFlipOffWithdrawal={onAddFlipOffWithdrawal} onDeleteFlipOffWithdrawal={onDeleteFlipOffWithdrawal}/>}
       {tab!=="commissions"&&cashOpening&&<>
       {tab==="ledger"&&<>
@@ -832,45 +832,43 @@ function SilicaCommissionRow({row,settings,onSave,onDelete}){
       <span>{row.commissionPaid?"✅ Commission paid":"⏳ Commission unpaid"}</span></div>
     <button type="button" onClick={()=>setEditing(true)} style={{background:"#F5F7FA",border:"none",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ Edit</button></div>);
 }
-function SilicaCommissionTracker({entries,settings,withdrawals,onSaveEntry,onDeleteEntry,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal}){
-  const [showAdd,setShowAdd]=useState(false);
-  const summary=commissionSummary(entries,settings);
-  const sorted=entries.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  return(<div>
-    <CommissionSettingsCard settings={settings} onSave={onSaveSettings}/>
-    <CommissionSummaryCard summary={summary}/>
-    <OwnerSharesCard owners={COMMISSION_OWNERS_SILICA} distributableProfit={summary.distributableProfit} withdrawals={withdrawals} onAddWithdrawal={onAddWithdrawal} onDeleteWithdrawal={onDeleteWithdrawal}/>
-    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>🧾 Sales</div>
-    {!showAdd&&<button type="button" onClick={()=>setShowAdd(true)} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:14}}>+ Add Sale</button>}
-    {showAdd&&<SilicaCommissionRowEdit row={{}} onSave={r=>{onSaveEntry(r);setShowAdd(false);}} onCancel={()=>setShowAdd(false)}/>}
-    {sorted.map(r=><SilicaCommissionRow key={r.id} row={r} settings={settings} onSave={onSaveEntry} onDelete={()=>onDeleteEntry(r.id)}/>)}
-    {entries.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No sales logged yet.</div>}
-  </div>);
+// Each shipment/invoice is a real production Batch, not an Order — an Order can span several
+// batches shipped (and invoiced, and paid) separately over time, so the batch is the right unit
+// for a commission row. dateShipped/moneyReceived/commissionPaid/datePaidCommission live
+// directly on the batch record (added here, alongside the batch's existing sellPricePerPc); the
+// Sales/Gross Profit figures come straight from buildBatchCost(), the same real cost/revenue
+// calc Finance already uses per batch — not a separately typed estimate.
+function commissionRowsFromBatches(batches,data,laborRates,forSilica){
+  return (batches||[]).filter(b=>!b.isSubBatch&&isSilicaProduct(b.product)===forSilica&&b.status!=="Rejected").map(b=>{
+    const fin=buildBatchCost(b,batches,data,laborRates);
+    return {id:"batch-"+b.id,date:b.dateShipped||null,totalSalesEGP:fin.revenueEGP,grossProfitEGP:fin.profitEGP,
+      moneyReceived:!!b.moneyReceived,commissionPaid:!!b.commissionPaid};
+  });
 }
-function FlipOffCommissionRow({order,settings,onSave}){
+function BatchCommissionRow({batch,batches,data,laborRates,settings,onSave}){
   const [editing,setEditing]=useState(false);
-  const fin=orderFinance(order);
-  const row={date:order.dateShipped,totalSalesEGP:fin.revenueEGP,grossProfitEGP:fin.profitEGP,moneyReceived:!!order.moneyReceived};
+  const fin=buildBatchCost(batch,batches,data,laborRates);
+  const row={date:batch.dateShipped,totalSalesEGP:fin.revenueEGP,grossProfitEGP:fin.profitEGP,moneyReceived:!!batch.moneyReceived};
   const calc=commissionRowCalc(row,settings);
-  const [date,setDate]=useState(order.dateShipped||""),[moneyReceived,setMoneyReceived]=useState(!!order.moneyReceived);
-  const [commissionPaid,setCommissionPaid]=useState(!!order.commissionPaid),[datePaid,setDatePaid]=useState(order.datePaidCommission||"");
-  const save=()=>{onSave(Object.assign({},order,{dateShipped:date,moneyReceived:moneyReceived,commissionPaid:commissionPaid,datePaidCommission:datePaid||null}));setEditing(false);};
+  const [date,setDate]=useState(batch.dateShipped||""),[moneyReceived,setMoneyReceived]=useState(!!batch.moneyReceived);
+  const [commissionPaid,setCommissionPaid]=useState(!!batch.commissionPaid),[datePaid,setDatePaid]=useState(batch.datePaidCommission||"");
+  const save=()=>{onSave(Object.assign({},batch,{dateShipped:date,moneyReceived:moneyReceived,commissionPaid:commissionPaid,datePaidCommission:datePaid||null}));setEditing(false);};
   if(!editing)return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:"12px 14px",marginBottom:8}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:6}}>
-      <div><strong>{order.client||"—"}</strong> <span style={{color:"#999",fontSize:11}}>{order.orderNo} · {order.product}</span>
-        <div style={{fontSize:11,color:"#999"}}>{order.dateShipped||"— no ship date —"} · {fmtN(order.targetQty)} pcs</div></div>
+      <div><strong>{batch.client||"—"}</strong> <span style={{color:"#999",fontSize:11}}>{batch.batchNo} · {batch.product}{batch.color?" · "+batch.color:""}</span>
+        <div style={{fontSize:11,color:"#999"}}>{batch.dateShipped||"— no ship date —"} · {fmtN(batch.totalPcs)} pcs</div></div>
       <PaymentStatusBadge status={calc.paymentStatus}/></div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:11,marginBottom:8}}>
-      <div>Sales (est.)<div style={{fontWeight:700,fontSize:13}}>{fmtN(fin.revenueEGP)}</div></div>
-      <div>Gross Profit (est.)<div style={{fontWeight:700,fontSize:13}}>{fmtN(fin.profitEGP)}</div></div>
+      <div>Sales<div style={{fontWeight:700,fontSize:13}}>{fmtN(fin.revenueEGP)}</div></div>
+      <div>Gross Profit<div style={{fontWeight:700,fontSize:13}}>{fmtN(fin.profitEGP)}</div></div>
       <div>Commission Due<div style={{fontWeight:700,fontSize:13,color:calc.commissionDue>0?"#1A6B2A":"#999"}}>{fmtN(calc.commissionDue)}</div></div></div>
     <div style={{display:"flex",gap:14,fontSize:11,color:"#666",marginBottom:8}}>
-      <span>{order.moneyReceived?"✅ Received":"⏳ Not received"}</span>
-      <span>{order.commissionPaid?"✅ Commission paid":"⏳ Commission unpaid"}</span></div>
+      <span>{batch.moneyReceived?"✅ Received":"⏳ Not received"}</span>
+      <span>{batch.commissionPaid?"✅ Commission paid":"⏳ Commission unpaid"}</span></div>
     <button type="button" onClick={()=>setEditing(true)} style={{background:"#F5F7FA",border:"none",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ Edit</button></div>);
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:8}}>
-    <div style={{fontSize:12,color:"#888",marginBottom:8}}>{order.orderNo} · {order.client} — Sales/Profit pull live from Finance; edit those there, not here.</div>
-    <div style={{marginBottom:10}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date Shipped</label>
+    <div style={{fontSize:12,color:"#888",marginBottom:8}}>{batch.batchNo} · {batch.client} — Sales/Profit pull live from the batch&apos;s own production cost; edit sell price on the batch itself, not here.</div>
+    <div style={{marginBottom:10}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date Shipped (invoiced)</label>
       <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
     <div style={{display:"flex",gap:16,marginBottom:10}}>
       <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}><input type="checkbox" checked={moneyReceived} onChange={e=>setMoneyReceived(e.target.checked)}/> Money Received</label>
@@ -882,23 +880,45 @@ function FlipOffCommissionRow({order,settings,onSave}){
       <button type="button" onClick={()=>setEditing(false)} style={{padding:"11px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>Cancel</button></div>
   </div>);
 }
-function FlipOffCommissionTracker({orders,settings,withdrawals,onSaveOrder,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal}){
-  const flipOrders=orders.filter(o=>!isSilicaProduct(o.product));
-  const rows=flipOrders.map(o=>{const fin=orderFinance(o);return {date:o.dateShipped,totalSalesEGP:fin.revenueEGP,grossProfitEGP:fin.profitEGP,moneyReceived:!!o.moneyReceived,commissionPaid:!!o.commissionPaid};});
+// Silica keeps its historical manually-typed rows (receipts that don't match batch records) as
+// the permanent record of what was already sold — but every Silica batch shipped from now on
+// shows up automatically here too, same mechanism as Flip-Off, so nothing new needs typing in.
+function SilicaCommissionTracker({entries,settings,withdrawals,batches,data,laborRates,onSaveEntry,onDeleteEntry,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal,onSaveBatch}){
+  const [showAdd,setShowAdd]=useState(false);
+  const batchRows=commissionRowsFromBatches(batches,data,laborRates,true);
+  const summary=commissionSummary(entries.concat(batchRows),settings);
+  const sortedEntries=entries.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const silicaBatches=(batches||[]).filter(b=>!b.isSubBatch&&isSilicaProduct(b.product)&&b.status!=="Rejected").sort((a,b)=>(b.dateShipped||"").localeCompare(a.dateShipped||""));
+  return(<div>
+    <CommissionSettingsCard settings={settings} onSave={onSaveSettings}/>
+    <CommissionSummaryCard summary={summary}/>
+    <OwnerSharesCard owners={COMMISSION_OWNERS_SILICA} distributableProfit={summary.distributableProfit} withdrawals={withdrawals} onAddWithdrawal={onAddWithdrawal} onDeleteWithdrawal={onDeleteWithdrawal}/>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>🧾 Sales (typed in — historical receipts)</div>
+    {!showAdd&&<button type="button" onClick={()=>setShowAdd(true)} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:14}}>+ Add Sale</button>}
+    {showAdd&&<SilicaCommissionRowEdit row={{}} onSave={r=>{onSaveEntry(r);setShowAdd(false);}} onCancel={()=>setShowAdd(false)}/>}
+    {sortedEntries.map(r=><SilicaCommissionRow key={r.id} row={r} settings={settings} onSave={onSaveEntry} onDelete={()=>onDeleteEntry(r.id)}/>)}
+    {entries.length===0&&<div style={{textAlign:"center",padding:20,color:"#888",fontSize:13}}>No typed-in sales.</div>}
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginTop:18,marginBottom:10}}>📦 Batches (auto, from Production)</div>
+    {silicaBatches.map(b=><BatchCommissionRow key={b.id} batch={b} batches={batches} data={data} laborRates={laborRates} settings={settings} onSave={onSaveBatch}/>)}
+    {silicaBatches.length===0&&<div style={{textAlign:"center",padding:20,color:"#888",fontSize:13}}>No Silica Gel batches yet — create one under Production.</div>}
+  </div>);
+}
+function FlipOffCommissionTracker({batches,data,laborRates,settings,withdrawals,onSaveBatch,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal}){
+  const rows=commissionRowsFromBatches(batches,data,laborRates,false);
   const summary=commissionSummary(rows,settings);
-  const sorted=flipOrders.slice().sort((a,b)=>(b.dateShipped||"").localeCompare(a.dateShipped||""));
+  const sorted=(batches||[]).filter(b=>!b.isSubBatch&&!isSilicaProduct(b.product)&&b.status!=="Rejected").sort((a,b)=>(b.dateShipped||"").localeCompare(a.dateShipped||""));
   return(<div>
     <CommissionSettingsCard settings={settings} onSave={onSaveSettings}/>
     <CommissionSummaryCard summary={summary}/>
     <OwnerSharesCard owners={COMMISSION_OWNERS_FLIPOFF} distributableProfit={summary.distributableProfit} withdrawals={withdrawals} onAddWithdrawal={onAddWithdrawal} onDeleteWithdrawal={onDeleteWithdrawal}/>
-    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>🧾 Orders</div>
-    {sorted.map(o=><FlipOffCommissionRow key={o.id} order={o} settings={settings} onSave={onSaveOrder}/>)}
-    {flipOrders.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No Flip-Off orders yet — add one under Orders.</div>}
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>🧾 Batches</div>
+    {sorted.map(b=><BatchCommissionRow key={b.id} batch={b} batches={batches} data={data} laborRates={laborRates} settings={settings} onSave={onSaveBatch}/>)}
+    {sorted.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No Flip-Off batches yet — create one under Production.</div>}
   </div>);
 }
-function CommissionsView({orders,silicaEntries,silicaSettings,silicaWithdrawals,flipOffSettings,flipOffWithdrawals,
+function CommissionsView({batches,data,laborRates,silicaEntries,silicaSettings,silicaWithdrawals,flipOffSettings,flipOffWithdrawals,
   onSaveSilicaEntry,onDeleteSilicaEntry,onSaveSilicaSettings,onAddSilicaWithdrawal,onDeleteSilicaWithdrawal,
-  onSaveOrder,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal}){
+  onSaveBatch,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal}){
   const [line,setLine]=useState("silica");
   return(<div>
     <div style={{display:"flex",gap:8,marginBottom:14}}>
@@ -906,11 +926,11 @@ function CommissionsView({orders,silicaEntries,silicaSettings,silicaWithdrawals,
         <button type="button" key={x[0]} onClick={()=>setLine(x[0])}
           style={{flex:1,padding:9,borderRadius:8,fontWeight:700,fontSize:12,cursor:"pointer",border:"1.5px solid "+(line===x[0]?NAVY:"#E2E8F0"),background:line===x[0]?NAVY:"#fff",color:line===x[0]?"#fff":"#666"}}>{x[1]}</button>))}
     </div>
-    {line==="silica"&&<SilicaCommissionTracker entries={silicaEntries} settings={silicaSettings} withdrawals={silicaWithdrawals}
+    {line==="silica"&&<SilicaCommissionTracker entries={silicaEntries} settings={silicaSettings} withdrawals={silicaWithdrawals} batches={batches} data={data} laborRates={laborRates}
       onSaveEntry={onSaveSilicaEntry} onDeleteEntry={onDeleteSilicaEntry} onSaveSettings={onSaveSilicaSettings}
-      onAddWithdrawal={onAddSilicaWithdrawal} onDeleteWithdrawal={onDeleteSilicaWithdrawal}/>}
-    {line==="flipoff"&&<FlipOffCommissionTracker orders={orders} settings={flipOffSettings} withdrawals={flipOffWithdrawals}
-      onSaveOrder={onSaveOrder} onSaveSettings={onSaveFlipOffSettings} onAddWithdrawal={onAddFlipOffWithdrawal} onDeleteWithdrawal={onDeleteFlipOffWithdrawal}/>}
+      onAddWithdrawal={onAddSilicaWithdrawal} onDeleteWithdrawal={onDeleteSilicaWithdrawal} onSaveBatch={onSaveBatch}/>}
+    {line==="flipoff"&&<FlipOffCommissionTracker batches={batches} data={data} laborRates={laborRates} settings={flipOffSettings} withdrawals={flipOffWithdrawals}
+      onSaveBatch={onSaveBatch} onSaveSettings={onSaveFlipOffSettings} onAddWithdrawal={onAddFlipOffWithdrawal} onDeleteWithdrawal={onDeleteFlipOffWithdrawal}/>}
   </div>);
 }
 
@@ -3379,7 +3399,7 @@ function ActivityLog({data,batches,onClose}){
 }
 
 // ══ DASHBOARD ═════════════════════════════════════════════════════════════
-function Dashboard({data,batches,orders,onSelect,onLogout,onExport,onImportFile,lastSync,onSection}){
+function Dashboard({data,batches,onSelect,onLogout,onExport,onImportFile,lastSync,onSection}){
   const importRef=useRef();
   const all=[];Object.keys(data).forEach(k=>{(data[k].lots||[]).forEach(l=>all.push(l));});
   const main=batches.filter(b=>!b.isSubBatch);
@@ -3407,8 +3427,6 @@ function Dashboard({data,batches,orders,onSelect,onLogout,onExport,onImportFile,
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:18}}>
         <button type="button" onClick={()=>onSection("production")} style={{background:NAVY,color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🏭 Production
           <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>{bStats.total} batches · {fmtN(bStats.totalPcs)} pcs</div></button>
-        <button type="button" onClick={()=>onSection("orders")} style={{background:"#0E4A2A",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>📋 Orders
-          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>{orders.length} orders</div></button>
         <button type="button" onClick={()=>onSection("reports")} style={{background:"#4A1A6E",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🧾 Reports
           <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>For the board</div></button>
         <button type="button" onClick={()=>onSection("finance")} style={{background:"#8B6914",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>💰 Finance
@@ -4756,11 +4774,11 @@ export default function EpsInventoryApp(){
   else if(section==="certificates")content=<CertificatesSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="employees")content=<EmployeesSection employees={employees} batches={batches} onSave={saveEmployee} onDelete={deleteEmployee} onClose={()=>setSection("inventory")}/>;
   else if(section==="cashledger")content=<CashLedgerSection cashLedger={cashLedger} cashOpening={cashOpening} data={data} laborRates={laborRates} onSaveEntry={saveCashEntry} onDeleteEntry={deleteCashEntry} onSetOpening={setCashOpeningBalance}
-    orders={orders} silicaEntries={silicaCommissionEntries} silicaSettings={silicaCommissionSettings} silicaWithdrawals={silicaOwnerWithdrawals}
+    batches={batches} silicaEntries={silicaCommissionEntries} silicaSettings={silicaCommissionSettings} silicaWithdrawals={silicaOwnerWithdrawals}
     flipOffSettings={flipOffCommissionSettings} flipOffWithdrawals={flipOffOwnerWithdrawals}
     onSaveSilicaEntry={saveSilicaCommissionEntry} onDeleteSilicaEntry={deleteSilicaCommissionEntry} onSaveSilicaSettings={saveSilicaCommissionSettings}
     onAddSilicaWithdrawal={addSilicaOwnerWithdrawal} onDeleteSilicaWithdrawal={deleteSilicaOwnerWithdrawal}
-    onSaveOrder={updateOrder} onSaveFlipOffSettings={saveFlipOffCommissionSettings}
+    onSaveBatch={updateBatch} onSaveFlipOffSettings={saveFlipOffCommissionSettings}
     onAddFlipOffWithdrawal={addFlipOffOwnerWithdrawal} onDeleteFlipOffWithdrawal={deleteFlipOffOwnerWithdrawal}
     onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
@@ -4780,7 +4798,7 @@ export default function EpsInventoryApp(){
   return(<div style={{fontFamily:"'Inter',sans-serif"}}>
     {showTabs&&<div style={{background:"#142540",position:"sticky",top:0,zIndex:200,borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
       <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
-        {[["📦 Inventory","inventory"],["🏭 Production","production"],["📋 Orders","orders"],["🧾 Reports","reports"],["💰 Finance","finance"],["🏦 EP Finance","cashledger"],["📊 Log","log"]].map(x=>(
+        {[["📦 Inventory","inventory"],["🏭 Production","production"],["🧾 Reports","reports"],["💰 Finance","finance"],["🏦 EP Finance","cashledger"],["📊 Log","log"]].map(x=>(
           <button type="button" key={x[1]} onClick={()=>{setSection(x[1]);setActiveMat(null);}}
             style={{flex:1,background:"none",border:"none",color:section===x[1]?"#fff":"rgba(255,255,255,0.45)",padding:"11px 8px",fontSize:12,fontWeight:section===x[1]?700:400,cursor:"pointer",borderBottom:"2px solid "+(section===x[1]?ACCENT:"transparent"),fontFamily:"inherit",whiteSpace:"nowrap"}}>{x[0]}</button>))}
       </div></div>}
