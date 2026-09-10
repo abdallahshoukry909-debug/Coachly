@@ -776,16 +776,18 @@ function PaymentStatusBadge({status}){
   const cfg={"RECEIVED":["#C6EFCE","#1A6B2A"],"OVERDUE":["#FDDEDE","#8B1A1A"],"DUE LATER":["#FFF3CD","#856404"],"NEED SHIP DATE":["#EEE","#666"]}[status]||["#EEE","#666"];
   return <span style={{background:cfg[0],color:cfg[1],borderRadius:20,padding:"2px 9px",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{status}</span>;
 }
-function SilicaCommissionRowEdit({row,onSave,onCancel,onDelete}){
+function SilicaCommissionRowEdit({row,batches,onSave,onCancel,onDelete}){
   const e=row||{};
   const [date,setDate]=useState(e.date||""),[client,setClient]=useState(e.client||""),[product,setProduct]=useState(e.product||"Silica Gel Sachet");
   const [size,setSize]=useState(e.size||""),[qty,setQty]=useState(e.qty!=null?String(e.qty):""),[sales,setSales]=useState(e.totalSalesEGP!=null?String(e.totalSalesEGP):""),[profit,setProfit]=useState(e.grossProfitEGP!=null?String(e.grossProfitEGP):"");
   const [moneyReceived,setMoneyReceived]=useState(!!e.moneyReceived),[commissionPaid,setCommissionPaid]=useState(!!e.commissionPaid),[datePaid,setDatePaid]=useState(e.datePaid||"");
+  const [batchId,setBatchId]=useState(e.batchId||"");
   const [confDel,setConfDel]=useState(false),[err,setErr]=useState("");
+  const silicaBatchOptions=(batches||[]).filter(b=>!b.isSubBatch&&isSilicaProduct(b.product));
   const save=()=>{
     if(!client.trim()){setErr("Enter a client.");return;}
     onSave(Object.assign({},e,{id:e.id||genId(),date:date,client:client.trim(),product:product,size:size,qty:Number(qty)||0,
-      totalSalesEGP:Number(sales)||0,grossProfitEGP:Number(profit)||0,moneyReceived:moneyReceived,commissionPaid:commissionPaid,datePaid:datePaid||null}));
+      totalSalesEGP:Number(sales)||0,grossProfitEGP:Number(profit)||0,moneyReceived:moneyReceived,commissionPaid:commissionPaid,datePaid:datePaid||null,batchId:batchId||null}));
   };
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:8}}>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
@@ -799,6 +801,12 @@ function SilicaCommissionRowEdit({row,onSave,onCancel,onDelete}){
       <Field label="Qty (pcs)" value={qty} onChange={setQty} type="number"/>
       <Field label="Total Sales (EGP)" value={sales} onChange={setSales} type="number"/>
       <Field label="Gross Profit (EGP)" value={profit} onChange={setProfit} type="number"/></div>
+    <div style={{marginBottom:10}}>
+      <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Link to Batch (optional)</label>
+      <select value={batchId} onChange={ev=>setBatchId(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+        <option value="">— not linked —</option>
+        {silicaBatchOptions.map(b=><option key={b.id} value={b.id}>{b.batchNo} · {b.client||"—"} · {fmtN(b.totalPcs)} pcs</option>)}</select>
+      <div style={{fontSize:11,color:"#999",marginTop:4}}>Matches this sale to its real production batch — keeps it from also showing up as a separate auto-row below.</div></div>
     <div style={{display:"flex",gap:16,marginBottom:10}}>
       <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}><input type="checkbox" checked={moneyReceived} onChange={ev=>setMoneyReceived(ev.target.checked)}/> Money Received</label>
       <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}><input type="checkbox" checked={commissionPaid} onChange={ev=>setCommissionPaid(ev.target.checked)}/> Commission Paid</label></div>
@@ -814,14 +822,15 @@ function SilicaCommissionRowEdit({row,onSave,onCancel,onDelete}){
     :(<button type="button" onClick={()=>setConfDel(true)} style={{padding:"8px 14px",border:"1.5px solid #F1948A",color:"#DC3545",background:"#FFF0F0",borderRadius:6,cursor:"pointer",fontSize:12}}>Delete entry</button>))}
   </div>);
 }
-function SilicaCommissionRow({row,settings,onSave,onDelete}){
+function SilicaCommissionRow({row,batches,settings,onSave,onDelete}){
   const [editing,setEditing]=useState(false);
   const calc=commissionRowCalc(row,settings);
-  if(editing)return <SilicaCommissionRowEdit row={row} onSave={u=>{onSave(u);setEditing(false);}} onCancel={()=>setEditing(false)} onDelete={onDelete}/>;
+  const linkedBatch=row.batchId?(batches||[]).filter(b=>b.id===row.batchId)[0]:null;
+  if(editing)return <SilicaCommissionRowEdit row={row} batches={batches} onSave={u=>{onSave(u);setEditing(false);}} onCancel={()=>setEditing(false)} onDelete={onDelete}/>;
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:"12px 14px",marginBottom:8}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:6}}>
       <div><strong>{row.client}</strong> <span style={{color:"#999",fontSize:11}}>{row.product}{row.size?" · "+row.size:""}</span>
-        <div style={{fontSize:11,color:"#999"}}>{row.date||"— no ship date —"} · {fmtN(row.qty)} pcs</div></div>
+        <div style={{fontSize:11,color:"#999"}}>{row.date||"— no ship date —"} · {fmtN(row.qty)} pcs{linkedBatch?" · 🔗 "+linkedBatch.batchNo:""}</div></div>
       <PaymentStatusBadge status={calc.paymentStatus}/></div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:11,marginBottom:8}}>
       <div>Sales<div style={{fontWeight:700,fontSize:13}}>{fmtN(row.totalSalesEGP)}</div></div>
@@ -841,11 +850,14 @@ function SilicaCommissionRow({row,settings,onSave,onDelete}){
 // A batch counts for commission only if it was a real paid sale — never a Rejected batch (no
 // sale happened), never a free sample (isSample, or manually flagged excludeFromCommission for
 // an older sample that predates that checkbox).
-function isCommissionEligibleBatch(b,forSilica){
-  return !b.isSubBatch&&isSilicaProduct(b.product)===forSilica&&b.status!=="Rejected"&&!b.isSample&&!b.excludeFromCommission;
+// excludeBatchIds lets a manually-typed Silica entry that's been linked to its real batch (via
+// batchId) suppress that batch's own auto-row — otherwise the same sale would be counted twice,
+// once from the typed entry and once from the batch.
+function isCommissionEligibleBatch(b,forSilica,excludeBatchIds){
+  return !b.isSubBatch&&isSilicaProduct(b.product)===forSilica&&b.status!=="Rejected"&&!b.isSample&&!b.excludeFromCommission&&!(excludeBatchIds&&excludeBatchIds[b.id]);
 }
-function commissionRowsFromBatches(batches,data,laborRates,forSilica){
-  return (batches||[]).filter(b=>isCommissionEligibleBatch(b,forSilica)).map(b=>{
+function commissionRowsFromBatches(batches,data,laborRates,forSilica,excludeBatchIds){
+  return (batches||[]).filter(b=>isCommissionEligibleBatch(b,forSilica,excludeBatchIds)).map(b=>{
     const fin=buildBatchCost(b,batches,data,laborRates);
     return {id:"batch-"+b.id,date:b.dateShipped||null,totalSalesEGP:fin.revenueEGP,grossProfitEGP:fin.profitEGP,
       moneyReceived:!!b.moneyReceived,commissionPaid:!!b.commissionPaid};
@@ -912,22 +924,23 @@ function ExcludedBatchesList({batches,forSilica,onSaveBatch}){
 // shows up automatically here too, same mechanism as Flip-Off, so nothing new needs typing in.
 function SilicaCommissionTracker({entries,settings,withdrawals,batches,data,laborRates,onSaveEntry,onDeleteEntry,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal,onSaveBatch}){
   const [showAdd,setShowAdd]=useState(false);
-  const batchRows=commissionRowsFromBatches(batches,data,laborRates,true);
+  const linkedBatchIds={};entries.forEach(en=>{if(en.batchId)linkedBatchIds[en.batchId]=1;});
+  const batchRows=commissionRowsFromBatches(batches,data,laborRates,true,linkedBatchIds);
   const summary=commissionSummary(entries.concat(batchRows),settings);
   const sortedEntries=entries.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  const silicaBatches=(batches||[]).filter(b=>isCommissionEligibleBatch(b,true)).sort((a,b)=>(b.dateShipped||"").localeCompare(a.dateShipped||""));
+  const silicaBatches=(batches||[]).filter(b=>isCommissionEligibleBatch(b,true,linkedBatchIds)).sort((a,b)=>(b.dateShipped||"").localeCompare(a.dateShipped||""));
   return(<div>
     <CommissionSettingsCard settings={settings} onSave={onSaveSettings}/>
     <CommissionSummaryCard summary={summary}/>
     <OwnerSharesCard owners={COMMISSION_OWNERS_SILICA} distributableProfit={summary.distributableProfit} withdrawals={withdrawals} onAddWithdrawal={onAddWithdrawal} onDeleteWithdrawal={onDeleteWithdrawal}/>
     <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>🧾 Sales (typed in — historical receipts)</div>
     {!showAdd&&<button type="button" onClick={()=>setShowAdd(true)} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:14}}>+ Add Sale</button>}
-    {showAdd&&<SilicaCommissionRowEdit row={{}} onSave={r=>{onSaveEntry(r);setShowAdd(false);}} onCancel={()=>setShowAdd(false)}/>}
-    {sortedEntries.map(r=><SilicaCommissionRow key={r.id} row={r} settings={settings} onSave={onSaveEntry} onDelete={()=>onDeleteEntry(r.id)}/>)}
+    {showAdd&&<SilicaCommissionRowEdit row={{}} batches={batches} onSave={r=>{onSaveEntry(r);setShowAdd(false);}} onCancel={()=>setShowAdd(false)}/>}
+    {sortedEntries.map(r=><SilicaCommissionRow key={r.id} row={r} batches={batches} settings={settings} onSave={onSaveEntry} onDelete={()=>onDeleteEntry(r.id)}/>)}
     {entries.length===0&&<div style={{textAlign:"center",padding:20,color:"#888",fontSize:13}}>No typed-in sales.</div>}
-    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginTop:18,marginBottom:10}}>📦 Batches (auto, from Production)</div>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginTop:18,marginBottom:10}}>📦 Batches (auto, from Production — not already linked above)</div>
     {silicaBatches.map(b=><BatchCommissionRow key={b.id} batch={b} batches={batches} data={data} laborRates={laborRates} settings={settings} onSave={onSaveBatch}/>)}
-    {silicaBatches.length===0&&<div style={{textAlign:"center",padding:20,color:"#888",fontSize:13}}>No Silica Gel batches yet — create one under Production.</div>}
+    {silicaBatches.length===0&&<div style={{textAlign:"center",padding:20,color:"#888",fontSize:13}}>No unlinked Silica Gel batches — link a sale above to its batch, or create a new one under Production.</div>}
     <ExcludedBatchesList batches={batches} forSilica={true} onSaveBatch={onSaveBatch}/>
   </div>);
 }
