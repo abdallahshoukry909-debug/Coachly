@@ -623,6 +623,293 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
     </div></div>);
 }
 
+// ══ SALES COMMISSION TRACKER ═══════════════════════════════════════════════
+// Replicates the company's commission spreadsheet: Income Tax → Net Profit After Tax →
+// Commission (only once money is actually RECEIVED from the client, never on a pending sale) —
+// then split among the owners by their share, with a withdrawal log tracking what each has
+// already taken against their share. Two independent trackers, matching the spreadsheet's two
+// separate sheets — Silica Gel and Flip-Off have different owner splits and are tracked
+// separately. Flip-Off rows pull Total Sales/Gross Profit live from orderFinance() (the app's
+// own Finance estimate) rather than being typed in, since every Flip-Off order already lives in
+// Orders; Silica Gel rows are typed in directly, since its receipts are made up differently from
+// the batch records and the typed figure is the one that's actually collected.
+const COMMISSION_OWNERS_SILICA=[{name:"Youssef",share:1/3},{name:"Roger",share:1/3},{name:"Islam",share:1/3}];
+const COMMISSION_OWNERS_FLIPOFF=[{name:"Youssef",share:0.5},{name:"Roger",share:0.5}];
+const DEFAULT_COMMISSION_SETTINGS={incomeTaxRate:0.22,commissionRate:0.08,paymentTermsDays:60};
+const INITIAL_SILICA_COMMISSION_ENTRIES=[
+  {id:"sc-1",date:"2026-07-14",client:"Adwia",product:"Silica Gel Sachet",size:"0.5",qty:520000,totalSalesEGP:163800,grossProfitEGP:127400,moneyReceived:false,commissionPaid:false,datePaid:null},
+  {id:"sc-2",date:"2026-07-16",client:"Adwia",product:"Silica Gel Sachet",size:"0.5",qty:480000,totalSalesEGP:151200,grossProfitEGP:117600,moneyReceived:false,commissionPaid:false,datePaid:null},
+  {id:"sc-3",date:"2026-08-10",client:"Organix Eg",product:"Silica Gel Sachet",size:"0.5",qty:100000,totalSalesEGP:39000,grossProfitEGP:32000,moneyReceived:true,commissionPaid:true,datePaid:null},
+  {id:"sc-4",date:"2026-08-18",client:"EVA",product:"Silica Gel Sachet",size:"1 g",qty:50000,totalSalesEGP:35256,grossProfitEGP:26200,moneyReceived:false,commissionPaid:false,datePaid:null},
+  {id:"sc-5",date:"2026-09-03",client:"Mountain Nutrition",product:"Silica Gel Sachet",size:"10 g",qty:40000,totalSalesEGP:180000,grossProfitEGP:157432,moneyReceived:true,commissionPaid:true,datePaid:null},
+  {id:"sc-6",date:"2026-09-03",client:"Mountain Nutrition",product:"Silica Gel Sachet",size:"5 g",qty:10000,totalSalesEGP:25000,grossProfitEGP:21740,moneyReceived:true,commissionPaid:true,datePaid:null},
+];
+function commissionRowCalc(row,settings){
+  const taxRate=Number(settings.incomeTaxRate)||0,commRate=Number(settings.commissionRate)||0,termsDays=Number(settings.paymentTermsDays)||0;
+  const grossProfit=Number(row.grossProfitEGP)||0,totalSales=Number(row.totalSalesEGP)||0;
+  const incomeTax=grossProfit*taxRate;
+  const netProfitAfterTax=grossProfit-incomeTax;
+  const commissionDue=row.moneyReceived?netProfitAfterTax*commRate:0;
+  const balanceOwed=row.moneyReceived?0:totalSales;
+  let moneyExpectedOn=null;
+  if(row.date){const d=new Date(row.date+"T00:00:00");d.setDate(d.getDate()+termsDays);moneyExpectedOn=d.toISOString().split("T")[0];}
+  let paymentStatus;
+  if(!row.date)paymentStatus="NEED SHIP DATE";
+  else if(row.moneyReceived)paymentStatus="RECEIVED";
+  else paymentStatus=(new Date().toISOString().split("T")[0])>moneyExpectedOn?"OVERDUE":"DUE LATER";
+  return {incomeTax:incomeTax,netProfitAfterTax:netProfitAfterTax,commissionDue:commissionDue,balanceOwed:balanceOwed,moneyExpectedOn:moneyExpectedOn,paymentStatus:paymentStatus};
+}
+function commissionSummary(rows,settings){
+  const calcs=rows.map(r=>Object.assign({},r,commissionRowCalc(r,settings)));
+  const totalSales=calcs.reduce((s,r)=>s+(Number(r.totalSalesEGP)||0),0);
+  const totalGrossProfit=calcs.reduce((s,r)=>s+(Number(r.grossProfitEGP)||0),0);
+  const marginPct=totalSales>0?totalGrossProfit/totalSales:0;
+  const receivedRows=calcs.filter(r=>r.moneyReceived);
+  const netProfitReceived=receivedRows.reduce((s,r)=>s+r.netProfitAfterTax,0);
+  const commissionDueTotal=calcs.reduce((s,r)=>s+r.commissionDue,0);
+  const commissionPaidTotal=calcs.filter(r=>r.commissionPaid).reduce((s,r)=>s+r.commissionDue,0);
+  const commissionOutstanding=commissionDueTotal-commissionPaidTotal;
+  const totalMoneyReceived=receivedRows.reduce((s,r)=>s+(Number(r.totalSalesEGP)||0),0);
+  const receivables=calcs.reduce((s,r)=>s+r.balanceOwed,0);
+  const overdue=calcs.filter(r=>r.paymentStatus==="OVERDUE").reduce((s,r)=>s+r.balanceOwed,0);
+  const notYetDue=calcs.filter(r=>r.paymentStatus==="DUE LATER").reduce((s,r)=>s+r.balanceOwed,0);
+  const pctCollected=totalSales>0?totalMoneyReceived/totalSales:0;
+  const distributableProfit=netProfitReceived-commissionDueTotal;
+  return {calcs:calcs,totalSales:totalSales,totalGrossProfit:totalGrossProfit,marginPct:marginPct,netProfitReceived:netProfitReceived,
+    commissionDueTotal:commissionDueTotal,commissionPaidTotal:commissionPaidTotal,commissionOutstanding:commissionOutstanding,
+    totalMoneyReceived:totalMoneyReceived,receivables:receivables,overdue:overdue,notYetDue:notYetDue,pctCollected:pctCollected,
+    distributableProfit:distributableProfit};
+}
+function ownerSharesCalc(owners,distributableProfit,withdrawals){
+  return owners.map(o=>{
+    const shareEGP=distributableProfit*o.share;
+    const withdrawn=(withdrawals||[]).filter(w=>w.owner===o.name).reduce((s,w)=>s+(Number(w.amountEGP)||0),0);
+    return {name:o.name,share:o.share,shareEGP:shareEGP,withdrawn:withdrawn,balanceDue:shareEGP-withdrawn};
+  });
+}
+function CommissionSettingsCard({settings,onSave}){
+  const [editing,setEditing]=useState(false);
+  const [tax,setTax]=useState(String((settings.incomeTaxRate||0)*100));
+  const [comm,setComm]=useState(String((settings.commissionRate||0)*100));
+  const [terms,setTerms]=useState(String(settings.paymentTermsDays||0));
+  const save=()=>{onSave({incomeTaxRate:(Number(tax)||0)/100,commissionRate:(Number(comm)||0)/100,paymentTermsDays:Number(terms)||0});setEditing(false);};
+  if(!editing)return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,gap:8,flexWrap:"wrap"}}>
+    <div>Income Tax <strong>{((settings.incomeTaxRate||0)*100).toFixed(1)}%</strong> · Commission <strong>{((settings.commissionRate||0)*100).toFixed(1)}%</strong> · Terms <strong>{settings.paymentTermsDays} days</strong></div>
+    <button type="button" onClick={()=>setEditing(true)} style={{background:"#F5F7FA",border:"none",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ Edit</button></div>);
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:14}}>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}}>
+      <Field label="Income Tax %" value={tax} onChange={setTax} type="number" ph="22"/>
+      <Field label="Commission %" value={comm} onChange={setComm} type="number" ph="8"/>
+      <Field label="Payment Terms (days)" value={terms} onChange={setTerms} type="number" ph="60"/></div>
+    <div style={{display:"flex",gap:8}}>
+      <button type="button" onClick={save} style={{flex:1,padding:10,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 Save</button>
+      <button type="button" onClick={()=>setEditing(false)} style={{padding:"10px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>Cancel</button></div>
+  </div>);
+}
+function CommissionSummaryCard({summary}){
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>📊 Summary</div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,fontSize:12}}>
+      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>Total Sales</div><div style={{fontWeight:800,fontSize:15}}>{fmtN(summary.totalSales)} EGP</div></div>
+      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>Total Gross Profit</div><div style={{fontWeight:800,fontSize:15}}>{fmtN(summary.totalGrossProfit)} EGP</div><div style={{color:"#999",fontSize:10}}>{(summary.marginPct*100).toFixed(1)}% margin</div></div>
+      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>Money Received</div><div style={{fontWeight:800,fontSize:15,color:"#1A6B2A"}}>{fmtN(summary.totalMoneyReceived)} EGP</div><div style={{color:"#999",fontSize:10}}>{(summary.pctCollected*100).toFixed(1)}% collected</div></div>
+      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>Still Owed (Receivables)</div><div style={{fontWeight:800,fontSize:15,color:"#DC3545"}}>{fmtN(summary.receivables)} EGP</div><div style={{color:"#999",fontSize:10}}>{fmtN(summary.overdue)} overdue · {fmtN(summary.notYetDue)} not due yet</div></div>
+      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>Net Profit After Tax (received)</div><div style={{fontWeight:800,fontSize:15}}>{fmtN(summary.netProfitReceived)} EGP</div></div>
+      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>Commission Outstanding</div><div style={{fontWeight:800,fontSize:15,color:summary.commissionOutstanding>0?"#DC3545":"#1A6B2A"}}>{fmtN(summary.commissionOutstanding)} EGP</div><div style={{color:"#999",fontSize:10}}>Due {fmtN(summary.commissionDueTotal)} · Paid {fmtN(summary.commissionPaidTotal)}</div></div>
+    </div></div>);
+}
+function OwnerSharesCard({owners,distributableProfit,withdrawals,onAddWithdrawal,onDeleteWithdrawal}){
+  const shares=ownerSharesCalc(owners,distributableProfit,withdrawals);
+  const [showAdd,setShowAdd]=useState(false);
+  const [date,setDate]=useState(new Date().toISOString().split("T")[0]),[owner,setOwner]=useState(owners[0].name);
+  const [amount,setAmount]=useState(""),[method,setMethod]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
+  const add=()=>{
+    const amt=Number(amount)||0;
+    if(amt<=0){setErr("Enter an amount.");return;}
+    onAddWithdrawal({id:genId(),date:date,owner:owner,amountEGP:amt,method:method.trim(),notes:notes.trim()});
+    setAmount("");setMethod("");setNotes("");setShowAdd(false);setErr("");
+  };
+  const sortedW=(withdrawals||[]).slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:4}}>👥 Owner Shares</div>
+    <div style={{fontSize:11,color:"#888",marginBottom:10}}>Distributable Profit (received net profit − commission) = <strong>{fmtN(distributableProfit)} EGP</strong></div>
+    {shares.map(s=>(<div key={s.name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #F5F5F5",fontSize:12}}>
+      <div><strong>{s.name}</strong> <span style={{color:"#999"}}>({(s.share*100).toFixed(1)}%)</span></div>
+      <div style={{textAlign:"right"}}>
+        <div>Share: <strong>{fmtN(s.shareEGP)}</strong> · Taken: <strong>{fmtN(s.withdrawn)}</strong></div>
+        <div style={{color:s.balanceDue<=0?"#1A6B2A":"#DC3545",fontWeight:700}}>{s.balanceDue<=0?"✅ Fully Paid":fmtN(s.balanceDue)+" EGP owed"}</div></div></div>))}
+    {!showAdd&&<button type="button" onClick={()=>setShowAdd(true)} style={{width:"100%",padding:10,marginTop:10,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:12}}>+ Log Withdrawal</button>}
+    {showAdd&&<div style={{marginTop:10,background:"#F7F9FC",borderRadius:10,padding:12}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+        <div><label style={{display:"block",fontSize:10,fontWeight:700,color:"#666",marginBottom:3,textTransform:"uppercase"}}>Date</label>
+          <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:6,padding:"7px 9px",fontSize:12,boxSizing:"border-box"}}/></div>
+        <div><label style={{display:"block",fontSize:10,fontWeight:700,color:"#666",marginBottom:3,textTransform:"uppercase"}}>Owner</label>
+          <select value={owner} onChange={e=>setOwner(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:6,padding:"7px 9px",fontSize:12,background:"#fff"}}>
+            {owners.map(o=><option key={o.name}>{o.name}</option>)}</select></div></div>
+      <div style={{marginBottom:8}}><Field label="Amount Taken (EGP)" value={amount} onChange={v=>{setAmount(v);setErr("");}} type="number" ph="e.g. 10000"/></div>
+      <div style={{marginBottom:8}}><Field label="Method (optional)" value={method} onChange={setMethod} ph="e.g. Bank transfer"/></div>
+      <div style={{marginBottom:8}}><Field label="Notes (optional)" value={notes} onChange={setNotes}/></div>
+      {err&&<div style={{color:"#DC3545",fontSize:11,fontWeight:600,marginBottom:8}}>{err}</div>}
+      <div style={{display:"flex",gap:8}}>
+        <button type="button" onClick={add} style={{flex:1,padding:9,background:NAVY,color:"#fff",border:"none",borderRadius:7,fontWeight:700,cursor:"pointer",fontSize:12}}>💾 Save</button>
+        <button type="button" onClick={()=>setShowAdd(false)} style={{padding:"9px 14px",border:"1.5px solid #E2E8F0",borderRadius:7,background:"#fff",cursor:"pointer",fontSize:12}}>Cancel</button></div></div>}
+    {sortedW.length>0&&<div style={{marginTop:14,paddingTop:10,borderTop:"1px solid #E2E8F0"}}>
+      <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",marginBottom:8}}>Withdrawal Log</div>
+      {sortedW.map(w=>(<div key={w.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
+        <div><strong>{w.owner}</strong> <span style={{color:"#999"}}>{w.date}{w.method?" · "+w.method:""}</span>{w.notes&&<div style={{fontSize:11,color:"#999"}}>{w.notes}</div>}</div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}><strong>{fmtN(w.amountEGP)} EGP</strong>
+          <button type="button" onClick={()=>onDeleteWithdrawal(w.id)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:14,padding:0}}>✕</button></div></div>))}
+    </div>}
+  </div>);
+}
+function PaymentStatusBadge({status}){
+  const cfg={"RECEIVED":["#C6EFCE","#1A6B2A"],"OVERDUE":["#FDDEDE","#8B1A1A"],"DUE LATER":["#FFF3CD","#856404"],"NEED SHIP DATE":["#EEE","#666"]}[status]||["#EEE","#666"];
+  return <span style={{background:cfg[0],color:cfg[1],borderRadius:20,padding:"2px 9px",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{status}</span>;
+}
+function SilicaCommissionRowEdit({row,onSave,onCancel,onDelete}){
+  const e=row||{};
+  const [date,setDate]=useState(e.date||""),[client,setClient]=useState(e.client||""),[product,setProduct]=useState(e.product||"Silica Gel Sachet");
+  const [size,setSize]=useState(e.size||""),[qty,setQty]=useState(e.qty!=null?String(e.qty):""),[sales,setSales]=useState(e.totalSalesEGP!=null?String(e.totalSalesEGP):""),[profit,setProfit]=useState(e.grossProfitEGP!=null?String(e.grossProfitEGP):"");
+  const [moneyReceived,setMoneyReceived]=useState(!!e.moneyReceived),[commissionPaid,setCommissionPaid]=useState(!!e.commissionPaid),[datePaid,setDatePaid]=useState(e.datePaid||"");
+  const [confDel,setConfDel]=useState(false),[err,setErr]=useState("");
+  const save=()=>{
+    if(!client.trim()){setErr("Enter a client.");return;}
+    onSave(Object.assign({},e,{id:e.id||genId(),date:date,client:client.trim(),product:product,size:size,qty:Number(qty)||0,
+      totalSalesEGP:Number(sales)||0,grossProfitEGP:Number(profit)||0,moneyReceived:moneyReceived,commissionPaid:commissionPaid,datePaid:datePaid||null}));
+  };
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:8}}>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date Shipped</label>
+        <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+      <Field label="Client" value={client} onChange={v=>{setClient(v);setErr("");}} ph="e.g. Adwia"/></div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+      <Field label="Product" value={product} onChange={setProduct}/>
+      <Field label="Size" value={size} onChange={setSize} ph="e.g. 0.5 or 10 g"/></div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}}>
+      <Field label="Qty (pcs)" value={qty} onChange={setQty} type="number"/>
+      <Field label="Total Sales (EGP)" value={sales} onChange={setSales} type="number"/>
+      <Field label="Gross Profit (EGP)" value={profit} onChange={setProfit} type="number"/></div>
+    <div style={{display:"flex",gap:16,marginBottom:10}}>
+      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}><input type="checkbox" checked={moneyReceived} onChange={ev=>setMoneyReceived(ev.target.checked)}/> Money Received</label>
+      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}><input type="checkbox" checked={commissionPaid} onChange={ev=>setCommissionPaid(ev.target.checked)}/> Commission Paid</label></div>
+    {commissionPaid&&<div style={{marginBottom:10}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date Paid</label>
+      <input type="date" value={datePaid} onChange={ev=>setDatePaid(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>}
+    {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
+    <div style={{display:"flex",gap:8,marginBottom:10}}>
+      <button type="button" onClick={save} style={{flex:1,padding:11,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 Save</button>
+      <button type="button" onClick={onCancel} style={{padding:"11px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>Cancel</button></div>
+    {onDelete&&(confDel?(<div style={{display:"flex",gap:8}}>
+      <button type="button" onClick={()=>onDelete()} style={{padding:"8px 14px",background:"#DC3545",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700}}>Yes, delete</button>
+      <button type="button" onClick={()=>setConfDel(false)} style={{padding:"8px 14px",border:"1.5px solid #E2E8F0",borderRadius:6,background:"#fff",cursor:"pointer",fontSize:12}}>Cancel</button></div>)
+    :(<button type="button" onClick={()=>setConfDel(true)} style={{padding:"8px 14px",border:"1.5px solid #F1948A",color:"#DC3545",background:"#FFF0F0",borderRadius:6,cursor:"pointer",fontSize:12}}>Delete entry</button>))}
+  </div>);
+}
+function SilicaCommissionRow({row,settings,onSave,onDelete}){
+  const [editing,setEditing]=useState(false);
+  const calc=commissionRowCalc(row,settings);
+  if(editing)return <SilicaCommissionRowEdit row={row} onSave={u=>{onSave(u);setEditing(false);}} onCancel={()=>setEditing(false)} onDelete={onDelete}/>;
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:"12px 14px",marginBottom:8}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:6}}>
+      <div><strong>{row.client}</strong> <span style={{color:"#999",fontSize:11}}>{row.product}{row.size?" · "+row.size:""}</span>
+        <div style={{fontSize:11,color:"#999"}}>{row.date||"— no ship date —"} · {fmtN(row.qty)} pcs</div></div>
+      <PaymentStatusBadge status={calc.paymentStatus}/></div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:11,marginBottom:8}}>
+      <div>Sales<div style={{fontWeight:700,fontSize:13}}>{fmtN(row.totalSalesEGP)}</div></div>
+      <div>Gross Profit<div style={{fontWeight:700,fontSize:13}}>{fmtN(row.grossProfitEGP)}</div></div>
+      <div>Commission Due<div style={{fontWeight:700,fontSize:13,color:calc.commissionDue>0?"#1A6B2A":"#999"}}>{fmtN(calc.commissionDue)}</div></div></div>
+    <div style={{display:"flex",gap:14,fontSize:11,color:"#666",marginBottom:8}}>
+      <span>{row.moneyReceived?"✅ Received":"⏳ Not received"}</span>
+      <span>{row.commissionPaid?"✅ Commission paid":"⏳ Commission unpaid"}</span></div>
+    <button type="button" onClick={()=>setEditing(true)} style={{background:"#F5F7FA",border:"none",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ Edit</button></div>);
+}
+function SilicaCommissionTracker({entries,settings,withdrawals,onSaveEntry,onDeleteEntry,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal}){
+  const [showAdd,setShowAdd]=useState(false);
+  const summary=commissionSummary(entries,settings);
+  const sorted=entries.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  return(<div>
+    <CommissionSettingsCard settings={settings} onSave={onSaveSettings}/>
+    <CommissionSummaryCard summary={summary}/>
+    <OwnerSharesCard owners={COMMISSION_OWNERS_SILICA} distributableProfit={summary.distributableProfit} withdrawals={withdrawals} onAddWithdrawal={onAddWithdrawal} onDeleteWithdrawal={onDeleteWithdrawal}/>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>🧾 Sales</div>
+    {!showAdd&&<button type="button" onClick={()=>setShowAdd(true)} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:14}}>+ Add Sale</button>}
+    {showAdd&&<SilicaCommissionRowEdit row={{}} onSave={r=>{onSaveEntry(r);setShowAdd(false);}} onCancel={()=>setShowAdd(false)}/>}
+    {sorted.map(r=><SilicaCommissionRow key={r.id} row={r} settings={settings} onSave={onSaveEntry} onDelete={()=>onDeleteEntry(r.id)}/>)}
+    {entries.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No sales logged yet.</div>}
+  </div>);
+}
+function FlipOffCommissionRow({order,settings,onSave}){
+  const [editing,setEditing]=useState(false);
+  const fin=orderFinance(order);
+  const row={date:order.dateShipped,totalSalesEGP:fin.revenueEGP,grossProfitEGP:fin.profitEGP,moneyReceived:!!order.moneyReceived};
+  const calc=commissionRowCalc(row,settings);
+  const [date,setDate]=useState(order.dateShipped||""),[moneyReceived,setMoneyReceived]=useState(!!order.moneyReceived);
+  const [commissionPaid,setCommissionPaid]=useState(!!order.commissionPaid),[datePaid,setDatePaid]=useState(order.datePaidCommission||"");
+  const save=()=>{onSave(Object.assign({},order,{dateShipped:date,moneyReceived:moneyReceived,commissionPaid:commissionPaid,datePaidCommission:datePaid||null}));setEditing(false);};
+  if(!editing)return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:"12px 14px",marginBottom:8}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:6}}>
+      <div><strong>{order.client||"—"}</strong> <span style={{color:"#999",fontSize:11}}>{order.orderNo} · {order.product}</span>
+        <div style={{fontSize:11,color:"#999"}}>{order.dateShipped||"— no ship date —"} · {fmtN(order.targetQty)} pcs</div></div>
+      <PaymentStatusBadge status={calc.paymentStatus}/></div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:11,marginBottom:8}}>
+      <div>Sales (est.)<div style={{fontWeight:700,fontSize:13}}>{fmtN(fin.revenueEGP)}</div></div>
+      <div>Gross Profit (est.)<div style={{fontWeight:700,fontSize:13}}>{fmtN(fin.profitEGP)}</div></div>
+      <div>Commission Due<div style={{fontWeight:700,fontSize:13,color:calc.commissionDue>0?"#1A6B2A":"#999"}}>{fmtN(calc.commissionDue)}</div></div></div>
+    <div style={{display:"flex",gap:14,fontSize:11,color:"#666",marginBottom:8}}>
+      <span>{order.moneyReceived?"✅ Received":"⏳ Not received"}</span>
+      <span>{order.commissionPaid?"✅ Commission paid":"⏳ Commission unpaid"}</span></div>
+    <button type="button" onClick={()=>setEditing(true)} style={{background:"#F5F7FA",border:"none",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ Edit</button></div>);
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:8}}>
+    <div style={{fontSize:12,color:"#888",marginBottom:8}}>{order.orderNo} · {order.client} — Sales/Profit pull live from Finance; edit those there, not here.</div>
+    <div style={{marginBottom:10}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date Shipped</label>
+      <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+    <div style={{display:"flex",gap:16,marginBottom:10}}>
+      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}><input type="checkbox" checked={moneyReceived} onChange={e=>setMoneyReceived(e.target.checked)}/> Money Received</label>
+      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}><input type="checkbox" checked={commissionPaid} onChange={e=>setCommissionPaid(e.target.checked)}/> Commission Paid</label></div>
+    {commissionPaid&&<div style={{marginBottom:10}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date Paid</label>
+      <input type="date" value={datePaid} onChange={e=>setDatePaid(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>}
+    <div style={{display:"flex",gap:8}}>
+      <button type="button" onClick={save} style={{flex:1,padding:11,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 Save</button>
+      <button type="button" onClick={()=>setEditing(false)} style={{padding:"11px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>Cancel</button></div>
+  </div>);
+}
+function FlipOffCommissionTracker({orders,settings,withdrawals,onSaveOrder,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal}){
+  const flipOrders=orders.filter(o=>!isSilicaProduct(o.product));
+  const rows=flipOrders.map(o=>{const fin=orderFinance(o);return {date:o.dateShipped,totalSalesEGP:fin.revenueEGP,grossProfitEGP:fin.profitEGP,moneyReceived:!!o.moneyReceived,commissionPaid:!!o.commissionPaid};});
+  const summary=commissionSummary(rows,settings);
+  const sorted=flipOrders.slice().sort((a,b)=>(b.dateShipped||"").localeCompare(a.dateShipped||""));
+  return(<div>
+    <CommissionSettingsCard settings={settings} onSave={onSaveSettings}/>
+    <CommissionSummaryCard summary={summary}/>
+    <OwnerSharesCard owners={COMMISSION_OWNERS_FLIPOFF} distributableProfit={summary.distributableProfit} withdrawals={withdrawals} onAddWithdrawal={onAddWithdrawal} onDeleteWithdrawal={onDeleteWithdrawal}/>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>🧾 Orders</div>
+    {sorted.map(o=><FlipOffCommissionRow key={o.id} order={o} settings={settings} onSave={onSaveOrder}/>)}
+    {flipOrders.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No Flip-Off orders yet — add one under Orders.</div>}
+  </div>);
+}
+function CommissionTrackerSection({orders,silicaEntries,silicaSettings,silicaWithdrawals,flipOffSettings,flipOffWithdrawals,
+  onSaveSilicaEntry,onDeleteSilicaEntry,onSaveSilicaSettings,onAddSilicaWithdrawal,onDeleteSilicaWithdrawal,
+  onSaveOrder,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal,onClose}){
+  const [tab,setTab]=useState("silica");
+  return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
+    <div style={{background:"linear-gradient(135deg,#4A1A6E,#7B3FB5)",position:"sticky",top:0,zIndex:100}}>
+      <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13}}>← Back</button>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:17}}>🤝 Sales Commission Tracker</div>
+          <div style={{color:"rgba(255,255,255,0.6)",fontSize:11}}>Commission owed to owners, on money actually received</div></div></div>
+      <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
+        {[["silica","🟡 Silica Gel"],["flipoff","🔘 Flip-Off"]].map(x=>(
+          <button type="button" key={x[0]} onClick={()=>setTab(x[0])}
+            style={{flex:1,background:"none",border:"none",color:tab===x[0]?"#fff":"rgba(255,255,255,0.45)",padding:"11px 8px",fontSize:12,fontWeight:tab===x[0]?700:400,cursor:"pointer",borderBottom:"2px solid "+(tab===x[0]?"#fff":"transparent"),fontFamily:"inherit"}}>{x[1]}</button>))}
+      </div></div>
+    <div style={{maxWidth:700,margin:"0 auto",padding:16}}>
+      {tab==="silica"&&<SilicaCommissionTracker entries={silicaEntries} settings={silicaSettings} withdrawals={silicaWithdrawals}
+        onSaveEntry={onSaveSilicaEntry} onDeleteEntry={onDeleteSilicaEntry} onSaveSettings={onSaveSilicaSettings}
+        onAddWithdrawal={onAddSilicaWithdrawal} onDeleteWithdrawal={onDeleteSilicaWithdrawal}/>}
+      {tab==="flipoff"&&<FlipOffCommissionTracker orders={orders} settings={flipOffSettings} withdrawals={flipOffWithdrawals}
+        onSaveOrder={onSaveOrder} onSaveSettings={onSaveFlipOffSettings} onAddWithdrawal={onAddFlipOffWithdrawal} onDeleteWithdrawal={onDeleteFlipOffWithdrawal}/>}
+    </div></div>);
+}
+
 const MATERIAL_META={
   "Aluminum Coils":{color:"#1A3C5E",accent:"#2D6A9F",light:"#D6E8FA",emoji:"🪙",trackCoils:true},
   "Aluminum Caps":{color:"#37474F",accent:"#607D8B",light:"#ECEFF1",emoji:"🔘"},
@@ -3129,7 +3416,9 @@ function Dashboard({data,batches,orders,onSelect,onLogout,onExport,onImportFile,
         <button type="button" onClick={()=>onSection("employees")} style={{background:"#6E3A1B",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>👷 Employees
           <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Roster, stations &amp; wages</div></button>
         <button type="button" onClick={()=>onSection("cashledger")} style={{background:"#0E4A2A",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🏦 East Pharma Finance
-          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Real cash, P&amp;L &amp; balance sheet</div></button></div>
+          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Real cash, P&amp;L &amp; balance sheet</div></button>
+        <button type="button" onClick={()=>onSection("commissions")} style={{background:"#4A1A6E",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🤝 Commission Tracker
+          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Owner shares &amp; commission owed</div></button></div>
       <div onClick={()=>onSelect("Aluminum Caps")} style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:18,cursor:"pointer"}}>
         <div style={{fontSize:11,fontWeight:800,color:"#37474F",textTransform:"uppercase",marginBottom:8}}>🔘 Aluminum Availability</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:8}}>
@@ -4125,6 +4414,11 @@ export default function EpsInventoryApp(){
   const [employees,setEmployees]=useState(INITIAL_EMPLOYEES);
   const [cashLedger,setCashLedger]=useState([]);
   const [cashOpening,setCashOpening]=useState(null);
+  const [silicaCommissionEntries,setSilicaCommissionEntries]=useState(INITIAL_SILICA_COMMISSION_ENTRIES);
+  const [silicaCommissionSettings,setSilicaCommissionSettings]=useState(DEFAULT_COMMISSION_SETTINGS);
+  const [silicaOwnerWithdrawals,setSilicaOwnerWithdrawals]=useState([]);
+  const [flipOffCommissionSettings,setFlipOffCommissionSettings]=useState(DEFAULT_COMMISSION_SETTINGS);
+  const [flipOffOwnerWithdrawals,setFlipOffOwnerWithdrawals]=useState([]);
   const [activeMat,setActiveMat]=useState(null),[section,setSection]=useState("inventory");
   const [toast,setToast]=useState(null),[lastSync,setLastSync]=useState(null);
   const [dataLoaded,setDataLoaded]=useState(false);
@@ -4133,6 +4427,7 @@ export default function EpsInventoryApp(){
 
   useEffect(()=>{(async()=>{
     let merged={},bs=INITIAL_BATCHES,os=INITIAL_ORDERS,lr=DEFAULT_LABOR_RATES,emps=INITIAL_EMPLOYEES,cl=[],co=null;
+    let sce=INITIAL_SILICA_COMMISSION_ENTRIES,scs=DEFAULT_COMMISSION_SETTINGS,sow=[],fcs=DEFAULT_COMMISSION_SETTINGS,fow=[];
     try{
       const supabase=createClient();
       const {data:row,error}=await supabase.from("eps_inventory_data").select("value").eq("key",SHARED_KEY).maybeSingle();
@@ -4172,6 +4467,15 @@ export default function EpsInventoryApp(){
         // logic needed (there's no starter seed data for it, just whatever the user has logged).
         if(Array.isArray(p._cashLedger))cl=p._cashLedger;
         if(p._cashOpening)co=p._cashOpening;
+        // Sales Commission Tracker — the Silica entries seed once from the real spreadsheet
+        // history and are never re-merged after that (unlike the employee roster, there's no
+        // ongoing "starter list" concept here, just whatever's actually been sold), Flip-Off
+        // rows come from the orders array itself so nothing extra to load for those.
+        if(Array.isArray(p._silicaCommissionEntries))sce=p._silicaCommissionEntries;
+        if(p._silicaCommissionSettings)scs=Object.assign({},DEFAULT_COMMISSION_SETTINGS,p._silicaCommissionSettings);
+        if(Array.isArray(p._silicaOwnerWithdrawals))sow=p._silicaOwnerWithdrawals;
+        if(p._flipOffCommissionSettings)fcs=Object.assign({},DEFAULT_COMMISSION_SETTINGS,p._flipOffCommissionSettings);
+        if(Array.isArray(p._flipOffOwnerWithdrawals))fow=p._flipOffOwnerWithdrawals;
         // pressCostPerPc used to mean the combined "Press/Assembly" rate before they were split
         // into two real machines — a saved rate under that old key is really the Assembly rate,
         // so carry it forward under the new assemblyCostPerPc key instead of misapplying it to
@@ -4188,9 +4492,13 @@ export default function EpsInventoryApp(){
     }catch(e){console.error("Load failed",e);showToast("⚠️ Couldn't load saved data — showing starter data","error");
       Object.keys(MATERIAL_META).forEach(k=>{merged[k]=Object.assign({},MATERIAL_META[k],{lots:INITIAL_LOTS[k],coils:INITIAL_COILS[k]||[]});});}
     setData(merged);setBatches(bs);setOrders(os);setLaborRates(lr);setEmployees(emps);setCashLedger(cl);setCashOpening(co);
+    setSilicaCommissionEntries(sce);setSilicaCommissionSettings(scs);setSilicaOwnerWithdrawals(sow);
+    setFlipOffCommissionSettings(fcs);setFlipOffOwnerWithdrawals(fow);
     // Snapshot what we just loaded so the effect doesn't immediately re-write identical data
     const snap={};Object.keys(merged).forEach(k=>{snap[k]={lots:merged[k].lots.map(l=>Object.assign({},l,{image:null})),coils:merged[k].coils||[]};});
     snap._batches=bs;snap._orders=os;snap._laborRates=lr;snap._employees=emps;snap._cashLedger=cl;snap._cashOpening=co;
+    snap._silicaCommissionEntries=sce;snap._silicaCommissionSettings=scs;snap._silicaOwnerWithdrawals=sow;
+    snap._flipOffCommissionSettings=fcs;snap._flipOffOwnerWithdrawals=fow;
     skipSave.current=JSON.stringify(snap);
     setDataLoaded(true);
   })();},[]);
@@ -4200,6 +4508,8 @@ export default function EpsInventoryApp(){
     const toSave={};Object.keys(data).forEach(k=>{toSave[k]={lots:data[k].lots.map(l=>Object.assign({},l,{image:null})),coils:data[k].coils||[]};});
     toSave._batches=batches;toSave._orders=orders;toSave._laborRates=laborRates;toSave._employees=employees;
     toSave._cashLedger=cashLedger;toSave._cashOpening=cashOpening;
+    toSave._silicaCommissionEntries=silicaCommissionEntries;toSave._silicaCommissionSettings=silicaCommissionSettings;toSave._silicaOwnerWithdrawals=silicaOwnerWithdrawals;
+    toSave._flipOffCommissionSettings=flipOffCommissionSettings;toSave._flipOffOwnerWithdrawals=flipOffOwnerWithdrawals;
     const json=JSON.stringify(toSave);
     // Only skip when the payload is byte-identical to what we loaded — never skip a real change
     if(skipSave.current===json){return;}
@@ -4215,12 +4525,15 @@ export default function EpsInventoryApp(){
       }catch(e){lastErr=e;if(a<2)await new Promise(r=>setTimeout(r,800));}}
       throw lastErr;
     }catch(e){console.error("Save failed",e);showToast("⚠️ Save failed — check your connection","error");}})();
-  },[data,batches,orders,laborRates,employees,cashLedger,cashOpening,dataLoaded]);
+  },[data,batches,orders,laborRates,employees,cashLedger,cashOpening,
+    silicaCommissionEntries,silicaCommissionSettings,silicaOwnerWithdrawals,flipOffCommissionSettings,flipOffOwnerWithdrawals,dataLoaded]);
 
   const logout=async()=>{const supabase=createClient();await supabase.auth.signOut();router.push("/auth/login");router.refresh();};
 
   const exportBackup=()=>{
-    const payload={exportedAt:new Date().toISOString(),data:data,batches:batches,orders:orders,laborRates:laborRates,employees:employees,cashLedger:cashLedger,cashOpening:cashOpening};
+    const payload={exportedAt:new Date().toISOString(),data:data,batches:batches,orders:orders,laborRates:laborRates,employees:employees,cashLedger:cashLedger,cashOpening:cashOpening,
+      silicaCommissionEntries:silicaCommissionEntries,silicaCommissionSettings:silicaCommissionSettings,silicaOwnerWithdrawals:silicaOwnerWithdrawals,
+      flipOffCommissionSettings:flipOffCommissionSettings,flipOffOwnerWithdrawals:flipOffOwnerWithdrawals};
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
@@ -4246,6 +4559,11 @@ export default function EpsInventoryApp(){
         if(Array.isArray(p.employees))setEmployees(p.employees);
         if(Array.isArray(p.cashLedger))setCashLedger(p.cashLedger);
         if(p.cashOpening)setCashOpening(p.cashOpening);
+        if(Array.isArray(p.silicaCommissionEntries))setSilicaCommissionEntries(p.silicaCommissionEntries);
+        if(p.silicaCommissionSettings)setSilicaCommissionSettings(Object.assign({},DEFAULT_COMMISSION_SETTINGS,p.silicaCommissionSettings));
+        if(Array.isArray(p.silicaOwnerWithdrawals))setSilicaOwnerWithdrawals(p.silicaOwnerWithdrawals);
+        if(p.flipOffCommissionSettings)setFlipOffCommissionSettings(Object.assign({},DEFAULT_COMMISSION_SETTINGS,p.flipOffCommissionSettings));
+        if(Array.isArray(p.flipOffOwnerWithdrawals))setFlipOffOwnerWithdrawals(p.flipOffOwnerWithdrawals);
         showToast("Backup restored ✓ — review, then it will auto-save");
       }catch(e){console.error("Import failed",e);showToast("⚠️ That file doesn't look like a valid backup","error");}
     };
@@ -4257,6 +4575,14 @@ export default function EpsInventoryApp(){
   const saveCashEntry=entry=>{setCashLedger(es=>es.some(x=>x.id===entry.id)?es.map(x=>x.id===entry.id?entry:x):es.concat([entry]));showToast("Saved ✓");};
   const deleteCashEntry=id=>{setCashLedger(es=>es.filter(x=>x.id!==id));showToast("Deleted","error");};
   const setCashOpeningBalance=o=>{setCashOpening(o);showToast("Saved ✓");};
+  const saveSilicaCommissionEntry=entry=>{setSilicaCommissionEntries(es=>es.some(x=>x.id===entry.id)?es.map(x=>x.id===entry.id?entry:x):es.concat([entry]));showToast("Saved ✓");};
+  const deleteSilicaCommissionEntry=id=>{setSilicaCommissionEntries(es=>es.filter(x=>x.id!==id));showToast("Deleted","error");};
+  const saveSilicaCommissionSettings=s=>{setSilicaCommissionSettings(s);showToast("Saved ✓");};
+  const addSilicaOwnerWithdrawal=w=>{setSilicaOwnerWithdrawals(ws=>ws.concat([w]));showToast("Saved ✓");};
+  const deleteSilicaOwnerWithdrawal=id=>{setSilicaOwnerWithdrawals(ws=>ws.filter(x=>x.id!==id));showToast("Deleted","error");};
+  const saveFlipOffCommissionSettings=s=>{setFlipOffCommissionSettings(s);showToast("Saved ✓");};
+  const addFlipOffOwnerWithdrawal=w=>{setFlipOffOwnerWithdrawals(ws=>ws.concat([w]));showToast("Saved ✓");};
+  const deleteFlipOffOwnerWithdrawal=id=>{setFlipOffOwnerWithdrawals(ws=>ws.filter(x=>x.id!==id));showToast("Deleted","error");};
   const updateLot=(mat,u)=>{setData(d=>Object.assign({},d,{[mat]:Object.assign({},d[mat],{lots:d[mat].lots.map(l=>l.id===u.id?u:l)})}));showToast("Saved ✓");};
   const deleteLot=(mat,id)=>{setData(d=>Object.assign({},d,{[mat]:Object.assign({},d[mat],{lots:d[mat].lots.filter(l=>l.id!==id)})}));showToast("Deleted","error");};
   const addLot=(mat,lot)=>{setData(d=>Object.assign({},d,{[mat]:Object.assign({},d[mat],{lots:d[mat].lots.concat([lot])})}));showToast("Added ✓");};
@@ -4428,6 +4754,14 @@ export default function EpsInventoryApp(){
   else if(section==="certificates")content=<CertificatesSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="employees")content=<EmployeesSection employees={employees} batches={batches} onSave={saveEmployee} onDelete={deleteEmployee} onClose={()=>setSection("inventory")}/>;
   else if(section==="cashledger")content=<CashLedgerSection cashLedger={cashLedger} cashOpening={cashOpening} data={data} laborRates={laborRates} onSaveEntry={saveCashEntry} onDeleteEntry={deleteCashEntry} onSetOpening={setCashOpeningBalance} onClose={()=>setSection("inventory")}/>;
+  else if(section==="commissions")content=<CommissionTrackerSection orders={orders}
+    silicaEntries={silicaCommissionEntries} silicaSettings={silicaCommissionSettings} silicaWithdrawals={silicaOwnerWithdrawals}
+    flipOffSettings={flipOffCommissionSettings} flipOffWithdrawals={flipOffOwnerWithdrawals}
+    onSaveSilicaEntry={saveSilicaCommissionEntry} onDeleteSilicaEntry={deleteSilicaCommissionEntry} onSaveSilicaSettings={saveSilicaCommissionSettings}
+    onAddSilicaWithdrawal={addSilicaOwnerWithdrawal} onDeleteSilicaWithdrawal={deleteSilicaOwnerWithdrawal}
+    onSaveOrder={updateOrder} onSaveFlipOffSettings={saveFlipOffCommissionSettings}
+    onAddFlipOffWithdrawal={addFlipOffOwnerWithdrawal} onDeleteFlipOffWithdrawal={deleteFlipOffOwnerWithdrawal}
+    onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
     <ProductionSection data={data} batches={batches} orders={orders} employees={employees} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onApplyMaterial={applyMaterialQty} onDeleteSub={deleteSub} onSaveLeftover={lot=>addLot("WIP Inventory",lot)} onMarkUnpricedSamples={markUnpricedAsSamples}/></div>;
   else if(section==="orders")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
@@ -4441,7 +4775,7 @@ export default function EpsInventoryApp(){
     onToggleBag={(lid,bid)=>toggleBag(activeMat,lid,bid)} onCreateAlBatch={createAlBatch}/>;
   else content=<Dashboard data={data} batches={batches} orders={orders} onSelect={setActiveMat} onLogout={logout} onExport={exportBackup} onImportFile={importBackup} lastSync={lastSync} onSection={s=>{setSection(s);setActiveMat(null);}}/>;
 
-  const showTabs=section!=="log"&&section!=="reports"&&section!=="finance"&&section!=="labels"&&section!=="certificates"&&section!=="employees"&&section!=="cashledger"&&!activeMat;
+  const showTabs=section!=="log"&&section!=="reports"&&section!=="finance"&&section!=="labels"&&section!=="certificates"&&section!=="employees"&&section!=="cashledger"&&section!=="commissions"&&!activeMat;
   return(<div style={{fontFamily:"'Inter',sans-serif"}}>
     {showTabs&&<div style={{background:"#142540",position:"sticky",top:0,zIndex:200,borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
       <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
