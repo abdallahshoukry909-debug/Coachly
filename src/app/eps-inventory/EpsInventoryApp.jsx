@@ -333,6 +333,43 @@ function EmployeesSection({employees,batches,onSave,onDelete,onClose}){
 // capital/draws from income/expenses (they're equity movements, not business performance).
 const CASH_CATEGORIES_IN=["Customer Payment","Owner Capital","Asset Sale","Other Income"];
 const CASH_CATEGORIES_OUT=["Material Purchase","Wages","Maintenance","Utilities","Rent","Transport","Owner Draw","Other Expense"];
+// Owner Capital and Owner Draw are the only categories where money moves between a specific
+// owner and the business, so only they carry owner/line — everything else (Customer Payment,
+// Material Purchase, etc.) is the business's money, not any one owner's. Splits match the
+// Commission Tracker's owner shares exactly: Silica is 3-way, Flip-Off excludes Islam.
+const OWNER_CAPITAL_LINES=["Silica Gel","Flip-Off"];
+const OWNERS_BY_LINE={"Silica Gel":["Youssef","Roger","Islam"],"Flip-Off":["Youssef","Roger"]};
+// Each owner's net capital (contributed minus drawn) for a line, against an equal split of the
+// line's total — positive means they've put in more than their fair share (owed back, or can
+// take extra from future profit distributions instead of a cash refund); negative means they
+// still owe to catch up to the others.
+function ownerCapitalBalances(cashLedger,line){
+  const owners=OWNERS_BY_LINE[line];
+  const net={};owners.forEach(o=>net[o]=0);
+  (cashLedger||[]).forEach(e=>{
+    if(e.line!==line||owners.indexOf(e.owner)<0)return;
+    if(e.category==="Owner Capital")net[e.owner]+=Number(e.amount)||0;
+    else if(e.category==="Owner Draw")net[e.owner]-=Number(e.amount)||0;
+  });
+  const total=owners.reduce((s,o)=>s+net[o],0);
+  const fairShare=total/owners.length;
+  return owners.map(o=>({owner:o,net:net[o],fairShare:fairShare,balance:net[o]-fairShare}));
+}
+function OwnerCapitalBalanceCard({cashLedger}){
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:4}}>👥 Owner Capital Balance</div>
+    <div style={{fontSize:11,color:"#888",marginBottom:12}}>Net capital each owner has put in (contributions minus draws) vs. an equal split. Positive = they&apos;ve put in more than their share — owed back in cash, or can take extra from future profit instead. Negative = they still owe to catch up.</div>
+    {OWNER_CAPITAL_LINES.map(line=>{
+      const balances=ownerCapitalBalances(cashLedger,line);
+      return(<div key={line} style={{marginBottom:14}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",marginBottom:6}}>{line==="Silica Gel"?"🟡":"🔘"} {line} ({OWNERS_BY_LINE[line].length}-way)</div>
+        {balances.map(b=>(<div key={b.owner} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
+          <span>{b.owner}</span>
+          <span>Net in <strong>{fmtN(b.net)}</strong> · <strong style={{color:b.balance>=0?"#1A6B2A":"#DC3545"}}>{b.balance>=0?"+":""}{fmtN(b.balance)}</strong></span></div>))}
+      </div>);
+    })}
+  </div>);
+}
 function cashRunningBalance(opening,ledger){
   const start=opening?Number(opening.balance)||0:0;
   return (ledger||[]).reduce((s,e)=>s+(e.type==="in"?Number(e.amount)||0:-(Number(e.amount)||0)),start);
@@ -501,12 +538,18 @@ function CashEntryForm({existing,onSave,onCancel}){
   const [category,setCategory]=useState(e.category||cats[0]);
   const [amount,setAmount]=useState(e.amount!=null?String(e.amount):"");
   const [note,setNote]=useState(e.note||"");
+  const [line,setLine]=useState(e.line||"Silica Gel");
+  const [owner,setOwner]=useState(e.owner||OWNERS_BY_LINE[e.line||"Silica Gel"][0]);
   const [err,setErr]=useState("");
+  const isOwnerMoney=category==="Owner Capital"||category==="Owner Draw";
+  const ownerOptions=OWNERS_BY_LINE[line];
   const switchType=t=>{setType(t);const nc=t==="in"?CASH_CATEGORIES_IN:CASH_CATEGORIES_OUT;setCategory(nc.indexOf(category)>=0?category:nc[0]);};
+  const switchLine=l=>{setLine(l);if(OWNERS_BY_LINE[l].indexOf(owner)<0)setOwner(OWNERS_BY_LINE[l][0]);};
   const save=()=>{
     const amt=Number(amount)||0;
     if(amt<=0){setErr("Enter an amount.");return;}
-    onSave({id:e.id||genId(),date:date,type:type,category:category,amount:amt,note:note.trim(),createdAt:e.createdAt||new Date().toISOString()});
+    onSave({id:e.id||genId(),date:date,type:type,category:category,amount:amt,note:note.trim(),
+      line:isOwnerMoney?line:null,owner:isOwnerMoney?owner:null,createdAt:e.createdAt||new Date().toISOString()});
   };
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:14}}>
     <div style={{display:"flex",gap:8,marginBottom:12}}>
@@ -522,6 +565,13 @@ function CashEntryForm({existing,onSave,onCancel}){
       <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Category</label>
       <select value={category} onChange={ev=>setCategory(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
         {cats.map(c=><option key={c}>{c}</option>)}</select></div>
+    {isOwnerMoney&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10,background:"#F7F9FC",borderRadius:8,padding:10}}>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Business Line</label>
+        <select value={line} onChange={ev=>switchLine(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+          {OWNER_CAPITAL_LINES.map(l=><option key={l}>{l}</option>)}</select></div>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Owner</label>
+        <select value={owner} onChange={ev=>setOwner(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+          {ownerOptions.map(o=><option key={o}>{o}</option>)}</select></div></div>}
     <div style={{marginBottom:14}}><Field label="Note (optional)" value={note} onChange={setNote} ph="e.g. Paid Ahmed for coil delivery"/></div>
     {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
     <div style={{display:"flex",gap:8}}>
@@ -539,6 +589,7 @@ function CashEntryRow({entry,onSave,onDelete}){
         <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
           <span style={{background:isIn?"#C6EFCE":"#FDDEDE",color:isIn?"#1A6B2A":"#8B1A1A",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700}}>{isIn?"🟢 In":"🔴 Out"}</span>
           <span style={{fontSize:12,fontWeight:700,color:"#333"}}>{entry.category}</span>
+          {entry.owner&&<span style={{fontSize:11,color:"#7B3FB5"}}>{entry.owner} · {entry.line}</span>}
           <span style={{fontSize:11,color:"#999"}}>{entry.date}</span></div>
         {entry.note&&<div style={{fontSize:12,color:"#888",marginTop:4}}>{entry.note}</div>}</div>
       <div style={{textAlign:"right"}}>
@@ -622,6 +673,7 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
           <span style={{fontWeight:700,color:"#555"}}>{m.month}</span>
           <span>🟢 {fmtN(m.in)} · 🔴 {fmtN(m.out)} · <strong style={{color:m.in-m.out>=0?"#1A6B2A":"#DC3545"}}>{fmtN(m.in-m.out)} net</strong></span></div>))}
       </div>}
+      <OwnerCapitalBalanceCard cashLedger={cashLedger}/>
       {!showAdd&&<button type="button" onClick={()=>setShowAdd(true)} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:14}}>+ Add Entry</button>}
       {showAdd&&<CashEntryForm onSave={en=>{onSaveEntry(en);setShowAdd(false);}} onCancel={()=>setShowAdd(false)}/>}
       {sorted.map(en=><CashEntryRow key={en.id} entry={en} onSave={onSaveEntry} onDelete={()=>onDeleteEntry(en.id)}/>)}
