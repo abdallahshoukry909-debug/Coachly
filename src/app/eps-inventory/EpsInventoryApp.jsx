@@ -858,12 +858,14 @@ function SilicaCommissionRow({row,batches,settings,onSave,onDelete}){
 // calc Finance already uses per batch — not a separately typed estimate.
 // A batch counts for commission only if it was a real paid sale — never a Rejected batch (no
 // sale happened), never a free sample (isSample, or manually flagged excludeFromCommission for
-// an older sample that predates that checkbox).
+// an older sample that predates that checkbox), and never anything short of actually Shipped —
+// "Released" only means production/QC is done, the batch can still be sitting in storage with
+// no invoice sent yet, so it isn't a real sale until it's genuinely on its way to the client.
 // excludeBatchIds lets a manually-typed Silica entry that's been linked to its real batch (via
 // batchId) suppress that batch's own auto-row — otherwise the same sale would be counted twice,
 // once from the typed entry and once from the batch.
 function isCommissionEligibleBatch(b,forSilica,excludeBatchIds){
-  return !b.isSubBatch&&isSilicaProduct(b.product)===forSilica&&b.status!=="Rejected"&&!b.isSample&&!b.excludeFromCommission&&!(excludeBatchIds&&excludeBatchIds[b.id]);
+  return !b.isSubBatch&&isSilicaProduct(b.product)===forSilica&&b.status==="Shipped"&&!b.isSample&&!b.excludeFromCommission&&!(excludeBatchIds&&excludeBatchIds[b.id]);
 }
 function commissionRowsFromBatches(batches,data,laborRates,forSilica,excludeBatchIds){
   return (batches||[]).filter(b=>isCommissionEligibleBatch(b,forSilica,excludeBatchIds)).map(b=>{
