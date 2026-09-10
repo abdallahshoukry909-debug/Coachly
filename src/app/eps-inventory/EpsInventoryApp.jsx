@@ -334,11 +334,13 @@ function EmployeesSection({employees,batches,onSave,onDelete,onClose}){
 const CASH_CATEGORIES_IN=["Customer Payment","Owner Capital","Asset Sale","Other Income"];
 const CASH_CATEGORIES_OUT=["Material Purchase","Wages","Maintenance","Utilities","Rent","Transport","Owner Draw","Other Expense"];
 // Owner Capital and Owner Draw are the only categories where money moves between a specific
-// owner and the business, so only they carry owner/line — everything else (Customer Payment,
-// Material Purchase, etc.) is the business's money, not any one owner's. Splits match the
-// Commission Tracker's owner shares exactly: Silica is 3-way, Flip-Off excludes Islam.
+// owner and the business, so only they carry an "owner" — the split matches the Commission
+// Tracker's owner shares exactly: Silica is 3-way, Flip-Off excludes Islam. Any other expense
+// can optionally carry just a "line" (no owner) to say which product it belongs to, including a
+// "Split (Both)" option for a genuinely shared cost like rent that isn't really either one's.
 const OWNER_CAPITAL_LINES=["Silica Gel","Flip-Off"];
 const OWNERS_BY_LINE={"Silica Gel":["Youssef","Roger","Islam"],"Flip-Off":["Youssef","Roger"]};
+const EXPENSE_LINE_OPTIONS=["Flip-Off","Silica Gel","Split (Both)"];
 // Each owner's net capital (contributed minus drawn) for a line, against an equal split of the
 // line's total — positive means they've put in more than their fair share (owed back, or can
 // take extra from future profit distributions instead of a cash refund); negative means they
@@ -538,18 +540,25 @@ function CashEntryForm({existing,onSave,onCancel}){
   const [category,setCategory]=useState(e.category||cats[0]);
   const [amount,setAmount]=useState(e.amount!=null?String(e.amount):"");
   const [note,setNote]=useState(e.note||"");
-  const [line,setLine]=useState(e.line||"Silica Gel");
+  const [line,setLine]=useState(e.line||"");
   const [owner,setOwner]=useState(e.owner||OWNERS_BY_LINE[e.line||"Silica Gel"][0]);
   const [err,setErr]=useState("");
   const isOwnerMoney=category==="Owner Capital"||category==="Owner Draw";
-  const ownerOptions=OWNERS_BY_LINE[line];
+  // Any other expense (Material Purchase, Wages, Rent, etc.) can optionally be tagged to a line
+  // too — e.g. rent covers both product lines, so it can be split rather than forced onto one.
+  const isGeneralExpense=type==="out"&&!isOwnerMoney;
+  const ownerOptions=OWNERS_BY_LINE[line]||OWNERS_BY_LINE["Silica Gel"];
   const switchType=t=>{setType(t);const nc=t==="in"?CASH_CATEGORIES_IN:CASH_CATEGORIES_OUT;setCategory(nc.indexOf(category)>=0?category:nc[0]);};
-  const switchLine=l=>{setLine(l);if(OWNERS_BY_LINE[l].indexOf(owner)<0)setOwner(OWNERS_BY_LINE[l][0]);};
+  const switchCategory=c=>{
+    setCategory(c);
+    if((c==="Owner Capital"||c==="Owner Draw")&&OWNER_CAPITAL_LINES.indexOf(line)<0){setLine("Silica Gel");setOwner(OWNERS_BY_LINE["Silica Gel"][0]);}
+  };
+  const switchLine=l=>{setLine(l);if(OWNERS_BY_LINE[l]&&OWNERS_BY_LINE[l].indexOf(owner)<0)setOwner(OWNERS_BY_LINE[l][0]);};
   const save=()=>{
     const amt=Number(amount)||0;
     if(amt<=0){setErr("Enter an amount.");return;}
     onSave({id:e.id||genId(),date:date,type:type,category:category,amount:amt,note:note.trim(),
-      line:isOwnerMoney?line:null,owner:isOwnerMoney?owner:null,createdAt:e.createdAt||new Date().toISOString()});
+      line:(isOwnerMoney||isGeneralExpense)?(line||null):null,owner:isOwnerMoney?owner:null,createdAt:e.createdAt||new Date().toISOString()});
   };
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:14}}>
     <div style={{display:"flex",gap:8,marginBottom:12}}>
@@ -563,7 +572,7 @@ function CashEntryForm({existing,onSave,onCancel}){
       <Field label="Amount (EGP)" value={amount} onChange={v=>{setAmount(v);setErr("");}} type="number" ph="0.00"/></div>
     <div style={{marginBottom:10}}>
       <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Category</label>
-      <select value={category} onChange={ev=>setCategory(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+      <select value={category} onChange={ev=>switchCategory(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
         {cats.map(c=><option key={c}>{c}</option>)}</select></div>
     {isOwnerMoney&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10,background:"#F7F9FC",borderRadius:8,padding:10}}>
       <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Business Line</label>
@@ -572,6 +581,12 @@ function CashEntryForm({existing,onSave,onCancel}){
       <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Owner</label>
         <select value={owner} onChange={ev=>setOwner(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
           {ownerOptions.map(o=><option key={o}>{o}</option>)}</select></div></div>}
+    {isGeneralExpense&&<div style={{marginBottom:10}}>
+      <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Which Line (optional)</label>
+      <select value={line} onChange={ev=>setLine(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+        <option value="">— not specified —</option>
+        {EXPENSE_LINE_OPTIONS.map(l=><option key={l}>{l}</option>)}</select>
+      <div style={{fontSize:11,color:"#999",marginTop:4}}>Pick a line if this is specific to one product, or Split (Both) for a shared cost like rent — leave blank if you don&apos;t need it broken out.</div></div>}
     <div style={{marginBottom:14}}><Field label="Note (optional)" value={note} onChange={setNote} ph="e.g. Paid Ahmed for coil delivery"/></div>
     {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
     <div style={{display:"flex",gap:8}}>
@@ -590,6 +605,7 @@ function CashEntryRow({entry,onSave,onDelete}){
           <span style={{background:isIn?"#C6EFCE":"#FDDEDE",color:isIn?"#1A6B2A":"#8B1A1A",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700}}>{isIn?"🟢 In":"🔴 Out"}</span>
           <span style={{fontSize:12,fontWeight:700,color:"#333"}}>{entry.category}</span>
           {entry.owner&&<span style={{fontSize:11,color:"#7B3FB5"}}>{entry.owner} · {entry.line}</span>}
+          {!entry.owner&&entry.line&&<span style={{fontSize:11,color:"#7B3FB5"}}>{entry.line}</span>}
           <span style={{fontSize:11,color:"#999"}}>{entry.date}</span></div>
         {entry.note&&<div style={{fontSize:12,color:"#888",marginTop:4}}>{entry.note}</div>}</div>
       <div style={{textAlign:"right"}}>
