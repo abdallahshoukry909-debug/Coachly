@@ -838,21 +838,28 @@ function SilicaCommissionRow({row,settings,onSave,onDelete}){
 // directly on the batch record (added here, alongside the batch's existing sellPricePerPc); the
 // Sales/Gross Profit figures come straight from buildBatchCost(), the same real cost/revenue
 // calc Finance already uses per batch — not a separately typed estimate.
+// A batch counts for commission only if it was a real paid sale — never a Rejected batch (no
+// sale happened), never a free sample (isSample, or manually flagged excludeFromCommission for
+// an older sample that predates that checkbox).
+function isCommissionEligibleBatch(b,forSilica){
+  return !b.isSubBatch&&isSilicaProduct(b.product)===forSilica&&b.status!=="Rejected"&&!b.isSample&&!b.excludeFromCommission;
+}
 function commissionRowsFromBatches(batches,data,laborRates,forSilica){
-  return (batches||[]).filter(b=>!b.isSubBatch&&isSilicaProduct(b.product)===forSilica&&b.status!=="Rejected").map(b=>{
+  return (batches||[]).filter(b=>isCommissionEligibleBatch(b,forSilica)).map(b=>{
     const fin=buildBatchCost(b,batches,data,laborRates);
     return {id:"batch-"+b.id,date:b.dateShipped||null,totalSalesEGP:fin.revenueEGP,grossProfitEGP:fin.profitEGP,
       moneyReceived:!!b.moneyReceived,commissionPaid:!!b.commissionPaid};
   });
 }
 function BatchCommissionRow({batch,batches,data,laborRates,settings,onSave}){
-  const [editing,setEditing]=useState(false);
+  const [editing,setEditing]=useState(false),[confExclude,setConfExclude]=useState(false);
   const fin=buildBatchCost(batch,batches,data,laborRates);
   const row={date:batch.dateShipped,totalSalesEGP:fin.revenueEGP,grossProfitEGP:fin.profitEGP,moneyReceived:!!batch.moneyReceived};
   const calc=commissionRowCalc(row,settings);
   const [date,setDate]=useState(batch.dateShipped||""),[moneyReceived,setMoneyReceived]=useState(!!batch.moneyReceived);
   const [commissionPaid,setCommissionPaid]=useState(!!batch.commissionPaid),[datePaid,setDatePaid]=useState(batch.datePaidCommission||"");
   const save=()=>{onSave(Object.assign({},batch,{dateShipped:date,moneyReceived:moneyReceived,commissionPaid:commissionPaid,datePaidCommission:datePaid||null}));setEditing(false);};
+  const exclude=()=>onSave(Object.assign({},batch,{excludeFromCommission:true}));
   if(!editing)return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:"12px 14px",marginBottom:8}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:6}}>
       <div><strong>{batch.client||"—"}</strong> <span style={{color:"#999",fontSize:11}}>{batch.batchNo} · {batch.product}{batch.color?" · "+batch.color:""}</span>
@@ -865,7 +872,14 @@ function BatchCommissionRow({batch,batches,data,laborRates,settings,onSave}){
     <div style={{display:"flex",gap:14,fontSize:11,color:"#666",marginBottom:8}}>
       <span>{batch.moneyReceived?"✅ Received":"⏳ Not received"}</span>
       <span>{batch.commissionPaid?"✅ Commission paid":"⏳ Commission unpaid"}</span></div>
-    <button type="button" onClick={()=>setEditing(true)} style={{background:"#F5F7FA",border:"none",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ Edit</button></div>);
+    <div style={{display:"flex",gap:8,alignItems:"center"}}>
+      <button type="button" onClick={()=>setEditing(true)} style={{background:"#F5F7FA",border:"none",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ Edit</button>
+      {confExclude?(<>
+        <span style={{fontSize:11,color:"#8B1A1A"}}>Remove — free sample, no real sale?</span>
+        <button type="button" onClick={exclude} style={{background:"#DC3545",border:"none",borderRadius:7,padding:"6px 10px",cursor:"pointer",fontSize:11,fontWeight:700,color:"#fff"}}>Yes</button>
+        <button type="button" onClick={()=>setConfExclude(false)} style={{background:"none",border:"none",color:"#888",cursor:"pointer",fontSize:11}}>Cancel</button></>)
+      :<button type="button" onClick={()=>setConfExclude(true)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:12,fontWeight:600,padding:0}}>🗑 Not a real sale</button>}
+    </div></div>);
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:8}}>
     <div style={{fontSize:12,color:"#888",marginBottom:8}}>{batch.batchNo} · {batch.client} — Sales/Profit pull live from the batch&apos;s own production cost; edit sell price on the batch itself, not here.</div>
     <div style={{marginBottom:10}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date Shipped (invoiced)</label>
@@ -880,6 +894,19 @@ function BatchCommissionRow({batch,batches,data,laborRates,settings,onSave}){
       <button type="button" onClick={()=>setEditing(false)} style={{padding:"11px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>Cancel</button></div>
   </div>);
 }
+// Recovery list for batches hidden from commission — samples are auto-hidden (isSample) and
+// can't be un-hidden here (that flag belongs to the batch's own Production record); a manually
+// excluded one (excludeFromCommission) can be restored in case it was hidden by mistake.
+function ExcludedBatchesList({batches,forSilica,onSaveBatch}){
+  const excluded=(batches||[]).filter(b=>!b.isSubBatch&&isSilicaProduct(b.product)===forSilica&&b.status!=="Rejected"&&(b.isSample||b.excludeFromCommission));
+  if(excluded.length===0)return null;
+  return(<div style={{marginTop:18,paddingTop:12,borderTop:"1px solid #E2E8F0"}}>
+    <div style={{fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",marginBottom:8}}>Excluded (samples / not real sales)</div>
+    {excluded.map(b=>(<div key={b.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"6px 0",borderBottom:"1px solid #F5F5F5",opacity:0.7}}>
+      <span>{b.client||"—"} · {b.batchNo}{b.isSample?" · sample":""}</span>
+      {!b.isSample&&<button type="button" onClick={()=>onSaveBatch(Object.assign({},b,{excludeFromCommission:false}))} style={{background:"none",border:"none",color:NAVY,cursor:"pointer",fontSize:11,fontWeight:600}}>Restore</button>}</div>))}
+  </div>);
+}
 // Silica keeps its historical manually-typed rows (receipts that don't match batch records) as
 // the permanent record of what was already sold — but every Silica batch shipped from now on
 // shows up automatically here too, same mechanism as Flip-Off, so nothing new needs typing in.
@@ -888,7 +915,7 @@ function SilicaCommissionTracker({entries,settings,withdrawals,batches,data,labo
   const batchRows=commissionRowsFromBatches(batches,data,laborRates,true);
   const summary=commissionSummary(entries.concat(batchRows),settings);
   const sortedEntries=entries.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  const silicaBatches=(batches||[]).filter(b=>!b.isSubBatch&&isSilicaProduct(b.product)&&b.status!=="Rejected").sort((a,b)=>(b.dateShipped||"").localeCompare(a.dateShipped||""));
+  const silicaBatches=(batches||[]).filter(b=>isCommissionEligibleBatch(b,true)).sort((a,b)=>(b.dateShipped||"").localeCompare(a.dateShipped||""));
   return(<div>
     <CommissionSettingsCard settings={settings} onSave={onSaveSettings}/>
     <CommissionSummaryCard summary={summary}/>
@@ -901,12 +928,13 @@ function SilicaCommissionTracker({entries,settings,withdrawals,batches,data,labo
     <div style={{fontWeight:800,fontSize:13,color:NAVY,marginTop:18,marginBottom:10}}>📦 Batches (auto, from Production)</div>
     {silicaBatches.map(b=><BatchCommissionRow key={b.id} batch={b} batches={batches} data={data} laborRates={laborRates} settings={settings} onSave={onSaveBatch}/>)}
     {silicaBatches.length===0&&<div style={{textAlign:"center",padding:20,color:"#888",fontSize:13}}>No Silica Gel batches yet — create one under Production.</div>}
+    <ExcludedBatchesList batches={batches} forSilica={true} onSaveBatch={onSaveBatch}/>
   </div>);
 }
 function FlipOffCommissionTracker({batches,data,laborRates,settings,withdrawals,onSaveBatch,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal}){
   const rows=commissionRowsFromBatches(batches,data,laborRates,false);
   const summary=commissionSummary(rows,settings);
-  const sorted=(batches||[]).filter(b=>!b.isSubBatch&&!isSilicaProduct(b.product)&&b.status!=="Rejected").sort((a,b)=>(b.dateShipped||"").localeCompare(a.dateShipped||""));
+  const sorted=(batches||[]).filter(b=>isCommissionEligibleBatch(b,false)).sort((a,b)=>(b.dateShipped||"").localeCompare(a.dateShipped||""));
   return(<div>
     <CommissionSettingsCard settings={settings} onSave={onSaveSettings}/>
     <CommissionSummaryCard summary={summary}/>
@@ -914,6 +942,7 @@ function FlipOffCommissionTracker({batches,data,laborRates,settings,withdrawals,
     <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>🧾 Batches</div>
     {sorted.map(b=><BatchCommissionRow key={b.id} batch={b} batches={batches} data={data} laborRates={laborRates} settings={settings} onSave={onSaveBatch}/>)}
     {sorted.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No Flip-Off batches yet — create one under Production.</div>}
+    <ExcludedBatchesList batches={batches} forSilica={false} onSaveBatch={onSaveBatch}/>
   </div>);
 }
 function CommissionsView({batches,data,laborRates,silicaEntries,silicaSettings,silicaWithdrawals,flipOffSettings,flipOffWithdrawals,
