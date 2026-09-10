@@ -577,7 +577,10 @@ function CashOpeningSetup({opening,onSave}){
     <button type="button" onClick={save} style={{width:"100%",padding:11,background:"#856404",color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 Save Starting Balance</button>
   </div>);
 }
-function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,onDeleteEntry,onSetOpening,onClose}){
+function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,onDeleteEntry,onSetOpening,
+  orders,silicaEntries,silicaSettings,silicaWithdrawals,flipOffSettings,flipOffWithdrawals,
+  onSaveSilicaEntry,onDeleteSilicaEntry,onSaveSilicaSettings,onAddSilicaWithdrawal,onDeleteSilicaWithdrawal,
+  onSaveOrder,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal,onClose}){
   const [showAdd,setShowAdd]=useState(false);
   const [tab,setTab]=useState("ledger");
   const balance=cashRunningBalance(cashOpening,cashLedger);
@@ -592,13 +595,20 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
         <div><div style={{color:"#fff",fontWeight:800,fontSize:17}}>🏦 East Pharma Finance</div>
           <div style={{color:"rgba(255,255,255,0.6)",fontSize:11}}>Actual money in/out — separate from Finance estimates</div></div></div>
       <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
-        {[["ledger","📒 Ledger"],["pnl","📈 Profit & Loss"],["balance","🧾 Balance Sheet"]].map(x=>(
+        {[["ledger","📒 Ledger"],["pnl","📈 Profit & Loss"],["balance","🧾 Balance Sheet"],["commissions","🤝 Commissions"]].map(x=>(
           <button type="button" key={x[0]} onClick={()=>setTab(x[0])}
             style={{flex:1,background:"none",border:"none",color:tab===x[0]?"#fff":"rgba(255,255,255,0.45)",padding:"11px 8px",fontSize:12,fontWeight:tab===x[0]?700:400,cursor:"pointer",borderBottom:"2px solid "+(tab===x[0]?"#fff":"transparent"),fontFamily:"inherit"}}>{x[1]}</button>))}
       </div></div>
     <div style={{maxWidth:700,margin:"0 auto",padding:16}}>
-      <CashOpeningSetup opening={cashOpening} onSave={onSetOpening}/>
-      {cashOpening&&<>
+      {tab!=="commissions"&&<CashOpeningSetup opening={cashOpening} onSave={onSetOpening}/>}
+      {tab==="commissions"&&<CommissionsView orders={orders}
+        silicaEntries={silicaEntries} silicaSettings={silicaSettings} silicaWithdrawals={silicaWithdrawals}
+        flipOffSettings={flipOffSettings} flipOffWithdrawals={flipOffWithdrawals}
+        onSaveSilicaEntry={onSaveSilicaEntry} onDeleteSilicaEntry={onDeleteSilicaEntry} onSaveSilicaSettings={onSaveSilicaSettings}
+        onAddSilicaWithdrawal={onAddSilicaWithdrawal} onDeleteSilicaWithdrawal={onDeleteSilicaWithdrawal}
+        onSaveOrder={onSaveOrder} onSaveFlipOffSettings={onSaveFlipOffSettings}
+        onAddFlipOffWithdrawal={onAddFlipOffWithdrawal} onDeleteFlipOffWithdrawal={onDeleteFlipOffWithdrawal}/>}
+      {tab!=="commissions"&&cashOpening&&<>
       {tab==="ledger"&&<>
       <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #EEF2F7",padding:18,marginBottom:14,textAlign:"center"}}>
         <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase"}}>Current Cash Balance</div>
@@ -886,28 +896,22 @@ function FlipOffCommissionTracker({orders,settings,withdrawals,onSaveOrder,onSav
     {flipOrders.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No Flip-Off orders yet — add one under Orders.</div>}
   </div>);
 }
-function CommissionTrackerSection({orders,silicaEntries,silicaSettings,silicaWithdrawals,flipOffSettings,flipOffWithdrawals,
+function CommissionsView({orders,silicaEntries,silicaSettings,silicaWithdrawals,flipOffSettings,flipOffWithdrawals,
   onSaveSilicaEntry,onDeleteSilicaEntry,onSaveSilicaSettings,onAddSilicaWithdrawal,onDeleteSilicaWithdrawal,
-  onSaveOrder,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal,onClose}){
-  const [tab,setTab]=useState("silica");
-  return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
-    <div style={{background:"linear-gradient(135deg,#4A1A6E,#7B3FB5)",position:"sticky",top:0,zIndex:100}}>
-      <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
-        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13}}>← Back</button>
-        <div><div style={{color:"#fff",fontWeight:800,fontSize:17}}>🤝 Sales Commission Tracker</div>
-          <div style={{color:"rgba(255,255,255,0.6)",fontSize:11}}>Commission owed to owners, on money actually received</div></div></div>
-      <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
-        {[["silica","🟡 Silica Gel"],["flipoff","🔘 Flip-Off"]].map(x=>(
-          <button type="button" key={x[0]} onClick={()=>setTab(x[0])}
-            style={{flex:1,background:"none",border:"none",color:tab===x[0]?"#fff":"rgba(255,255,255,0.45)",padding:"11px 8px",fontSize:12,fontWeight:tab===x[0]?700:400,cursor:"pointer",borderBottom:"2px solid "+(tab===x[0]?"#fff":"transparent"),fontFamily:"inherit"}}>{x[1]}</button>))}
-      </div></div>
-    <div style={{maxWidth:700,margin:"0 auto",padding:16}}>
-      {tab==="silica"&&<SilicaCommissionTracker entries={silicaEntries} settings={silicaSettings} withdrawals={silicaWithdrawals}
-        onSaveEntry={onSaveSilicaEntry} onDeleteEntry={onDeleteSilicaEntry} onSaveSettings={onSaveSilicaSettings}
-        onAddWithdrawal={onAddSilicaWithdrawal} onDeleteWithdrawal={onDeleteSilicaWithdrawal}/>}
-      {tab==="flipoff"&&<FlipOffCommissionTracker orders={orders} settings={flipOffSettings} withdrawals={flipOffWithdrawals}
-        onSaveOrder={onSaveOrder} onSaveSettings={onSaveFlipOffSettings} onAddWithdrawal={onAddFlipOffWithdrawal} onDeleteWithdrawal={onDeleteFlipOffWithdrawal}/>}
-    </div></div>);
+  onSaveOrder,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal}){
+  const [line,setLine]=useState("silica");
+  return(<div>
+    <div style={{display:"flex",gap:8,marginBottom:14}}>
+      {[["silica","🟡 Silica Gel"],["flipoff","🔘 Flip-Off"]].map(x=>(
+        <button type="button" key={x[0]} onClick={()=>setLine(x[0])}
+          style={{flex:1,padding:9,borderRadius:8,fontWeight:700,fontSize:12,cursor:"pointer",border:"1.5px solid "+(line===x[0]?NAVY:"#E2E8F0"),background:line===x[0]?NAVY:"#fff",color:line===x[0]?"#fff":"#666"}}>{x[1]}</button>))}
+    </div>
+    {line==="silica"&&<SilicaCommissionTracker entries={silicaEntries} settings={silicaSettings} withdrawals={silicaWithdrawals}
+      onSaveEntry={onSaveSilicaEntry} onDeleteEntry={onDeleteSilicaEntry} onSaveSettings={onSaveSilicaSettings}
+      onAddWithdrawal={onAddSilicaWithdrawal} onDeleteWithdrawal={onDeleteSilicaWithdrawal}/>}
+    {line==="flipoff"&&<FlipOffCommissionTracker orders={orders} settings={flipOffSettings} withdrawals={flipOffWithdrawals}
+      onSaveOrder={onSaveOrder} onSaveSettings={onSaveFlipOffSettings} onAddWithdrawal={onAddFlipOffWithdrawal} onDeleteWithdrawal={onDeleteFlipOffWithdrawal}/>}
+  </div>);
 }
 
 const MATERIAL_META={
@@ -3416,9 +3420,7 @@ function Dashboard({data,batches,orders,onSelect,onLogout,onExport,onImportFile,
         <button type="button" onClick={()=>onSection("employees")} style={{background:"#6E3A1B",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>👷 Employees
           <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Roster, stations &amp; wages</div></button>
         <button type="button" onClick={()=>onSection("cashledger")} style={{background:"#0E4A2A",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🏦 East Pharma Finance
-          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Real cash, P&amp;L &amp; balance sheet</div></button>
-        <button type="button" onClick={()=>onSection("commissions")} style={{background:"#4A1A6E",color:"#fff",border:"none",borderRadius:12,padding:14,fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>🤝 Commission Tracker
-          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Owner shares &amp; commission owed</div></button></div>
+          <div style={{fontWeight:400,fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:4}}>Cash, P&amp;L, balance sheet &amp; commissions</div></button></div>
       <div onClick={()=>onSelect("Aluminum Caps")} style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:18,cursor:"pointer"}}>
         <div style={{fontSize:11,fontWeight:800,color:"#37474F",textTransform:"uppercase",marginBottom:8}}>🔘 Aluminum Availability</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:8}}>
@@ -4753,9 +4755,8 @@ export default function EpsInventoryApp(){
   else if(section==="labels")content=<LabelsSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="certificates")content=<CertificatesSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="employees")content=<EmployeesSection employees={employees} batches={batches} onSave={saveEmployee} onDelete={deleteEmployee} onClose={()=>setSection("inventory")}/>;
-  else if(section==="cashledger")content=<CashLedgerSection cashLedger={cashLedger} cashOpening={cashOpening} data={data} laborRates={laborRates} onSaveEntry={saveCashEntry} onDeleteEntry={deleteCashEntry} onSetOpening={setCashOpeningBalance} onClose={()=>setSection("inventory")}/>;
-  else if(section==="commissions")content=<CommissionTrackerSection orders={orders}
-    silicaEntries={silicaCommissionEntries} silicaSettings={silicaCommissionSettings} silicaWithdrawals={silicaOwnerWithdrawals}
+  else if(section==="cashledger")content=<CashLedgerSection cashLedger={cashLedger} cashOpening={cashOpening} data={data} laborRates={laborRates} onSaveEntry={saveCashEntry} onDeleteEntry={deleteCashEntry} onSetOpening={setCashOpeningBalance}
+    orders={orders} silicaEntries={silicaCommissionEntries} silicaSettings={silicaCommissionSettings} silicaWithdrawals={silicaOwnerWithdrawals}
     flipOffSettings={flipOffCommissionSettings} flipOffWithdrawals={flipOffOwnerWithdrawals}
     onSaveSilicaEntry={saveSilicaCommissionEntry} onDeleteSilicaEntry={deleteSilicaCommissionEntry} onSaveSilicaSettings={saveSilicaCommissionSettings}
     onAddSilicaWithdrawal={addSilicaOwnerWithdrawal} onDeleteSilicaWithdrawal={deleteSilicaOwnerWithdrawal}
@@ -4775,7 +4776,7 @@ export default function EpsInventoryApp(){
     onToggleBag={(lid,bid)=>toggleBag(activeMat,lid,bid)} onCreateAlBatch={createAlBatch}/>;
   else content=<Dashboard data={data} batches={batches} orders={orders} onSelect={setActiveMat} onLogout={logout} onExport={exportBackup} onImportFile={importBackup} lastSync={lastSync} onSection={s=>{setSection(s);setActiveMat(null);}}/>;
 
-  const showTabs=section!=="log"&&section!=="reports"&&section!=="finance"&&section!=="labels"&&section!=="certificates"&&section!=="employees"&&section!=="cashledger"&&section!=="commissions"&&!activeMat;
+  const showTabs=section!=="log"&&section!=="reports"&&section!=="finance"&&section!=="labels"&&section!=="certificates"&&section!=="employees"&&section!=="cashledger"&&!activeMat;
   return(<div style={{fontFamily:"'Inter',sans-serif"}}>
     {showTabs&&<div style={{background:"#142540",position:"sticky",top:0,zIndex:200,borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
       <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
