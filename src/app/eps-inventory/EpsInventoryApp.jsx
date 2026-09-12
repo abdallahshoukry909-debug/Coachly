@@ -332,12 +332,17 @@ function EmployeesSection({employees,batches,onSave,onDelete,onClose}){
 // separate from real business expenses — both exist so Profit & Loss can exclude owner
 // capital/draws from income/expenses (they're equity movements, not business performance).
 const CASH_CATEGORIES_IN=["Customer Payment","Owner Capital","Asset Sale","Other Income"];
-const CASH_CATEGORIES_OUT=["Material Purchase","Wages","Maintenance","Utilities","Rent","Transport","Owner Draw","Other Expense"];
-// Owner Capital and Owner Draw are the only categories where money moves between a specific
-// owner and the business, so only they carry an "owner" — the split matches the Commission
-// Tracker's owner shares exactly: Silica is 3-way, Flip-Off excludes Islam. Any other expense
-// can optionally carry just a "line" (no owner) to say which product it belongs to, including a
-// "Split (Both)" option for a genuinely shared cost like rent that isn't really either one's.
+const CASH_CATEGORIES_OUT=["Material Purchase","Wages","Maintenance","Utilities","Rent","Transport","Owner Draw","Profit Withdrawal","Other Expense"];
+// Owner Capital, Owner Draw and Profit Withdrawal are the only categories where money moves
+// between a specific owner and the business, so only they carry an "owner" — the split matches
+// the Commission Tracker's owner shares exactly: Silica is 3-way, Flip-Off excludes Islam.
+// Profit Withdrawal is what the Commission Tracker's "+ Log Withdrawal" writes here: unlike Owner
+// Draw (returning contributed capital, tracked by ownerCapitalBalances below), it's an owner
+// taking their share of already-earned profit out of the line's cash pool, so it's deliberately
+// excluded from ownerCapitalBalances but still leaves the line's cash pool and the P&L/Balance
+// Sheet the same way Owner Draw does. Any other expense can optionally carry just a "line" (no
+// owner) to say which product it belongs to, including a "Split (Both)" option for a genuinely
+// shared cost like rent that isn't really either one's.
 const OWNER_CAPITAL_LINES=["Silica Gel","Flip-Off"];
 const OWNERS_BY_LINE={"Silica Gel":["Youssef","Roger","Islam"],"Flip-Off":["Youssef","Roger"]};
 const EXPENSE_LINE_OPTIONS=["Flip-Off","Silica Gel","Split (Both)"];
@@ -433,7 +438,7 @@ function cashPnL(entries){
       if(e.category==="Owner Capital"){ownerCapital+=amt;return;}
       incomeByCat[e.category]=(incomeByCat[e.category]||0)+amt;totalIncome+=amt;
     }else{
-      if(e.category==="Owner Draw"){ownerDraws+=amt;return;}
+      if(e.category==="Owner Draw"||e.category==="Profit Withdrawal"){ownerDraws+=amt;return;}
       expenseByCat[e.category]=(expenseByCat[e.category]||0)+amt;totalExpense+=amt;
     }
   });
@@ -529,7 +534,7 @@ function PnLView({cashLedger}){
     {(pnl.ownerCapital>0||pnl.ownerDraws>0)&&<div style={{background:"#FFF9E6",borderRadius:12,border:"1px solid #E6A817",padding:14,marginBottom:14,fontSize:12,color:"#856404"}}>
       <div style={{fontWeight:700,marginBottom:6}}>Not counted as profit/loss (equity movements, this period):</div>
       {pnl.ownerCapital>0&&<div>Owner Capital in: <strong>{fmtN(pnl.ownerCapital)} EGP</strong></div>}
-      {pnl.ownerDraws>0&&<div>Owner Draws out: <strong>{fmtN(pnl.ownerDraws)} EGP</strong></div>}</div>}
+      {pnl.ownerDraws>0&&<div>Owner Draws / Profit Withdrawals out: <strong>{fmtN(pnl.ownerDraws)} EGP</strong></div>}</div>}
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14}}>
       <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:12}}>📈 Monthly Net Profit Trend</div>
       {monthly.length===0&&<div style={{fontSize:12,color:"#999"}}>No entries yet.</div>}
@@ -579,7 +584,7 @@ function CashEntryForm({existing,onSave,onCancel}){
   const [line,setLine]=useState(e.line||"");
   const [owner,setOwner]=useState(e.owner||OWNERS_BY_LINE[e.line||"Silica Gel"][0]);
   const [err,setErr]=useState("");
-  const isOwnerMoney=category==="Owner Capital"||category==="Owner Draw";
+  const isOwnerMoney=category==="Owner Capital"||category==="Owner Draw"||category==="Profit Withdrawal";
   // Any other income or expense (Customer Payment, Material Purchase, Wages, Rent, etc.) can
   // optionally be tagged to a line too — e.g. rent covers both product lines, so it can be split
   // rather than forced onto one; a Customer Payment usually belongs to one line's sale. Tagging
@@ -590,7 +595,7 @@ function CashEntryForm({existing,onSave,onCancel}){
   const switchType=t=>{setType(t);const nc=t==="in"?CASH_CATEGORIES_IN:CASH_CATEGORIES_OUT;setCategory(nc.indexOf(category)>=0?category:nc[0]);};
   const switchCategory=c=>{
     setCategory(c);
-    if((c==="Owner Capital"||c==="Owner Draw")&&OWNER_CAPITAL_LINES.indexOf(line)<0){setLine("Silica Gel");setOwner(OWNERS_BY_LINE["Silica Gel"][0]);}
+    if((c==="Owner Capital"||c==="Owner Draw"||c==="Profit Withdrawal")&&OWNER_CAPITAL_LINES.indexOf(line)<0){setLine("Silica Gel");setOwner(OWNERS_BY_LINE["Silica Gel"][0]);}
   };
   const switchLine=l=>{setLine(l);if(OWNERS_BY_LINE[l]&&OWNERS_BY_LINE[l].indexOf(owner)<0)setOwner(OWNERS_BY_LINE[l][0]);};
   const save=()=>{
@@ -782,7 +787,8 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
         onSaveSilicaEntry={onSaveSilicaEntry} onDeleteSilicaEntry={onDeleteSilicaEntry} onSaveSilicaSettings={onSaveSilicaSettings}
         onAddSilicaWithdrawal={onAddSilicaWithdrawal} onDeleteSilicaWithdrawal={onDeleteSilicaWithdrawal}
         onSaveBatch={onSaveBatch} onSaveFlipOffSettings={onSaveFlipOffSettings}
-        onAddFlipOffWithdrawal={onAddFlipOffWithdrawal} onDeleteFlipOffWithdrawal={onDeleteFlipOffWithdrawal}/>}
+        onAddFlipOffWithdrawal={onAddFlipOffWithdrawal} onDeleteFlipOffWithdrawal={onDeleteFlipOffWithdrawal}
+        onSaveCashEntry={onSaveEntry} onDeleteCashEntry={onDeleteEntry}/>}
       {tab!=="commissions"&&cashOpening&&<>
       {tab==="ledger"&&<>
       <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #EEF2F7",padding:18,marginBottom:14,textAlign:"center"}}>
@@ -908,7 +914,7 @@ function CommissionSummaryCard({summary}){
       <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>Commission Outstanding</div><div style={{fontWeight:800,fontSize:15,color:summary.commissionOutstanding>0?"#DC3545":"#1A6B2A"}}>{fmtN(summary.commissionOutstanding)} EGP</div><div style={{color:"#999",fontSize:10}}>Due {fmtN(summary.commissionDueTotal)} · Paid {fmtN(summary.commissionPaidTotal)}</div></div>
     </div></div>);
 }
-function OwnerSharesCard({owners,distributableProfit,withdrawals,onAddWithdrawal,onDeleteWithdrawal}){
+function OwnerSharesCard({owners,distributableProfit,withdrawals,onAddWithdrawal,onDeleteWithdrawal,line,onSaveCashEntry,onDeleteCashEntry}){
   const shares=ownerSharesCalc(owners,distributableProfit,withdrawals);
   const [showAdd,setShowAdd]=useState(false);
   const [date,setDate]=useState(new Date().toISOString().split("T")[0]),[owner,setOwner]=useState(owners[0].name);
@@ -916,13 +922,23 @@ function OwnerSharesCard({owners,distributableProfit,withdrawals,onAddWithdrawal
   const add=()=>{
     const amt=Number(amount)||0;
     if(amt<=0){setErr("Enter an amount.");return;}
-    onAddWithdrawal({id:genId(),date:date,owner:owner,amountEGP:amt,method:method.trim(),notes:notes.trim()});
+    const id=genId();
+    onAddWithdrawal({id:id,date:date,owner:owner,amountEGP:amt,method:method.trim(),notes:notes.trim()});
+    // Also removes the money from the line's real cash pool (Ledger tab) — this is a payout of
+    // already-earned profit, not a return of contributed capital, so it's logged as its own
+    // "Profit Withdrawal" category rather than "Owner Draw" and stays out of ownerCapitalBalances.
+    if(onSaveCashEntry&&line){
+      onSaveCashEntry({id:id,date:date,type:"out",category:"Profit Withdrawal",amount:amt,
+        note:"Profit withdrawal"+(method.trim()?" ("+method.trim()+")":"")+(notes.trim()?" — "+notes.trim():""),
+        line:line,owner:owner,createdAt:new Date().toISOString()});
+    }
     setAmount("");setMethod("");setNotes("");setShowAdd(false);setErr("");
   };
+  const removeWithdrawal=id=>{onDeleteWithdrawal(id);if(onDeleteCashEntry&&line)onDeleteCashEntry(id);};
   const sortedW=(withdrawals||[]).slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
     <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:4}}>👥 Owner Shares</div>
-    <div style={{fontSize:11,color:"#888",marginBottom:10}}>Distributable Profit (received net profit − commission) = <strong>{fmtN(distributableProfit)} EGP</strong></div>
+    <div style={{fontSize:11,color:"#888",marginBottom:10}}>Distributable Profit (received net profit − commission) = <strong>{fmtN(distributableProfit)} EGP</strong>{line&&" · a withdrawal here also removes the cash from the "+line+" balance in the Ledger tab."}</div>
     {shares.map(s=>(<div key={s.name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #F5F5F5",fontSize:12}}>
       <div><strong>{s.name}</strong> <span style={{color:"#999"}}>({(s.share*100).toFixed(1)}%)</span></div>
       <div style={{textAlign:"right"}}>
@@ -948,7 +964,7 @@ function OwnerSharesCard({owners,distributableProfit,withdrawals,onAddWithdrawal
       {sortedW.map(w=>(<div key={w.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
         <div><strong>{w.owner}</strong> <span style={{color:"#999"}}>{w.date}{w.method?" · "+w.method:""}</span>{w.notes&&<div style={{fontSize:11,color:"#999"}}>{w.notes}</div>}</div>
         <div style={{display:"flex",alignItems:"center",gap:8}}><strong>{fmtN(w.amountEGP)} EGP</strong>
-          <button type="button" onClick={()=>onDeleteWithdrawal(w.id)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:14,padding:0}}>✕</button></div></div>))}
+          <button type="button" onClick={()=>removeWithdrawal(w.id)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:14,padding:0}}>✕</button></div></div>))}
     </div>}
   </div>);
 }
@@ -1113,7 +1129,7 @@ function ExcludedBatchesList({batches,forSilica,onSaveBatch}){
 // Silica keeps its historical manually-typed rows (receipts that don't match batch records) as
 // the permanent record of what was already sold — but every Silica batch shipped from now on
 // shows up automatically here too, same mechanism as Flip-Off, so nothing new needs typing in.
-function SilicaCommissionTracker({entries,settings,withdrawals,batches,data,laborRates,onSaveEntry,onDeleteEntry,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal,onSaveBatch}){
+function SilicaCommissionTracker({entries,settings,withdrawals,batches,data,laborRates,onSaveEntry,onDeleteEntry,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal,onSaveBatch,onSaveCashEntry,onDeleteCashEntry}){
   const [showAdd,setShowAdd]=useState(false);
   const linkedBatchIds={};entries.forEach(en=>{(en.batchIds||(en.batchId?[en.batchId]:[])).forEach(id=>{linkedBatchIds[id]=1;});});
   const batchRows=commissionRowsFromBatches(batches,data,laborRates,true,linkedBatchIds);
@@ -1123,7 +1139,7 @@ function SilicaCommissionTracker({entries,settings,withdrawals,batches,data,labo
   return(<div>
     <CommissionSettingsCard settings={settings} onSave={onSaveSettings}/>
     <CommissionSummaryCard summary={summary}/>
-    <OwnerSharesCard owners={COMMISSION_OWNERS_SILICA} distributableProfit={summary.distributableProfit} withdrawals={withdrawals} onAddWithdrawal={onAddWithdrawal} onDeleteWithdrawal={onDeleteWithdrawal}/>
+    <OwnerSharesCard owners={COMMISSION_OWNERS_SILICA} distributableProfit={summary.distributableProfit} withdrawals={withdrawals} onAddWithdrawal={onAddWithdrawal} onDeleteWithdrawal={onDeleteWithdrawal} line="Silica Gel" onSaveCashEntry={onSaveCashEntry} onDeleteCashEntry={onDeleteCashEntry}/>
     <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>🧾 Sales (typed in — historical receipts)</div>
     {!showAdd&&<button type="button" onClick={()=>setShowAdd(true)} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:14}}>+ Add Sale</button>}
     {showAdd&&<SilicaCommissionRowEdit row={{}} batches={batches} onSave={r=>{onSaveEntry(r);setShowAdd(false);}} onCancel={()=>setShowAdd(false)}/>}
@@ -1135,14 +1151,14 @@ function SilicaCommissionTracker({entries,settings,withdrawals,batches,data,labo
     <ExcludedBatchesList batches={batches} forSilica={true} onSaveBatch={onSaveBatch}/>
   </div>);
 }
-function FlipOffCommissionTracker({batches,data,laborRates,settings,withdrawals,onSaveBatch,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal}){
+function FlipOffCommissionTracker({batches,data,laborRates,settings,withdrawals,onSaveBatch,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal,onSaveCashEntry,onDeleteCashEntry}){
   const rows=commissionRowsFromBatches(batches,data,laborRates,false);
   const summary=commissionSummary(rows,settings);
   const sorted=(batches||[]).filter(b=>isCommissionEligibleBatch(b,false)).sort((a,b)=>(b.dateShipped||"").localeCompare(a.dateShipped||""));
   return(<div>
     <CommissionSettingsCard settings={settings} onSave={onSaveSettings}/>
     <CommissionSummaryCard summary={summary}/>
-    <OwnerSharesCard owners={COMMISSION_OWNERS_FLIPOFF} distributableProfit={summary.distributableProfit} withdrawals={withdrawals} onAddWithdrawal={onAddWithdrawal} onDeleteWithdrawal={onDeleteWithdrawal}/>
+    <OwnerSharesCard owners={COMMISSION_OWNERS_FLIPOFF} distributableProfit={summary.distributableProfit} withdrawals={withdrawals} onAddWithdrawal={onAddWithdrawal} onDeleteWithdrawal={onDeleteWithdrawal} line="Flip-Off" onSaveCashEntry={onSaveCashEntry} onDeleteCashEntry={onDeleteCashEntry}/>
     <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>🧾 Batches</div>
     {sorted.map(b=><BatchCommissionRow key={b.id} batch={b} batches={batches} data={data} laborRates={laborRates} settings={settings} onSave={onSaveBatch}/>)}
     {sorted.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No Flip-Off batches yet — create one under Production.</div>}
@@ -1151,7 +1167,7 @@ function FlipOffCommissionTracker({batches,data,laborRates,settings,withdrawals,
 }
 function CommissionsView({batches,data,laborRates,silicaEntries,silicaSettings,silicaWithdrawals,flipOffSettings,flipOffWithdrawals,
   onSaveSilicaEntry,onDeleteSilicaEntry,onSaveSilicaSettings,onAddSilicaWithdrawal,onDeleteSilicaWithdrawal,
-  onSaveBatch,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal}){
+  onSaveBatch,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal,onSaveCashEntry,onDeleteCashEntry}){
   const [line,setLine]=useState("silica");
   return(<div>
     <div style={{display:"flex",gap:8,marginBottom:14}}>
@@ -1161,9 +1177,11 @@ function CommissionsView({batches,data,laborRates,silicaEntries,silicaSettings,s
     </div>
     {line==="silica"&&<SilicaCommissionTracker entries={silicaEntries} settings={silicaSettings} withdrawals={silicaWithdrawals} batches={batches} data={data} laborRates={laborRates}
       onSaveEntry={onSaveSilicaEntry} onDeleteEntry={onDeleteSilicaEntry} onSaveSettings={onSaveSilicaSettings}
-      onAddWithdrawal={onAddSilicaWithdrawal} onDeleteWithdrawal={onDeleteSilicaWithdrawal} onSaveBatch={onSaveBatch}/>}
+      onAddWithdrawal={onAddSilicaWithdrawal} onDeleteWithdrawal={onDeleteSilicaWithdrawal} onSaveBatch={onSaveBatch}
+      onSaveCashEntry={onSaveCashEntry} onDeleteCashEntry={onDeleteCashEntry}/>}
     {line==="flipoff"&&<FlipOffCommissionTracker batches={batches} data={data} laborRates={laborRates} settings={flipOffSettings} withdrawals={flipOffWithdrawals}
-      onSaveBatch={onSaveBatch} onSaveSettings={onSaveFlipOffSettings} onAddWithdrawal={onAddFlipOffWithdrawal} onDeleteWithdrawal={onDeleteFlipOffWithdrawal}/>}
+      onSaveBatch={onSaveBatch} onSaveSettings={onSaveFlipOffSettings} onAddWithdrawal={onAddFlipOffWithdrawal} onDeleteWithdrawal={onDeleteFlipOffWithdrawal}
+      onSaveCashEntry={onSaveCashEntry} onDeleteCashEntry={onDeleteCashEntry}/>}
   </div>);
 }
 
