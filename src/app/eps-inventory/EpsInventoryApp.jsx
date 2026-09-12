@@ -332,17 +332,16 @@ function EmployeesSection({employees,batches,onSave,onDelete,onClose}){
 // separate from real business expenses — both exist so Profit & Loss can exclude owner
 // capital/draws from income/expenses (they're equity movements, not business performance).
 const CASH_CATEGORIES_IN=["Customer Payment","Owner Capital","Asset Sale","Other Income"];
-const CASH_CATEGORIES_OUT=["Material Purchase","Wages","Maintenance","Utilities","Rent","Transport","Owner Draw","Profit Withdrawal","Commission Expense","Other Expense"];
-// Owner Capital, Owner Draw and Profit Withdrawal are the only categories where money moves
-// between a specific owner and the business, so only they carry an "owner" — the split matches
-// the Commission Tracker's owner shares exactly: Silica is 3-way, Flip-Off excludes Islam.
-// Profit Withdrawal is what the Commission Tracker's "+ Log Withdrawal" writes here: unlike Owner
-// Draw (returning contributed capital, tracked by ownerCapitalBalances below), it's an owner
-// taking their share of already-earned profit out of the line's cash pool, so it's deliberately
-// excluded from ownerCapitalBalances but still leaves the line's cash pool and the P&L/Balance
-// Sheet the same way Owner Draw does. Any other expense can optionally carry just a "line" (no
-// owner) to say which product it belongs to, including a "Split (Both)" option for a genuinely
-// shared cost like rent that isn't really either one's.
+const CASH_CATEGORIES_OUT=["Material Purchase","Wages","Maintenance","Utilities","Rent","Transport","Owner Draw","Commission Expense","Other Expense"];
+// Owner Capital and Owner Draw are the only categories where money moves between a specific
+// owner and the business, so only they carry an "owner" — the split matches the Sales tab's
+// owner shares exactly: Silica is 3-way, Flip-Off excludes Islam. A sale's money, once marked
+// received, is credited straight in as Owner Capital too (see syncCommissionCash below) — so
+// Owner Capital Balance is the one real running balance per owner, fed by both manual capital
+// contributions and actual sales money coming in, and drawn down by Owner Draw either way. Any
+// other expense can optionally carry just a "line" (no owner) to say which product it belongs to,
+// including a "Split (Both)" option for a genuinely shared cost like rent that isn't really
+// either one's.
 const OWNER_CAPITAL_LINES=["Silica Gel","Flip-Off"];
 const OWNERS_BY_LINE={"Silica Gel":["Youssef","Roger","Islam"],"Flip-Off":["Youssef","Roger"]};
 const EXPENSE_LINE_OPTIONS=["Flip-Off","Silica Gel","Split (Both)"];
@@ -365,7 +364,7 @@ function ownerCapitalBalances(cashLedger,line){
 function OwnerCapitalBalanceCard({cashLedger}){
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
     <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:4}}>👥 Owner Capital Balance</div>
-    <div style={{fontSize:11,color:"#888",marginBottom:12}}>Net capital each owner has put in (contributions minus draws) vs. an equal split. Positive = they&apos;ve put in more than their share — owed back in cash, or can take extra from future profit instead. Negative = they still owe to catch up.</div>
+    <div style={{fontSize:11,color:"#888",marginBottom:12}}>Net capital each owner has put in (contributions plus their share of sales money as it comes in, minus draws and withdrawals) vs. an equal split. Positive = they&apos;re ahead of their share — owed back in cash, or can take extra from future profit instead. Negative = they still owe to catch up.</div>
     {OWNER_CAPITAL_LINES.map(line=>{
       const balances=ownerCapitalBalances(cashLedger,line);
       return(<div key={line} style={{marginBottom:14}}>
@@ -438,7 +437,7 @@ function cashPnL(entries){
       if(e.category==="Owner Capital"){ownerCapital+=amt;return;}
       incomeByCat[e.category]=(incomeByCat[e.category]||0)+amt;totalIncome+=amt;
     }else{
-      if(e.category==="Owner Draw"||e.category==="Profit Withdrawal"){ownerDraws+=amt;return;}
+      if(e.category==="Owner Draw"){ownerDraws+=amt;return;}
       expenseByCat[e.category]=(expenseByCat[e.category]||0)+amt;totalExpense+=amt;
     }
   });
@@ -534,7 +533,7 @@ function PnLView({cashLedger}){
     {(pnl.ownerCapital>0||pnl.ownerDraws>0)&&<div style={{background:"#FFF9E6",borderRadius:12,border:"1px solid #E6A817",padding:14,marginBottom:14,fontSize:12,color:"#856404"}}>
       <div style={{fontWeight:700,marginBottom:6}}>Not counted as profit/loss (equity movements, this period):</div>
       {pnl.ownerCapital>0&&<div>Owner Capital in: <strong>{fmtN(pnl.ownerCapital)} EGP</strong></div>}
-      {pnl.ownerDraws>0&&<div>Owner Draws / Profit Withdrawals out: <strong>{fmtN(pnl.ownerDraws)} EGP</strong></div>}</div>}
+      {pnl.ownerDraws>0&&<div>Owner Draws out: <strong>{fmtN(pnl.ownerDraws)} EGP</strong></div>}</div>}
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14}}>
       <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:12}}>📈 Monthly Net Profit Trend</div>
       {monthly.length===0&&<div style={{fontSize:12,color:"#999"}}>No entries yet.</div>}
@@ -584,7 +583,7 @@ function CashEntryForm({existing,onSave,onCancel}){
   const [line,setLine]=useState(e.line||"");
   const [owner,setOwner]=useState(e.owner||OWNERS_BY_LINE[e.line||"Silica Gel"][0]);
   const [err,setErr]=useState("");
-  const isOwnerMoney=category==="Owner Capital"||category==="Owner Draw"||category==="Profit Withdrawal";
+  const isOwnerMoney=category==="Owner Capital"||category==="Owner Draw";
   // Any other income or expense (Customer Payment, Material Purchase, Wages, Rent, etc.) can
   // optionally be tagged to a line too — e.g. rent covers both product lines, so it can be split
   // rather than forced onto one; a Customer Payment usually belongs to one line's sale. Tagging
@@ -595,7 +594,7 @@ function CashEntryForm({existing,onSave,onCancel}){
   const switchType=t=>{setType(t);const nc=t==="in"?CASH_CATEGORIES_IN:CASH_CATEGORIES_OUT;setCategory(nc.indexOf(category)>=0?category:nc[0]);};
   const switchCategory=c=>{
     setCategory(c);
-    if((c==="Owner Capital"||c==="Owner Draw"||c==="Profit Withdrawal")&&OWNER_CAPITAL_LINES.indexOf(line)<0){setLine("Silica Gel");setOwner(OWNERS_BY_LINE["Silica Gel"][0]);}
+    if((c==="Owner Capital"||c==="Owner Draw")&&OWNER_CAPITAL_LINES.indexOf(line)<0){setLine("Silica Gel");setOwner(OWNERS_BY_LINE["Silica Gel"][0]);}
   };
   const switchLine=l=>{setLine(l);if(OWNERS_BY_LINE[l]&&OWNERS_BY_LINE[l].indexOf(owner)<0)setOwner(OWNERS_BY_LINE[l][0]);};
   const save=()=>{
@@ -775,13 +774,13 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
         <div><div style={{color:"#fff",fontWeight:800,fontSize:17}}>🏦 East Pharma Finance</div>
           <div style={{color:"rgba(255,255,255,0.6)",fontSize:11}}>Actual money in/out — separate from Finance estimates</div></div></div>
       <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
-        {[["ledger","📒 Ledger"],["pnl","📈 Profit & Loss"],["balance","🧾 Balance Sheet"],["commissions","🤝 Commissions"]].map(x=>(
+        {[["ledger","📒 Ledger"],["pnl","📈 Profit & Loss"],["balance","🧾 Balance Sheet"],["sales","💰 Sales"]].map(x=>(
           <button type="button" key={x[0]} onClick={()=>setTab(x[0])}
             style={{flex:1,background:"none",border:"none",color:tab===x[0]?"#fff":"rgba(255,255,255,0.45)",padding:"11px 8px",fontSize:12,fontWeight:tab===x[0]?700:400,cursor:"pointer",borderBottom:"2px solid "+(tab===x[0]?"#fff":"transparent"),fontFamily:"inherit"}}>{x[1]}</button>))}
       </div></div>
     <div style={{maxWidth:700,margin:"0 auto",padding:16}}>
-      {tab!=="commissions"&&<CashOpeningSetup opening={cashOpening} onSave={onSetOpening}/>}
-      {tab==="commissions"&&<CommissionsView batches={batches} data={data} laborRates={laborRates}
+      {tab!=="sales"&&<CashOpeningSetup opening={cashOpening} onSave={onSetOpening}/>}
+      {tab==="sales"&&<CommissionsView batches={batches} data={data} laborRates={laborRates}
         silicaEntries={silicaEntries} silicaSettings={silicaSettings} silicaWithdrawals={silicaWithdrawals}
         flipOffSettings={flipOffSettings} flipOffWithdrawals={flipOffWithdrawals}
         onSaveSilicaEntry={onSaveSilicaEntry} onDeleteSilicaEntry={onDeleteSilicaEntry} onSaveSilicaSettings={onSaveSilicaSettings}
@@ -789,7 +788,7 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
         onSaveBatch={onSaveBatch} onSaveFlipOffSettings={onSaveFlipOffSettings}
         onAddFlipOffWithdrawal={onAddFlipOffWithdrawal} onDeleteFlipOffWithdrawal={onDeleteFlipOffWithdrawal}
         onSaveCashEntry={onSaveEntry} onDeleteCashEntry={onDeleteEntry}/>}
-      {tab!=="commissions"&&cashOpening&&<>
+      {tab!=="sales"&&cashOpening&&<>
       {tab==="ledger"&&<>
       <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #EEF2F7",padding:18,marginBottom:14,textAlign:"center"}}>
         <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase"}}>Current Cash Balance</div>
@@ -883,34 +882,31 @@ function ownerSharesCalc(owners,distributableProfit,withdrawals){
     return {name:o.name,share:o.share,shareEGP:shareEGP,withdrawn:withdrawn,balanceDue:shareEGP-withdrawn};
   });
 }
-// As soon as a commission row's money is marked received, that Money In is real cash — it should
-// land in the line's actual balance immediately, not just feed the commission tracker's own
-// on-paper math. Writes a Customer Payment for the full amount and, since the commission is
-// already earmarked to leave for the agent the moment the money is in hand, a matching Commission
-// Expense outflow for commissionDue — both tagged to the line so they show up in Cash by Line and
-// Owner Shares right away. Both entries use ids derived from the row's own id so re-saving the
-// same row updates them in place instead of duplicating, and un-checking "Money Received" (or
-// deleting the row) removes them again via removeCommissionCash.
+// As soon as a sale row's money is marked received, that Money In (minus the commission already
+// earmarked for the sales agent) is real profit that belongs to the line's owners — it's split
+// evenly across them and credited straight in as Owner Capital, so it lands in the real Owner
+// Capital Balance immediately instead of just feeding the Sales tab's own on-paper math. One
+// entry per owner, ids derived from the row's own id so re-saving the same row updates them in
+// place instead of duplicating, and un-checking "Money Received" (or deleting the row, or
+// excluding a batch as not a real sale) removes them again via removeCommissionCash.
 function syncCommissionCash(row,settings,line,onSaveCashEntry,onDeleteCashEntry){
   if(!onSaveCashEntry||!onDeleteCashEntry)return;
-  const inId="cmsn-in-"+row.id,commId="cmsn-comm-"+row.id;
-  if(!row.moneyReceived){removeCommissionCash(row.id,onDeleteCashEntry);return;}
+  const owners=OWNERS_BY_LINE[line]||[];
+  if(!row.moneyReceived||owners.length===0){removeCommissionCash(row.id,line,onDeleteCashEntry);return;}
   const calc=commissionRowCalc(row,settings);
   const d=row.date||new Date().toISOString().split("T")[0];
   const now=new Date().toISOString();
-  onSaveCashEntry({id:inId,date:d,type:"in",category:"Customer Payment",amount:Number(row.totalSalesEGP)||0,
-    note:"Auto (Commission Tracker) — "+(row.client?row.client+" ":"")+"money in",line:line,owner:null,createdAt:now});
-  if(calc.commissionDue>0){
-    onSaveCashEntry({id:commId,date:d,type:"out",category:"Commission Expense",amount:calc.commissionDue,
-      note:"Auto (Commission Tracker) — commission reserved on receipt",line:line,owner:null,createdAt:now});
-  }else{
-    onDeleteCashEntry(commId);
-  }
+  const netAmount=(Number(row.totalSalesEGP)||0)-calc.commissionDue;
+  const perOwner=netAmount/owners.length;
+  owners.forEach(o=>{
+    onSaveCashEntry({id:"cmsn-"+row.id+"-"+o,date:d,type:"in",category:"Owner Capital",amount:perOwner,
+      note:"Auto (Sales) — "+(row.client?row.client+" ":"")+"money in, net of commission, split "+owners.length+"-way",
+      line:line,owner:o,createdAt:now});
+  });
 }
-function removeCommissionCash(rowId,onDeleteCashEntry){
+function removeCommissionCash(rowId,line,onDeleteCashEntry){
   if(!onDeleteCashEntry)return;
-  onDeleteCashEntry("cmsn-in-"+rowId);
-  onDeleteCashEntry("cmsn-comm-"+rowId);
+  (OWNERS_BY_LINE[line]||[]).forEach(o=>onDeleteCashEntry("cmsn-"+rowId+"-"+o));
 }
 function CommissionSettingsCard({settings,onSave}){
   const [editing,setEditing]=useState(false);
@@ -953,11 +949,11 @@ function OwnerSharesCard({owners,distributableProfit,withdrawals,onAddWithdrawal
     if(amt<=0){setErr("Enter an amount.");return;}
     const id=genId();
     onAddWithdrawal({id:id,date:date,owner:owner,amountEGP:amt,method:method.trim(),notes:notes.trim()});
-    // Also removes the money from the line's real cash pool (Ledger tab) — this is a payout of
-    // already-earned profit, not a return of contributed capital, so it's logged as its own
-    // "Profit Withdrawal" category rather than "Owner Draw" and stays out of ownerCapitalBalances.
+    // Also draws it down from the owner's real Owner Capital Balance (Ledger tab) — sales money
+    // lands there as Owner Capital as soon as it's received (see syncCommissionCash), so taking it
+    // out again is an Owner Draw against that same balance, same as drawing back contributed capital.
     if(onSaveCashEntry&&line){
-      onSaveCashEntry({id:id,date:date,type:"out",category:"Profit Withdrawal",amount:amt,
+      onSaveCashEntry({id:id,date:date,type:"out",category:"Owner Draw",amount:amt,
         note:"Profit withdrawal"+(method.trim()?" ("+method.trim()+")":"")+(notes.trim()?" — "+notes.trim():""),
         line:line,owner:owner,createdAt:new Date().toISOString()});
     }
@@ -967,7 +963,7 @@ function OwnerSharesCard({owners,distributableProfit,withdrawals,onAddWithdrawal
   const sortedW=(withdrawals||[]).slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
     <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:4}}>👥 Owner Shares</div>
-    <div style={{fontSize:11,color:"#888",marginBottom:10}}>Distributable Profit (received net profit − commission) = <strong>{fmtN(distributableProfit)} EGP</strong>{line&&" · a withdrawal here also removes the cash from the "+line+" balance in the Ledger tab."}</div>
+    <div style={{fontSize:11,color:"#888",marginBottom:10}}>Distributable Profit (received net profit − commission) = <strong>{fmtN(distributableProfit)} EGP</strong>{line&&" · a withdrawal here also draws it down from that owner's real Owner Capital Balance in the Ledger tab."}</div>
     {shares.map(s=>(<div key={s.name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #F5F5F5",fontSize:12}}>
       <div><strong>{s.name}</strong> <span style={{color:"#999"}}>({(s.share*100).toFixed(1)}%)</span></div>
       <div style={{textAlign:"right"}}>
@@ -1166,7 +1162,7 @@ function SilicaCommissionTracker({entries,settings,withdrawals,batches,data,labo
   const sortedEntries=entries.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   const silicaBatches=(batches||[]).filter(b=>isCommissionEligibleBatch(b,true,linkedBatchIds)).sort((a,b)=>(b.dateShipped||"").localeCompare(a.dateShipped||""));
   const saveEntry=r=>{onSaveEntry(r);syncCommissionCash(r,settings,"Silica Gel",onSaveCashEntry,onDeleteCashEntry);};
-  const deleteEntry=id=>{onDeleteEntry(id);removeCommissionCash(id,onDeleteCashEntry);};
+  const deleteEntry=id=>{onDeleteEntry(id);removeCommissionCash(id,"Silica Gel",onDeleteCashEntry);};
   const saveBatch=b=>{
     onSaveBatch(b);
     const fin=buildBatchCost(b,batches,data,laborRates);
