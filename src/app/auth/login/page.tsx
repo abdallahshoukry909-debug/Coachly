@@ -24,14 +24,14 @@ export default function LoginPage() {
       setError(error.message)
       setLoading(false)
     } else {
-      router.push('/dashboard')
+      router.push('/eps-inventory')
       router.refresh()
     }
   }
 
   return (
     <div className="min-h-screen flex flex-col bg-white px-6 pt-16 pb-8">
-      <Link href="/" className="text-2xl font-bold text-green-600 mb-12">Coachly</Link>
+      <Link href="/" className="text-2xl font-bold text-green-600 mb-12">East Pharma Factory</Link>
 
       <div className="flex-1">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome back</h1>
