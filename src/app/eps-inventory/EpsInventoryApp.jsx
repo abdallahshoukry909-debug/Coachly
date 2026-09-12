@@ -372,6 +372,42 @@ function OwnerCapitalBalanceCard({cashLedger}){
     })}
   </div>);
 }
+// Per-line cash pool — the running total of cash tagged to one product line, separate from the
+// single overall cash balance. This exists so Silica Gel cash (which includes Islam's 1/3 stake)
+// isn't silently spent on Flip-Off (which Islam has no stake in): a "Split (Both)" entry counts
+// half toward each line's pool, and anything left untagged (including the opening balance, which
+// predates line-tagging and is never split retroactively) shows up separately as "Unallocated"
+// rather than being guessed into one line or the other.
+function lineCashBalance(cashLedger,line){
+  let total=0;
+  (cashLedger||[]).forEach(e=>{
+    const amt=Number(e.amount)||0;
+    const sign=e.type==="in"?1:-1;
+    if(e.line===line)total+=sign*amt;
+    else if(e.line==="Split (Both)")total+=sign*amt/2;
+  });
+  return total;
+}
+function unallocatedCashBalance(cashOpening,cashLedger){
+  const opening=cashOpening?Number(cashOpening.balance)||0:0;
+  return (cashLedger||[]).reduce((s,e)=>e.line?s:s+(e.type==="in"?1:-1)*(Number(e.amount)||0),opening);
+}
+function LineCashBalanceCard({cashOpening,cashLedger}){
+  const unallocated=unallocatedCashBalance(cashOpening,cashLedger);
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:4}}>💰 Cash by Line</div>
+    <div style={{fontSize:11,color:"#888",marginBottom:12}}>Silica Gel cash includes Islam&apos;s stake — don&apos;t spend it on Flip-Off directly. Use &quot;Transfer Between Lines&quot; below if Youssef or Roger want to move their own share across; it&apos;s tracked as owed back in the Owner Capital Balance above.</div>
+    {OWNER_CAPITAL_LINES.map(line=>{
+      const bal=lineCashBalance(cashLedger,line);
+      return(<div key={line} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
+        <span>{line==="Silica Gel"?"🟡":"🔘"} {line} Pool</span>
+        <strong style={{color:bal>=0?"#1A6B2A":"#DC3545"}}>{fmtN(bal)} EGP</strong></div>);
+    })}
+    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
+      <span>⚪ Unallocated (untagged entries + opening balance)</span>
+      <strong style={{color:unallocated>=0?"#555":"#DC3545"}}>{fmtN(unallocated)} EGP</strong></div>
+  </div>);
+}
 function cashRunningBalance(opening,ledger){
   const start=opening?Number(opening.balance)||0:0;
   return (ledger||[]).reduce((s,e)=>s+(e.type==="in"?Number(e.amount)||0:-(Number(e.amount)||0)),start);
@@ -544,9 +580,12 @@ function CashEntryForm({existing,onSave,onCancel}){
   const [owner,setOwner]=useState(e.owner||OWNERS_BY_LINE[e.line||"Silica Gel"][0]);
   const [err,setErr]=useState("");
   const isOwnerMoney=category==="Owner Capital"||category==="Owner Draw";
-  // Any other expense (Material Purchase, Wages, Rent, etc.) can optionally be tagged to a line
-  // too — e.g. rent covers both product lines, so it can be split rather than forced onto one.
-  const isGeneralExpense=type==="out"&&!isOwnerMoney;
+  // Any other income or expense (Customer Payment, Material Purchase, Wages, Rent, etc.) can
+  // optionally be tagged to a line too — e.g. rent covers both product lines, so it can be split
+  // rather than forced onto one; a Customer Payment usually belongs to one line's sale. Tagging
+  // income as well as expenses is what makes the per-line cash pools (Cash by Line card) mean
+  // anything — without it only expenses would ever leave a line's pool, never top it back up.
+  const isGeneralExpense=!isOwnerMoney;
   const ownerOptions=OWNERS_BY_LINE[line]||OWNERS_BY_LINE["Silica Gel"];
   const switchType=t=>{setType(t);const nc=t==="in"?CASH_CATEGORIES_IN:CASH_CATEGORIES_OUT;setCategory(nc.indexOf(category)>=0?category:nc[0]);};
   const switchCategory=c=>{
@@ -619,6 +658,74 @@ function CashEntryRow({entry,onSave,onDelete}){
         </div></div></div>
   </div>);
 }
+// Moves cash from one line's pool to another without ever touching an owner who has no stake in
+// the destination line — e.g. Islam can't be part of a transfer into Flip-Off. It writes a
+// matched Owner Draw (source line) + Owner Capital (destination line) pair for the same owner,
+// amount and date, tagged with a shared transferId — deliberately reusing the existing Owner
+// Capital Balance mechanism rather than a separate "loan" concept, since the resulting balance
+// shift (that owner's source-line contribution drops while their destination-line one rises) is
+// exactly the "amount owed back" the transfer is meant to track.
+function TransferBetweenLinesForm({onSaveEntry,onCancel}){
+  const [fromLine,setFromLine]=useState(OWNER_CAPITAL_LINES[0]);
+  const otherLine=l=>OWNER_CAPITAL_LINES.find(x=>x!==l)||OWNER_CAPITAL_LINES[0];
+  const [toLine,setToLine]=useState(otherLine(OWNER_CAPITAL_LINES[0]));
+  const eligibleOwners=(fl,tl)=>(OWNERS_BY_LINE[fl]||[]).filter(o=>(OWNERS_BY_LINE[tl]||[]).indexOf(o)>=0);
+  const [owner,setOwner]=useState(eligibleOwners(fromLine,toLine)[0]||"");
+  const [amount,setAmount]=useState("");
+  const [date,setDate]=useState(new Date().toISOString().split("T")[0]);
+  const [note,setNote]=useState("");
+  const [err,setErr]=useState("");
+  const ownerOptions=eligibleOwners(fromLine,toLine);
+  const switchFrom=l=>{
+    setFromLine(l);
+    const tl=l===toLine?otherLine(l):toLine;
+    setToLine(tl);
+    const opts=eligibleOwners(l,tl);
+    if(opts.indexOf(owner)<0)setOwner(opts[0]||"");
+  };
+  const switchTo=l=>{
+    setToLine(l);
+    const opts=eligibleOwners(fromLine,l);
+    if(opts.indexOf(owner)<0)setOwner(opts[0]||"");
+  };
+  const save=()=>{
+    const amt=Number(amount)||0;
+    if(amt<=0){setErr("Enter an amount.");return;}
+    if(fromLine===toLine){setErr("Pick two different lines.");return;}
+    if(!owner){setErr("No owner has a stake in both lines, so there's no one eligible to transfer.");return;}
+    const transferId=genId();
+    const noteBase=note.trim();
+    onSaveEntry({id:genId(),date:date,type:"out",category:"Owner Draw",amount:amt,
+      note:(noteBase?noteBase+" — ":"")+"Transfer to "+toLine,line:fromLine,owner:owner,transferId:transferId,createdAt:new Date().toISOString()});
+    onSaveEntry({id:genId(),date:date,type:"in",category:"Owner Capital",amount:amt,
+      note:(noteBase?noteBase+" — ":"")+"Transfer from "+fromLine,line:toLine,owner:owner,transferId:transferId,createdAt:new Date().toISOString()});
+    onCancel();
+  };
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:14}}>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:4}}>🔁 Transfer Between Lines</div>
+    <div style={{fontSize:11,color:"#888",marginBottom:12}}>Only owners with a stake in both lines can transfer — for Silica Gel ↔ Flip-Off that&apos;s Youssef and Roger only, so Islam&apos;s money is never moved into Flip-Off. Shows up afterward as that owner owed back on the destination line.</div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>From</label>
+        <select value={fromLine} onChange={ev=>switchFrom(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+          {OWNER_CAPITAL_LINES.map(l=><option key={l}>{l}</option>)}</select></div>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>To</label>
+        <select value={toLine} onChange={ev=>switchTo(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+          {OWNER_CAPITAL_LINES.map(l=><option key={l}>{l}</option>)}</select></div></div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Owner</label>
+        {ownerOptions.length===0?<div style={{fontSize:12,color:"#DC3545",padding:"9px 0"}}>No eligible owner</div>:
+        <select value={owner} onChange={ev=>setOwner(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+          {ownerOptions.map(o=><option key={o}>{o}</option>)}</select>}</div>
+      <Field label="Amount (EGP)" value={amount} onChange={v=>{setAmount(v);setErr("");}} type="number" ph="0.00"/></div>
+    <div style={{marginBottom:10}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date</label>
+      <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+    <div style={{marginBottom:14}}><Field label="Note (optional)" value={note} onChange={setNote} ph="e.g. Covering Flip-Off coil order"/></div>
+    {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
+    <div style={{display:"flex",gap:8}}>
+      <button type="button" onClick={save} style={{flex:1,padding:11,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 Save Transfer</button>
+      <button type="button" onClick={onCancel} style={{padding:"11px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>Cancel</button></div>
+  </div>);
+}
 function CashOpeningSetup({opening,onSave}){
   const [editing,setEditing]=useState(!opening);
   const [date,setDate]=useState(opening?opening.date:new Date().toISOString().split("T")[0]);
@@ -649,6 +756,7 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
   onSaveSilicaEntry,onDeleteSilicaEntry,onSaveSilicaSettings,onAddSilicaWithdrawal,onDeleteSilicaWithdrawal,
   onSaveBatch,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal,onClose}){
   const [showAdd,setShowAdd]=useState(false);
+  const [showTransfer,setShowTransfer]=useState(false);
   const [tab,setTab]=useState("ledger");
   const balance=cashRunningBalance(cashOpening,cashLedger);
   const sorted=cashLedger.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||"").localeCompare(a.createdAt||""));
@@ -689,9 +797,13 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
           <span style={{fontWeight:700,color:"#555"}}>{m.month}</span>
           <span>🟢 {fmtN(m.in)} · 🔴 {fmtN(m.out)} · <strong style={{color:m.in-m.out>=0?"#1A6B2A":"#DC3545"}}>{fmtN(m.in-m.out)} net</strong></span></div>))}
       </div>}
+      <LineCashBalanceCard cashOpening={cashOpening} cashLedger={cashLedger}/>
       <OwnerCapitalBalanceCard cashLedger={cashLedger}/>
-      {!showAdd&&<button type="button" onClick={()=>setShowAdd(true)} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:14}}>+ Add Entry</button>}
+      {!showAdd&&!showTransfer&&<div style={{display:"flex",gap:8,marginBottom:14}}>
+        <button type="button" onClick={()=>setShowAdd(true)} style={{flex:1,padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer"}}>+ Add Entry</button>
+        <button type="button" onClick={()=>setShowTransfer(true)} style={{flex:1,padding:13,background:"#7B3FB5",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer"}}>🔁 Transfer Between Lines</button></div>}
       {showAdd&&<CashEntryForm onSave={en=>{onSaveEntry(en);setShowAdd(false);}} onCancel={()=>setShowAdd(false)}/>}
+      {showTransfer&&<TransferBetweenLinesForm onSaveEntry={onSaveEntry} onCancel={()=>setShowTransfer(false)}/>}
       {sorted.map(en=><CashEntryRow key={en.id} entry={en} onSave={onSaveEntry} onDelete={()=>onDeleteEntry(en.id)}/>)}
       {cashLedger.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No entries yet — log your first payment in or out above.</div>}
       </>}
