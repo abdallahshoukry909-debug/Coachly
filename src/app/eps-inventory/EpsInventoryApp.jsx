@@ -882,13 +882,16 @@ function ownerSharesCalc(owners,distributableProfit,withdrawals){
     return {name:o.name,share:o.share,shareEGP:shareEGP,withdrawn:withdrawn,balanceDue:shareEGP-withdrawn};
   });
 }
-// As soon as a sale row's money is marked received, that Money In (minus the commission already
-// earmarked for the sales agent) is real profit that belongs to the line's owners — it's split
-// evenly across them and credited straight in as Owner Capital, so it lands in the real Owner
-// Capital Balance immediately instead of just feeding the Sales tab's own on-paper math. One
-// entry per owner, ids derived from the row's own id so re-saving the same row updates them in
-// place instead of duplicating, and un-checking "Money Received" (or deleting the row, or
-// excluding a batch as not a real sale) removes them again via removeCommissionCash.
+// As soon as a sale row's money is marked received, its DISTRIBUTABLE profit — the exact same
+// netProfitAfterTax-minus-commissionDue figure the Sales tab's own Summary/Owner Shares cards
+// already compute per row (not the raw Money In figure, which still has COGS and income tax
+// sitting in it that isn't the owners' to take) — is split evenly across the line's owners and
+// credited straight in as Owner Capital. That keeps this number and Owner Shares' distributable
+// profit in exact agreement (summed across all received rows, they're the same total by
+// construction), so Owner Capital Balance is never higher than what Owner Shares says is actually
+// available. One entry per owner, ids derived from the row's own id so re-saving the same row
+// updates them in place instead of duplicating, and un-checking "Money Received" (or deleting the
+// row, or excluding a batch as not a real sale) removes them again via removeCommissionCash.
 function syncCommissionCash(row,settings,line,onSaveCashEntry,onDeleteCashEntry){
   if(!onSaveCashEntry||!onDeleteCashEntry)return;
   const owners=OWNERS_BY_LINE[line]||[];
@@ -896,11 +899,11 @@ function syncCommissionCash(row,settings,line,onSaveCashEntry,onDeleteCashEntry)
   const calc=commissionRowCalc(row,settings);
   const d=row.date||new Date().toISOString().split("T")[0];
   const now=new Date().toISOString();
-  const netAmount=(Number(row.totalSalesEGP)||0)-calc.commissionDue;
+  const netAmount=calc.netProfitAfterTax-calc.commissionDue;
   const perOwner=netAmount/owners.length;
   owners.forEach(o=>{
     onSaveCashEntry({id:"cmsn-"+row.id+"-"+o,date:d,type:"in",category:"Owner Capital",amount:perOwner,
-      note:"Auto (Sales) — "+(row.client?row.client+" ":"")+"money in, net of commission, split "+owners.length+"-way",
+      note:"Auto (Sales) — "+(row.client?row.client+" ":"")+"distributable profit, split "+owners.length+"-way",
       line:line,owner:o,createdAt:now});
   });
 }
