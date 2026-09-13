@@ -1169,6 +1169,16 @@ function SilicaCommissionTracker({entries,settings,withdrawals,batches,data,labo
     const effectiveReceived=!!b.moneyReceived&&!b.excludeFromCommission;
     syncCommissionCash({id:"batch-"+b.id,date:b.dateShipped,totalSalesEGP:fin.revenueEGP,grossProfitEGP:fin.profitEGP,moneyReceived:effectiveReceived},settings,"Silica Gel",onSaveCashEntry,onDeleteCashEntry);
   };
+  // Backfill: rows already marked "Money Received" before this feature existed (or from an
+  // import) were never saved through the form, so they never triggered syncCommissionCash — that's
+  // why Owner Shares can show a distributable amount while Owner Capital Balance still reads zero
+  // for the same money. Re-running the sync for every current row each time this tab is opened
+  // (idempotent — same ids, safe to repeat) keeps the two views from silently drifting apart.
+  // Deliberately mount-only: a backfill pass, not a live sync.
+  useEffect(()=>{
+    entries.forEach(r=>syncCommissionCash(r,settings,"Silica Gel",onSaveCashEntry,onDeleteCashEntry));
+    batchRows.forEach(r=>syncCommissionCash(r,settings,"Silica Gel",onSaveCashEntry,onDeleteCashEntry));
+  },[]);// eslint-disable-line react-hooks/exhaustive-deps
   return(<div>
     <CommissionSettingsCard settings={settings} onSave={onSaveSettings}/>
     <CommissionSummaryCard summary={summary}/>
@@ -1194,6 +1204,14 @@ function FlipOffCommissionTracker({batches,data,laborRates,settings,withdrawals,
     const effectiveReceived=!!b.moneyReceived&&!b.excludeFromCommission;
     syncCommissionCash({id:"batch-"+b.id,date:b.dateShipped,totalSalesEGP:fin.revenueEGP,grossProfitEGP:fin.profitEGP,moneyReceived:effectiveReceived},settings,"Flip-Off",onSaveCashEntry,onDeleteCashEntry);
   };
+  // Backfill: batches already marked "Money Received" before this feature existed were never
+  // saved through the form, so they never triggered syncCommissionCash — re-run it for every
+  // current row each time this tab is opened (idempotent) so Owner Shares and Owner Capital
+  // Balance never silently drift apart.
+  // Deliberately mount-only: a backfill pass, not a live sync.
+  useEffect(()=>{
+    rows.forEach(r=>syncCommissionCash(r,settings,"Flip-Off",onSaveCashEntry,onDeleteCashEntry));
+  },[]);// eslint-disable-line react-hooks/exhaustive-deps
   return(<div>
     <CommissionSettingsCard settings={settings} onSave={onSaveSettings}/>
     <CommissionSummaryCard summary={summary}/>
