@@ -1192,11 +1192,19 @@ function SilicaCommissionTracker({entries,settings,withdrawals,batches,data,labo
   // import) were never saved through the form, so they never triggered syncCommissionCash — that's
   // why Owner Shares can show a distributable amount while Owner Capital Balance still reads zero
   // for the same money. Re-running the sync for every current row each time this tab is opened
-  // (idempotent — same ids, safe to repeat) keeps the two views from silently drifting apart.
+  // (idempotent — same ids, safe to repeat) keeps the two views from silently drifting apart. Walks
+  // EVERY Silica batch, not just the currently-eligible list, so a batch whose status/exclude flag
+  // changed via Production (or a Restore click, which saves through the raw onSaveBatch prop, not
+  // the wrapped saveBatch below) also gets its cash entries created or cleaned up as appropriate,
+  // instead of being left stale until the next time it happens to be edited here.
   // Deliberately mount-only: a backfill pass, not a live sync.
   useEffect(()=>{
     entries.forEach(r=>syncCommissionCash(r,settings,"Silica Gel",onSaveCashEntry,onDeleteCashEntry));
-    batchRows.forEach(r=>syncCommissionCash(r,settings,"Silica Gel",onSaveCashEntry,onDeleteCashEntry));
+    (batches||[]).filter(b=>!b.isSubBatch&&isSilicaProduct(b.product)).forEach(b=>{
+      const fin=buildBatchCost(b,batches,data,laborRates);
+      const effectiveReceived=isCommissionEligibleBatch(b,true,linkedBatchIds)&&!!b.moneyReceived;
+      syncCommissionCash({id:"batch-"+b.id,date:b.dateShipped,totalSalesEGP:fin.revenueEGP,grossProfitEGP:fin.profitEGP,moneyReceived:effectiveReceived},settings,"Silica Gel",onSaveCashEntry,onDeleteCashEntry);
+    });
   },[]);// eslint-disable-line react-hooks/exhaustive-deps
   return(<div>
     <CommissionSettingsCard settings={settings} onSave={onSaveSettings}/>
@@ -1210,7 +1218,7 @@ function SilicaCommissionTracker({entries,settings,withdrawals,batches,data,labo
     <div style={{fontWeight:800,fontSize:13,color:NAVY,marginTop:18,marginBottom:10}}>📦 Batches (auto, from Production — not already linked above)</div>
     {silicaBatches.map(b=><BatchCommissionRow key={b.id} batch={b} batches={batches} data={data} laborRates={laborRates} settings={settings} onSave={saveBatch}/>)}
     {silicaBatches.length===0&&<div style={{textAlign:"center",padding:20,color:"#888",fontSize:13}}>No unlinked Silica Gel batches — link a sale above to its batch, or create a new one under Production.</div>}
-    <ExcludedBatchesList batches={batches} forSilica={true} onSaveBatch={onSaveBatch}/>
+    <ExcludedBatchesList batches={batches} forSilica={true} onSaveBatch={saveBatch}/>
   </div>);
 }
 function FlipOffCommissionTracker({batches,data,laborRates,settings,withdrawals,onSaveBatch,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal,onSaveCashEntry,onDeleteCashEntry}){
@@ -1226,10 +1234,16 @@ function FlipOffCommissionTracker({batches,data,laborRates,settings,withdrawals,
   // Backfill: batches already marked "Money Received" before this feature existed were never
   // saved through the form, so they never triggered syncCommissionCash — re-run it for every
   // current row each time this tab is opened (idempotent) so Owner Shares and Owner Capital
-  // Balance never silently drift apart.
+  // Balance never silently drift apart. Walks EVERY Flip-Off batch, not just the currently-eligible
+  // list, so one whose status/exclude flag changed elsewhere (Production, or a Restore click which
+  // saves through the raw onSaveBatch prop) also gets cleaned up or picked up here.
   // Deliberately mount-only: a backfill pass, not a live sync.
   useEffect(()=>{
-    rows.forEach(r=>syncCommissionCash(r,settings,"Flip-Off",onSaveCashEntry,onDeleteCashEntry));
+    (batches||[]).filter(b=>!b.isSubBatch&&!isSilicaProduct(b.product)).forEach(b=>{
+      const fin=buildBatchCost(b,batches,data,laborRates);
+      const effectiveReceived=isCommissionEligibleBatch(b,false)&&!!b.moneyReceived;
+      syncCommissionCash({id:"batch-"+b.id,date:b.dateShipped,totalSalesEGP:fin.revenueEGP,grossProfitEGP:fin.profitEGP,moneyReceived:effectiveReceived},settings,"Flip-Off",onSaveCashEntry,onDeleteCashEntry);
+    });
   },[]);// eslint-disable-line react-hooks/exhaustive-deps
   return(<div>
     <CommissionSettingsCard settings={settings} onSave={onSaveSettings}/>
@@ -1238,7 +1252,7 @@ function FlipOffCommissionTracker({batches,data,laborRates,settings,withdrawals,
     <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>🧾 Batches</div>
     {sorted.map(b=><BatchCommissionRow key={b.id} batch={b} batches={batches} data={data} laborRates={laborRates} settings={settings} onSave={saveBatch}/>)}
     {sorted.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No Flip-Off batches yet — create one under Production.</div>}
-    <ExcludedBatchesList batches={batches} forSilica={false} onSaveBatch={onSaveBatch}/>
+    <ExcludedBatchesList batches={batches} forSilica={false} onSaveBatch={saveBatch}/>
   </div>);
 }
 function CommissionsView({batches,data,laborRates,silicaEntries,silicaSettings,silicaWithdrawals,flipOffSettings,flipOffWithdrawals,
