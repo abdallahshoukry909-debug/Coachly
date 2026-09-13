@@ -478,20 +478,35 @@ function inventoryValueEGP(data,laborRates){
   });
   return total;
 }
+// Money already invoiced (a sale marked as a real shipment) but not yet collected — reuses the
+// exact same eligibility as the Sales tab's own "Still Owed (Receivables)" figure (typed Silica
+// entries plus auto batch rows for both lines, via commissionRowsFromBatches/isCommissionEligibleBatch
+// further down this file), so this always agrees with what Sales shows, just totalled across both
+// lines for the Balance Sheet. commissionRowCalc's balanceOwed is tax/commission-independent
+// (just totalSalesEGP when not yet received), so no settings are needed here.
+function accountsReceivableEGP(batches,silicaEntries,data,laborRates){
+  const linkedBatchIds={};(silicaEntries||[]).forEach(en=>{(en.batchIds||(en.batchId?[en.batchId]:[])).forEach(id=>{linkedBatchIds[id]=1;});});
+  const rows=(silicaEntries||[]).concat(
+    commissionRowsFromBatches(batches,data,laborRates,true,linkedBatchIds),
+    commissionRowsFromBatches(batches,data,laborRates,false));
+  return rows.reduce((s,r)=>s+(r.moneyReceived?0:(Number(r.totalSalesEGP)||0)),0);
+}
 // A cash-basis snapshot, not a fully reconciled accrual balance sheet — Material Purchases are
 // expensed the moment they're paid (matching how the ledger is logged), while the material
 // itself keeps counting as an Inventory asset until it's used up, so Assets will generally run
-// ahead of Equity by roughly the value of inventory still on hand. That gap is real, not a bug —
-// see the note rendered alongside this in BalanceSheetView.
-function cashBalanceSheet(opening,ledger,data,laborRates){
+// ahead of Equity by roughly the value of inventory still on hand plus any money invoiced but not
+// yet collected (Accounts Receivable). That gap is real, not a bug — see the note rendered
+// alongside this in BalanceSheetView.
+function cashBalanceSheet(opening,ledger,data,laborRates,batches,silicaEntries){
   const cash=cashRunningBalance(opening,ledger);
   const inventory=inventoryValueEGP(data,laborRates);
+  const receivables=accountsReceivableEGP(batches,silicaEntries,data,laborRates);
   const pnl=cashPnL(ledger);
   const openingBalance=opening?Number(opening.balance)||0:0;
   const equity=openingBalance+pnl.ownerCapital-pnl.ownerDraws+pnl.netProfit;
-  return {cash:cash,inventory:inventory,totalAssets:cash+inventory,
+  return {cash:cash,inventory:inventory,receivables:receivables,totalAssets:cash+inventory+receivables,
     openingBalance:openingBalance,ownerCapital:pnl.ownerCapital,ownerDraws:pnl.ownerDraws,retainedEarnings:pnl.netProfit,
-    totalEquity:equity,unreconciled:(cash+inventory)-equity};
+    totalEquity:equity,unreconciled:(cash+inventory+receivables)-equity};
 }
 function cashPeriodFilter(ledger,period){
   const now=new Date();
@@ -548,18 +563,19 @@ function PnLView({cashLedger}){
     </div>
   </div>);
 }
-function BalanceSheetView({cashOpening,cashLedger,data,laborRates}){
-  const bs=cashBalanceSheet(cashOpening,cashLedger,data,laborRates);
+function BalanceSheetView({cashOpening,cashLedger,data,laborRates,batches,silicaEntries}){
+  const bs=cashBalanceSheet(cashOpening,cashLedger,data,laborRates,batches,silicaEntries);
   return(<div>
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
       <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>💼 Assets</div>
       <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",marginBottom:6}}>Current Assets</div>
       <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>Cash</span><strong>{fmtN(bs.cash)} EGP</strong></div>
       <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>Inventory (raw materials, at cost)</span><strong>{fmtN(bs.inventory)} EGP</strong></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>Accounts Receivable (invoiced, not yet collected)</span><strong>{fmtN(bs.receivables)} EGP</strong></div>
       <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:800,marginTop:8,paddingTop:8,borderTop:"1.5px solid #E2E8F0"}}><span>Total Assets</span><span style={{color:NAVY}}>{fmtN(bs.totalAssets)} EGP</span></div></div>
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
       <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>🏛️ Liabilities</div>
-      <div style={{fontSize:12,color:"#999"}}>Not tracked yet — nothing owed to suppliers is logged here, so this shows as zero rather than a guessed number. Ask to add Accounts Payable tracking whenever you&apos;re ready to log it.</div></div>
+      <div style={{fontSize:12,color:"#999"}}>Not tracked yet (no Accounts Payable) — nothing owed to suppliers is logged here, so this shows as zero rather than a guessed number.</div></div>
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
       <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>👤 Owner Equity</div>
       <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>Opening Balance (as of {cashOpening?cashOpening.date:"—"})</span><strong>{fmtN(bs.openingBalance)} EGP</strong></div>
@@ -569,7 +585,7 @@ function BalanceSheetView({cashOpening,cashLedger,data,laborRates}){
       <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:800,marginTop:8,paddingTop:8,borderTop:"1.5px solid #E2E8F0"}}><span>Total Equity</span><span style={{color:NAVY}}>{fmtN(bs.totalEquity)} EGP</span></div></div>
     <div style={{background:"#FFF9E6",border:"1px solid #E6A817",borderRadius:12,padding:14,fontSize:12,color:"#856404"}}>
       <div style={{fontWeight:700,marginBottom:6}}>⚠️ Why Assets and Equity don&apos;t match exactly</div>
-      <div>Material purchases count as an expense the moment they&apos;re paid (matching how you log the ledger), but the material itself keeps counting as Inventory until it&apos;s used up. So Assets normally run ahead of Equity by roughly the value of unconsumed inventory — right now that gap is <strong>{fmtN(bs.unreconciled)} EGP</strong>. That&apos;s not an error to fix — it&apos;s the tradeoff of a simple cash-basis ledger. A fully reconciled balance sheet would need proper accrual accounting (tracking cost of goods sold as material is actually consumed), which is a bigger step we can take later if you want it.</div></div>
+      <div>Material purchases count as an expense the moment they&apos;re paid (matching how you log the ledger), but the material itself keeps counting as Inventory until it&apos;s used up — and Accounts Receivable is money you&apos;ve invoiced that hasn&apos;t hit Owner Capital yet because it hasn&apos;t been collected. So Assets normally run ahead of Equity by roughly unconsumed inventory plus uncollected receivables — right now that gap is <strong>{fmtN(bs.unreconciled)} EGP</strong>. That&apos;s not an error to fix — it&apos;s the tradeoff of a simple cash-basis ledger. A fully reconciled balance sheet would need proper accrual accounting (tracking cost of goods sold as material is actually consumed), which is a bigger step we can take later if you want it.</div></div>
   </div>);
 }
 function CashEntryForm({existing,onSave,onCancel}){
@@ -813,7 +829,7 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
       {cashLedger.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No entries yet — log your first payment in or out above.</div>}
       </>}
       {tab==="pnl"&&<PnLView cashLedger={cashLedger}/>}
-      {tab==="balance"&&<BalanceSheetView cashOpening={cashOpening} cashLedger={cashLedger} data={data} laborRates={laborRates}/>}
+      {tab==="balance"&&<BalanceSheetView cashOpening={cashOpening} cashLedger={cashLedger} data={data} laborRates={laborRates} batches={batches} silicaEntries={silicaEntries}/>}
       </>}
     </div></div>);
 }
