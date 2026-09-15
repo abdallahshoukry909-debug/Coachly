@@ -912,8 +912,20 @@ function ownerSharesCalc(owners,distributableProfit,withdrawals){
 // entries use ids derived from the row's own id so re-saving the same row updates them in place
 // instead of duplicating, and un-checking "Money Received" (or deleting the row, or excluding a
 // batch as not a real sale) removes them again via removeCommissionCash.
+// A short-lived earlier version of this feature wrote per-owner entries under ids like
+// "cmsn-<rowId>-<ownerName>" (crediting sales profit straight to each owner as Owner Capital —
+// since corrected, see syncCommissionCash below). Those ids don't match the "cmsn-in-"/"cmsn-comm-"
+// scheme this version uses, so they were never cleaned up automatically and sat in the ledger
+// double-counting cash alongside the corrected entries. Purged unconditionally on every sync pass
+// (every row, every time the Sales tab backfill runs) until every affected ledger has had a chance
+// to self-heal.
+const ALL_OWNER_NAMES=Array.from(new Set(OWNER_CAPITAL_LINES.flatMap(l=>OWNERS_BY_LINE[l]||[])));
+function purgeStaleOwnerSplitCash(rowId,onDeleteCashEntry){
+  ALL_OWNER_NAMES.forEach(o=>onDeleteCashEntry("cmsn-"+rowId+"-"+o));
+}
 function syncCommissionCash(row,settings,line,onSaveCashEntry,onDeleteCashEntry){
   if(!onSaveCashEntry||!onDeleteCashEntry)return;
+  purgeStaleOwnerSplitCash(row.id,onDeleteCashEntry);
   const inId="cmsn-in-"+row.id,commId="cmsn-comm-"+row.id;
   if(!row.moneyReceived){removeCommissionCash(row.id,onDeleteCashEntry);return;}
   const calc=commissionRowCalc(row,settings);
@@ -932,6 +944,7 @@ function removeCommissionCash(rowId,onDeleteCashEntry){
   if(!onDeleteCashEntry)return;
   onDeleteCashEntry("cmsn-in-"+rowId);
   onDeleteCashEntry("cmsn-comm-"+rowId);
+  purgeStaleOwnerSplitCash(rowId,onDeleteCashEntry);
 }
 function CommissionSettingsCard({settings,onSave}){
   const [editing,setEditing]=useState(false);
