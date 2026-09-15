@@ -15,3 +15,41 @@ body {
 .safe-area-pb {
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+  .eps-no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff !important;
+  }
+  .eps-print-page {
+    background: #fff !important;
+    min-height: 0 !important;
+  }
+  .eps-label-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .eps-label-page {
+    break-after: page;
+    page-break-after: always;
+  }
+  .eps-label-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+  /* Labels only: the 680px reading-width wrapper is for comfortable on-screen viewing before
+     printing — printed, it wastes the sides of the page instead of filling it, so drop it to
+     full width (padding included) only for this view. Other print views (Reports, COA) keep
+     their own .eps-print-page padding untouched. */
+  .eps-label-wrap {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+}
