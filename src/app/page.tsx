@@ -1,17 +1,13 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 
-const CATEGORIES = [
-  { label: "Fitness", emoji: "💪" },
-  { label: "Business", emoji: "💼" },
-  { label: "Life", emoji: "🌱" },
-  { label: "Language", emoji: "🗣️" },
-  { label: "Career", emoji: "🚀" },
-  { label: "Nutrition", emoji: "🥗" },
-  { label: "Mindfulness", emoji: "🧘" },
-  { label: "Other", emoji: "✨" },
-]
+export default async function Home() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
-export default function Home() {
+  if (user) redirect("/calls");
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       {/* Header */}
@@ -33,63 +29,40 @@ export default function Home() {
             </Link>
           </div>
         </div>
-        <p className="text-gray-500 text-sm">Find your perfect coach</p>
+        <p className="text-gray-500 text-sm">Your sales call tracker</p>
       </div>
 
       {/* Hero Banner */}
       <div className="mx-4 mt-4 bg-gradient-to-br from-green-500 to-emerald-600 rounded-3xl p-6 text-white">
-        <p className="text-green-100 text-sm font-medium mb-1">Get started today</p>
+        <p className="text-green-100 text-sm font-medium mb-1">Never lose a lead</p>
         <h2 className="text-2xl font-bold mb-4 leading-tight">
-          Achieve your goals with expert 1-on-1 coaching
+          Track every cold, warm, and hot call in one place
         </h2>
         <Link
-          href="/coaches"
+          href="/auth/signup"
           className="inline-flex items-center gap-2 bg-white text-green-700 px-5 py-2.5 rounded-full font-semibold text-sm hover:bg-green-50 transition-colors"
         >
-          Browse Coaches
+          Get Started
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
         </Link>
       </div>
 
-      {/* Quick Actions */}
+      {/* Sections */}
       <div className="px-4 mt-6">
-        <h3 className="text-base font-semibold text-gray-900 mb-3">Quick Actions</h3>
+        <h3 className="text-base font-semibold text-gray-900 mb-3">Built for your two sales lines</h3>
         <div className="grid grid-cols-2 gap-3">
-          <Link
-            href="/coaches"
-            className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex flex-col gap-2 hover:shadow-md transition-shadow"
-          >
-            <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center text-xl">🔍</div>
-            <span className="font-semibold text-gray-900 text-sm">Find a Coach</span>
-            <span className="text-xs text-gray-500">Browse all coaches</span>
-          </Link>
-          <Link
-            href="/auth/signup?role=coach"
-            className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex flex-col gap-2 hover:shadow-md transition-shadow"
-          >
-            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-xl">🎯</div>
-            <span className="font-semibold text-gray-900 text-sm">Become a Coach</span>
-            <span className="text-xs text-gray-500">Start earning today</span>
-          </Link>
-        </div>
-      </div>
-
-      {/* Categories */}
-      <div className="px-4 mt-6">
-        <h3 className="text-base font-semibold text-gray-900 mb-3">Browse by Category</h3>
-        <div className="grid grid-cols-4 gap-3">
-          {CATEGORIES.map((cat) => (
-            <Link
-              key={cat.label}
-              href={`/coaches?category=${cat.label}`}
-              className="bg-white rounded-2xl p-3 border border-gray-100 shadow-sm flex flex-col items-center gap-1.5 hover:shadow-md transition-shadow"
-            >
-              <span className="text-2xl">{cat.emoji}</span>
-              <span className="text-[10px] font-medium text-gray-700 text-center leading-tight">{cat.label}</span>
-            </Link>
-          ))}
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex flex-col gap-2">
+            <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center text-xl">⚙️</div>
+            <span className="font-semibold text-gray-900 text-sm">Wema Sales</span>
+            <span className="text-xs text-gray-500">Machines</span>
+          </div>
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex flex-col gap-2">
+            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center text-xl">🏭</div>
+            <span className="font-semibold text-gray-900 text-sm">Silica Sales</span>
+            <span className="text-xs text-gray-500">Factory - East Pharma</span>
+          </div>
         </div>
       </div>
 
@@ -98,9 +71,9 @@ export default function Home() {
         <h3 className="text-base font-semibold text-gray-900 mb-3">Why Coachly?</h3>
         <div className="flex flex-col gap-3">
           {[
-            { icon: "✅", title: "Verified Coaches", desc: "All coaches are reviewed and vetted" },
-            { icon: "⚡", title: "Easy Booking", desc: "Book a session in under a minute" },
-            { icon: "⭐", title: "Real Reviews", desc: "Honest ratings from real clients" },
+            { icon: "☁️", title: "Auto-saved, always", desc: "Every client and call is saved instantly to the cloud" },
+            { icon: "📞", title: "Cold, Warm, Hot, No Answer", desc: "Log the outcome and feedback for every call" },
+            { icon: "📊", title: "Excel backups", desc: "Export your full call history any time, one tap" },
           ].map((item) => (
             <div key={item.title} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-center gap-4">
               <span className="text-2xl">{item.icon}</span>

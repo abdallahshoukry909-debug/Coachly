@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'Coachly',
     short_name: 'Coachly',
-    description: 'Find your perfect coach and track sales calls',
+    description: 'Track cold, warm, and hot sales calls',
     start_url: '/calls',
     display: 'standalone',
     background_color: '#f9fafb',

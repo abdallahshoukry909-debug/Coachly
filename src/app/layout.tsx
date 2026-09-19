@@ -10,7 +10,7 @@ const geistSans = Geist({
 
 export const metadata: Metadata = {
   title: "Coachly",
-  description: "Find your perfect coach",
+  description: "Track cold, warm, and hot sales calls",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [

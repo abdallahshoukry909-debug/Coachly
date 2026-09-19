@@ -16,15 +16,5 @@ export default async function ProfilePage() {
     .eq('id', user.id)
     .single()
 
-  let coachData = null
-  if (profile?.role === 'coach') {
-    const { data } = await supabase
-      .from('coaches')
-      .select('*')
-      .eq('user_id', user.id)
-      .single()
-    coachData = data
-  }
-
-  return <ProfileClient profile={profile} coachData={coachData} />
+  return <ProfileClient profile={profile} />
 }
