@@ -349,6 +349,211 @@ const CASH_CATEGORIES_OUT=["Material Purchase","Wages","Maintenance","Utilities"
 const OWNER_CAPITAL_LINES=["Silica Gel","Flip-Off"];
 const OWNERS_BY_LINE={"Silica Gel":["Youssef","Roger","Islam"],"Flip-Off":["Youssef","Roger"]};
 const EXPENSE_LINE_OPTIONS=["Flip-Off","Silica Gel","Split (Both)"];
+// ══ EAST PHARMA FINANCE — AR/EN TRANSLATION ═══════════════════════════════
+// Display-only translation layer for the Finance section (Ledger, P&L, Balance Sheet, Sales).
+// Every stored value (category strings like "Owner Capital", line names, owner names, payment
+// statuses) stays in English in the data — only what's rendered on screen is translated, via
+// ft()/catLabel()/lineLabel()/ownerLabel()/statusLabel() below, so nothing here can ever affect
+// the matching logic (e.g. e.category==="Owner Capital") or corrupt saved data.
+const FIN_LANG_KEY="epsFinLang";
+const FIN_T={
+  back:{en:"Back",ar:"رجوع"},
+  financeTitle:{en:"East Pharma Finance",ar:"الشؤون المالية - إيست فارما"},
+  financeSubtitle:{en:"Actual money in/out — separate from Finance estimates",ar:"حركة الأموال الفعلية — منفصلة عن تقديرات قسم الإنتاج"},
+  tabLedger:{en:"Ledger",ar:"دفتر الحسابات"},
+  tabPnl:{en:"Profit & Loss",ar:"الأرباح والخسائر"},
+  tabBalance:{en:"Balance Sheet",ar:"الميزانية العمومية"},
+  tabSales:{en:"Sales",ar:"المبيعات"},
+  currentCashBalance:{en:"Current Cash Balance",ar:"الرصيد النقدي الحالي"},
+  inLbl:{en:"In",ar:"وارد"},
+  outLbl:{en:"Out",ar:"صادر"},
+  monthlySummary:{en:"Monthly Summary",ar:"الملخص الشهري"},
+  netLbl:{en:"net",ar:"صافي"},
+  addEntry:{en:"+ Add Entry",ar:"+ إضافة قيد"},
+  transferBetweenLines:{en:"🔁 Transfer Between Lines",ar:"🔁 تحويل بين الخطين"},
+  noEntriesYet:{en:"No entries yet — log your first payment in or out above.",ar:"لا توجد قيود بعد — سجّل أول عملية وارد أو صادر أعلاه."},
+  cashByLine:{en:"💰 Cash by Line",ar:"💰 الرصيد النقدي حسب الخط"},
+  cashByLineDesc:{en:"Silica Gel cash includes Islam's stake — don't spend it on Flip-Off directly. Use \"Transfer Between Lines\" below if Youssef or Roger want to move their own share across; it's tracked as owed back in the Owner Capital Balance above.",
+    ar:"رصيد السيليكا جل يشمل حصة إسلام — لا تُنفقه على فليب أوف مباشرة. استخدم \"تحويل بين الخطين\" أدناه إذا أراد يوسف أو روجر نقل حصتهما؛ يُسجَّل ذلك كمبلغ مستحق الرد في رصيد رأس مال الملاك أعلاه."},
+  pool:{en:"Pool",ar:"الرصيد"},
+  unallocated:{en:"⚪ Unallocated (untagged entries + opening balance)",ar:"⚪ غير مخصص (قيود غير مصنّفة + الرصيد الافتتاحي)"},
+  ownerCapitalBalance:{en:"👥 Owner Capital Balance",ar:"👥 رصيد رأس مال الملاك"},
+  ownerCapitalBalanceDesc:{en:"Net capital each owner has put in (contributions minus draws) vs. an equal split — this is about invested capital, not profit (see Owner Shares in the Sales tab for each owner's profit balance). Positive = they've put in more than their share — owed back in cash, or can take extra from future profit instead. Negative = they still owe to catch up.",
+    ar:"صافي رأس المال الذي ساهم به كل مالك (المساهمات ناقص السحوبات) مقارنة بتقسيم متساوٍ — هذا يخص رأس المال المُستثمَر وليس الربح (راجع حصص الملاك في تبويب المبيعات لرصيد ربح كل مالك). موجب = ساهم بأكثر من حصته — مستحق الرد نقدًا، أو يمكنه أخذ زيادة من الأرباح المستقبلية بدلًا من ذلك. سالب = لا يزال عليه تعويض الفارق."},
+  wayLbl:{en:"-way",ar:" (بالتساوي)"},
+  netIn:{en:"Net in",ar:"صافي الداخل"},
+  transferDesc:{en:"Only owners with a stake in both lines can transfer — for Silica Gel ↔ Flip-Off that's Youssef and Roger only, so Islam's money is never moved into Flip-Off. Shows up afterward as that owner owed back on the destination line.",
+    ar:"فقط الملاك الذين لهم حصة في الخطين يمكنهم التحويل — بالنسبة للسيليكا جل ↔ فليب أوف هذا يقتصر على يوسف وروجر فقط، فلا تُنقل أموال إسلام إلى فليب أوف أبدًا. يظهر التحويل بعد ذلك كمبلغ مستحق الرد لهذا المالك في الخط المستقبِل."},
+  fromLbl:{en:"From",ar:"من"},
+  toLbl:{en:"To",ar:"إلى"},
+  ownerLbl:{en:"Owner",ar:"المالك"},
+  noEligibleOwner:{en:"No eligible owner",ar:"لا يوجد مالك مؤهل"},
+  amountEgp:{en:"Amount (EGP)",ar:"المبلغ (جنيه)"},
+  dateLbl:{en:"Date",ar:"التاريخ"},
+  noteOptional:{en:"Note (optional)",ar:"ملاحظة (اختياري)"},
+  saveTransfer:{en:"💾 Save Transfer",ar:"💾 حفظ التحويل"},
+  cancelLbl:{en:"Cancel",ar:"إلغاء"},
+  pickTwoDifferent:{en:"Pick two different lines.",ar:"اختر خطين مختلفين."},
+  noOwnerBothLines:{en:"No owner has a stake in both lines, so there's no one eligible to transfer.",ar:"لا يوجد مالك له حصة في الخطين، فلا يوجد من يمكنه التحويل."},
+  transferTo:{en:"Transfer to ",ar:"تحويل إلى "},
+  transferFrom:{en:"Transfer from ",ar:"تحويل من "},
+  openingBalanceLbl:{en:"Opening balance:",ar:"الرصيد الافتتاحي:"},
+  asOfLbl:{en:"as of",ar:"بتاريخ"},
+  editLbl:{en:"Edit",ar:"تعديل"},
+  setStartingBalance:{en:"💵 Set Your Starting Cash Balance",ar:"💵 حدد رصيدك النقدي الافتتاحي"},
+  setStartingBalanceDesc:{en:"The real amount of cash you have on hand right now — everything logged after this date adds to or subtracts from it. It's fine if most of it is capital the owner put in rather than customer payments — that's what the \"Owner Capital\" category on each entry is for.",
+    ar:"المبلغ الفعلي الموجود لديك نقدًا الآن — كل ما يُسجَّل بعد هذا التاريخ يُضاف إليه أو يُخصم منه. لا مشكلة إن كان معظمه رأس مال ساهم به المالك وليس دفعات من عملاء — لهذا يوجد تصنيف \"رأس مال من المالك\" في كل قيد."},
+  asOfDate:{en:"As Of Date",ar:"بتاريخ"},
+  actualBalanceEgp:{en:"Actual Balance (EGP)",ar:"الرصيد الفعلي (جنيه)"},
+  saveStartingBalance:{en:"💾 Save Starting Balance",ar:"💾 حفظ الرصيد الافتتاحي"},
+  enterActualBalance:{en:"Enter the actual cash balance.",ar:"أدخل الرصيد النقدي الفعلي."},
+  moneyIn:{en:"🟢 Money In",ar:"🟢 وارد"},
+  moneyOut:{en:"🔴 Money Out",ar:"🔴 صادر"},
+  categoryLbl:{en:"Category",ar:"التصنيف"},
+  businessLine:{en:"Business Line",ar:"الخط التجاري"},
+  whichLineOptional:{en:"Which Line (optional)",ar:"أي خط (اختياري)"},
+  notSpecified:{en:"— not specified —",ar:"— غير محدد —"},
+  lineHelpText:{en:"Pick a line if this is specific to one product, or Split (Both) for a shared cost like rent — leave blank if you don't need it broken out.",
+    ar:"اختر خطًا إذا كان هذا القيد خاصًا بمنتج واحد، أو \"مشترك (كلاهما)\" لتكلفة مشتركة مثل الإيجار — اتركه فارغًا إذا لم تحتج لتصنيفه."},
+  enterAmount:{en:"Enter an amount.",ar:"أدخل مبلغًا."},
+  saveChanges:{en:"Save Changes",ar:"حفظ التعديلات"},
+  addEntryBtn:{en:"Add Entry",ar:"إضافة قيد"},
+  deleteLbl:{en:"Delete",ar:"حذف"},
+  confirmQ:{en:"Confirm?",ar:"تأكيد؟"},
+  thisMonth:{en:"This Month",ar:"هذا الشهر"},
+  thisYear:{en:"This Year",ar:"هذا العام"},
+  allTime:{en:"All Time",ar:"كل الفترات"},
+  netProfitLoss:{en:"Net Profit / Loss",ar:"صافي الربح / الخسارة"},
+  incomeExclOwnerCapital:{en:"🟢 Income (excl. Owner Capital)",ar:"🟢 الإيرادات (بدون رأس مال المالك)"},
+  noneThisPeriod:{en:"None this period.",ar:"لا يوجد لهذه الفترة."},
+  totalIncome:{en:"Total Income",ar:"إجمالي الإيرادات"},
+  expensesExclOwnerDraw:{en:"🔴 Expenses (excl. Owner Draw)",ar:"🔴 المصروفات (بدون سحب المالك)"},
+  totalExpenses:{en:"Total Expenses",ar:"إجمالي المصروفات"},
+  notCountedNote:{en:"Not counted as profit/loss (equity movements, this period):",ar:"لا تُحتسب ضمن الأرباح/الخسائر (حركات حقوق ملكية لهذه الفترة):"},
+  ownerCapitalInLbl:{en:"Owner Capital in:",ar:"رأس مال وارد من المالك:"},
+  ownerDrawsWithdrawalsOut:{en:"Owner Draws / Profit Withdrawals out:",ar:"سحوبات المالك / سحوبات الأرباح الصادرة:"},
+  monthlyTrend:{en:"📈 Monthly Net Profit Trend",ar:"📈 اتجاه صافي الربح الشهري"},
+  noEntriesYetShort:{en:"No entries yet.",ar:"لا توجد قيود بعد."},
+  assets:{en:"💼 Assets",ar:"💼 الأصول"},
+  currentAssets:{en:"Current Assets",ar:"الأصول المتداولة"},
+  cashLbl:{en:"Cash",ar:"النقدية"},
+  egpLbl:{en:"EGP",ar:"جنيه"},
+  incomeWord:{en:"Income",ar:"الإيرادات"},
+  expensesWord:{en:"Expenses",ar:"المصروفات"},
+  inventoryLbl:{en:"Inventory (raw materials, at cost)",ar:"المخزون (خامات، بالتكلفة)"},
+  accountsReceivable:{en:"Accounts Receivable (invoiced, not yet collected)",ar:"الذمم المدينة (مُفوتَرة، لم تُحصَّل بعد)"},
+  totalAssets:{en:"Total Assets",ar:"إجمالي الأصول"},
+  liabilities:{en:"🏛️ Liabilities",ar:"🏛️ الخصوم"},
+  liabilitiesNote:{en:"Not tracked yet (no Accounts Payable) — nothing owed to suppliers is logged here, so this shows as zero rather than a guessed number.",
+    ar:"غير مُتتبَّعة بعد (لا توجد ذمم دائنة) — لا يوجد أي مبلغ مستحق للموردين مُسجَّل هنا، لذا تظهر صفرًا بدلًا من رقم تخميني."},
+  ownerEquity:{en:"👤 Owner Equity",ar:"👤 حقوق الملكية"},
+  openingBalanceAsOf:{en:"Opening Balance (as of ",ar:"الرصيد الافتتاحي (بتاريخ "},
+  ownerCapitalContributed:{en:"+ Owner Capital Contributed",ar:"+ رأس المال المُساهَم به من الملاك"},
+  ownerDrawsLine:{en:"− Owner Draws",ar:"− سحوبات الملاك"},
+  retainedEarnings:{en:"+ Retained Earnings (all-time net profit)",ar:"+ الأرباح المحتجزة (صافي الربح الكلي)"},
+  totalEquity:{en:"Total Equity",ar:"إجمالي حقوق الملكية"},
+  whyDontMatch:{en:"⚠️ Why Assets and Equity don't match exactly",ar:"⚠️ لماذا لا تتطابق الأصول وحقوق الملكية تمامًا"},
+  whyDontMatchBody:{en:"Material purchases count as an expense the moment they're paid (matching how you log the ledger), but the material itself keeps counting as Inventory until it's used up — and Accounts Receivable is money you've invoiced that hasn't hit Owner Capital yet because it hasn't been collected. So Assets normally run ahead of Equity by roughly unconsumed inventory plus uncollected receivables — right now that gap is",
+    ar:"مشتريات الخامات تُحتسب كمصروف بمجرد دفعها (بما يطابق طريقة تسجيلك في الدفتر)، لكن الخامة نفسها تبقى ضمن المخزون حتى تُستهلك — والذمم المدينة هي أموال فوترتها لكنها لم تصل إلى رأس مال المالك بعد لأنها لم تُحصَّل. لذا فإن الأصول عادةً تسبق حقوق الملكية بقيمة المخزون غير المستهلك تقريبًا زائد الذمم غير المحصَّلة — الفارق الحالي هو"},
+  whyDontMatchBody2:{en:"EGP. That's not an error to fix — it's the tradeoff of a simple cash-basis ledger. A fully reconciled balance sheet would need proper accrual accounting (tracking cost of goods sold as material is actually consumed), which is a bigger step we can take later if you want it.",
+    ar:"جنيه. هذا ليس خطأً يجب إصلاحه — إنه أثر طبيعي لبساطة دفتر الأساس النقدي. الميزانية المُسواة بالكامل تتطلب محاسبة استحقاق حقيقية (تتبع تكلفة البضاعة المباعة عند استهلاك الخامة فعليًا)، وهي خطوة أكبر يمكننا اتخاذها لاحقًا إذا أردت."},
+  incomeTaxWord:{en:"Income Tax",ar:"ضريبة الدخل"},
+  commissionWord:{en:"Commission",ar:"العمولة"},
+  termsWord:{en:"Terms",ar:"المدة"},
+  daysWord:{en:"days",ar:"أيام"},
+  incomeTaxPct:{en:"Income Tax %",ar:"نسبة ضريبة الدخل %"},
+  commissionPct:{en:"Commission %",ar:"نسبة العمولة %"},
+  paymentTermsDaysLbl:{en:"Payment Terms (days)",ar:"مدة السداد (أيام)"},
+  saveLbl:{en:"Save",ar:"حفظ"},
+  summaryLbl:{en:"📊 Summary",ar:"📊 الملخص"},
+  totalMoneyIn:{en:"Total Money In",ar:"إجمالي الوارد"},
+  totalGrossProfit:{en:"Total Gross Profit",ar:"إجمالي الربح الإجمالي"},
+  marginWord:{en:"margin",ar:"هامش"},
+  moneyReceivedLbl:{en:"Money Received",ar:"تم استلام المبلغ"},
+  collectedWord:{en:"collected",ar:"تم تحصيله"},
+  stillOwedReceivables:{en:"Still Owed (Receivables)",ar:"المتبقي (ذمم مدينة)"},
+  overdueWord:{en:"overdue",ar:"متأخر"},
+  notYetDueWord:{en:"not due yet",ar:"لم يحن أجله بعد"},
+  netProfitAfterTaxReceived:{en:"Net Profit After Tax (received)",ar:"صافي الربح بعد الضريبة (المُحصَّل)"},
+  commissionOutstanding:{en:"Commission Outstanding",ar:"العمولة المستحقة"},
+  dueWord:{en:"Due",ar:"مستحق"},
+  paidWord:{en:"Paid",ar:"مدفوع"},
+  ownerSharesLbl:{en:"👥 Owner Shares",ar:"👥 حصص الملاك"},
+  distributableProfitLbl:{en:"Distributable Profit (received net profit − commission) =",ar:"الربح القابل للتوزيع (صافي الربح المُحصَّل − العمولة) ="},
+  withdrawalRemovesCash:{en:" · a withdrawal here also removes the cash from the ",ar:" · أي سحب هنا يخصم أيضًا من رصيد "},
+  balanceInLedgerTab:{en:" balance in the Ledger tab.",ar:" في تبويب دفتر الحسابات."},
+  shareWord:{en:"Share:",ar:"الحصة:"},
+  takenWord:{en:"Taken:",ar:"المسحوب:"},
+  fullyPaidLbl:{en:"✅ Fully Paid",ar:"✅ تم السداد بالكامل"},
+  egpOwedLbl:{en:"EGP owed",ar:"جنيه مستحق"},
+  logWithdrawal:{en:"+ Log Withdrawal",ar:"+ تسجيل سحب"},
+  amountTakenEgp:{en:"Amount Taken (EGP)",ar:"المبلغ المسحوب (جنيه)"},
+  methodOptional:{en:"Method (optional)",ar:"طريقة السحب (اختياري)"},
+  notesOptionalLbl:{en:"Notes (optional)",ar:"ملاحظات (اختياري)"},
+  withdrawalLog:{en:"Withdrawal Log",ar:"سجل السحوبات"},
+  dateShippedLbl:{en:"Date Shipped",ar:"تاريخ الشحن"},
+  clientLbl:{en:"Client",ar:"العميل"},
+  productLbl:{en:"Product",ar:"المنتج"},
+  sizeLbl:{en:"Size",ar:"الحجم"},
+  qtyPcsLbl:{en:"Qty (pcs)",ar:"الكمية (قطعة)"},
+  moneyInEgpLbl:{en:"Money In (EGP)",ar:"الوارد (جنيه)"},
+  grossProfitEgpLbl:{en:"Gross Profit (EGP)",ar:"الربح الإجمالي (جنيه)"},
+  linkedBatchesOptional:{en:"Linked Batches (optional)",ar:"الدفعات المرتبطة (اختياري)"},
+  linkedBatchesDesc:{en:"Link every real production batch this one receipt covers — useful when several batches were sent under one big invoice with no per-batch e-invoicing. Keeps them from also showing up as separate auto-rows below.",
+    ar:"اربط كل دفعة إنتاج حقيقية يغطيها هذا الإيصال — مفيد عند إرسال عدة دفعات ضمن فاتورة واحدة كبيرة بدون فوترة إلكترونية لكل دفعة. يمنع ذلك ظهورها أيضًا كصفوف تلقائية منفصلة أدناه."},
+  linkABatch:{en:"+ Link a batch…",ar:"+ ربط دفعة…"},
+  noSilicaBatchesToLink:{en:"No Silica Gel batches to link yet.",ar:"لا توجد دفعات سيليكا جل لربطها بعد."},
+  commissionPaidCk:{en:"Commission Paid",ar:"تم دفع العمولة"},
+  datePaidLbl:{en:"Date Paid",ar:"تاريخ الدفع"},
+  enterClientErr:{en:"Enter a client.",ar:"أدخل اسم العميل."},
+  deleteEntryBtn:{en:"Delete entry",ar:"حذف القيد"},
+  yesDeleteLbl:{en:"Yes, delete",ar:"نعم، احذف"},
+  noShipDate:{en:"— no ship date —",ar:"— بدون تاريخ شحن —"},
+  moneyInWord:{en:"Money In",ar:"الوارد"},
+  grossProfitWord:{en:"Gross Profit",ar:"الربح الإجمالي"},
+  commissionDueWord:{en:"Commission Due",ar:"العمولة المستحقة"},
+  receivedTagLbl:{en:"✅ Received",ar:"✅ تم الاستلام"},
+  notReceivedTagLbl:{en:"⏳ Not received",ar:"⏳ لم يُستلم بعد"},
+  commissionPaidTagLbl:{en:"✅ Commission paid",ar:"✅ تم دفع العمولة"},
+  commissionUnpaidTagLbl:{en:"⏳ Commission unpaid",ar:"⏳ العمولة لم تُدفع"},
+  salesProfitPullNote:{en:"Sales/Profit pull live from the batch's own production cost; edit sell price on the batch itself, not here.",
+    ar:"الوارد/الربح يُسحبان مباشرة من تكلفة إنتاج الدفعة نفسها؛ عدّل سعر البيع في الدفعة نفسها وليس هنا."},
+  dateShippedInvoiced:{en:"Date Shipped (invoiced)",ar:"تاريخ الشحن (الفوترة)"},
+  removeFreeSampleQ:{en:"Remove — free sample, no real sale?",ar:"إزالة — عينة مجانية، ليست بيعًا حقيقيًا؟"},
+  notARealSale:{en:"🗑 Not a real sale",ar:"🗑 ليست عملية بيع حقيقية"},
+  yesLbl:{en:"Yes",ar:"نعم"},
+  excludedHeader:{en:"Excluded (samples / not real sales)",ar:"مستبعد (عينات / ليست عمليات بيع حقيقية)"},
+  sampleTagLbl:{en:" · sample",ar:" · عينة"},
+  restoreLbl:{en:"Restore",ar:"استعادة"},
+  salesTypedIn:{en:"🧾 Sales (typed in — historical receipts)",ar:"🧾 المبيعات (مُدخلة يدويًا — إيصالات سابقة)"},
+  addSaleLbl:{en:"+ Add Sale",ar:"+ إضافة عملية بيع"},
+  noTypedSales:{en:"No typed-in sales.",ar:"لا توجد مبيعات مُدخلة يدويًا."},
+  batchesAutoNotLinked:{en:"📦 Batches (auto, from Production — not already linked above)",ar:"📦 الدفعات (تلقائي من الإنتاج — غير المرتبطة أعلاه)"},
+  noUnlinkedSilicaBatches:{en:"No unlinked Silica Gel batches — link a sale above to its batch, or create a new one under Production.",
+    ar:"لا توجد دفعات سيليكا جل غير مرتبطة — اربط عملية بيع أعلاه بدفعتها، أو أنشئ دفعة جديدة من قسم الإنتاج."},
+  batchesHeaderLbl:{en:"🧾 Batches",ar:"🧾 الدفعات"},
+  noFlipOffBatches:{en:"No Flip-Off batches yet — create one under Production.",ar:"لا توجد دفعات فليب أوف بعد — أنشئ واحدة من قسم الإنتاج."},
+};
+function ft(lang,key){const e=FIN_T[key];if(!e)return key;return e[lang]||e.en;}
+const LINE_LABEL_AR={"Silica Gel":"السيليكا جل","Flip-Off":"فليب أوف","Split (Both)":"مشترك (كلاهما)"};
+function lineLabel(lang,line){if(lang!=="ar")return line;return LINE_LABEL_AR[line]||line;}
+const OWNER_LABEL_AR={"Youssef":"يوسف","Roger":"روجر","Islam":"إسلام"};
+function ownerLabel(lang,name){if(lang!=="ar")return name;return OWNER_LABEL_AR[name]||name;}
+const CATEGORY_LABEL_AR={
+  "Customer Payment":"دفعة من عميل","Owner Capital":"رأس مال من المالك","Asset Sale":"بيع أصول","Other Income":"إيرادات أخرى",
+  "Material Purchase":"شراء خامات","Wages":"أجور","Maintenance":"صيانة","Utilities":"مرافق","Rent":"إيجار","Transport":"نقل",
+  "Owner Draw":"سحب مالك","Profit Withdrawal":"سحب أرباح","Commission Expense":"مصروف عمولة","Other Expense":"مصروفات أخرى",
+};
+function categoryLabel(lang,cat){if(lang!=="ar")return cat;return CATEGORY_LABEL_AR[cat]||cat;}
+const STATUS_LABEL_AR={"RECEIVED":"تم الاستلام","OVERDUE":"متأخر","DUE LATER":"مستحق لاحقًا","NEED SHIP DATE":"بحاجة لتاريخ الشحن"};
+function statusLabel(lang,status){if(lang!=="ar")return status;return STATUS_LABEL_AR[status]||status;}
+function FinLangToggle({lang,setLang}){
+  return(<div style={{display:"flex",gap:4,background:"rgba(255,255,255,0.15)",borderRadius:8,padding:2}}>
+    {[["en","EN"],["ar","AR"]].map(x=>(
+      <button type="button" key={x[0]} onClick={()=>{setLang(x[0]);try{localStorage.setItem(FIN_LANG_KEY,x[0]);}catch{/* ignore */}}}
+        style={{padding:"5px 10px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:700,fontSize:11,background:lang===x[0]?"#fff":"transparent",color:lang===x[0]?NAVY:"#fff"}}>{x[1]}</button>))}
+  </div>);
+}
 // Each owner's net capital (contributed minus drawn) for a line, against an equal split of the
 // line's total — positive means they've put in more than their fair share (owed back, or can
 // take extra from future profit distributions instead of a cash refund); negative means they
@@ -365,17 +570,17 @@ function ownerCapitalBalances(cashLedger,line){
   const fairShare=total/owners.length;
   return owners.map(o=>({owner:o,net:net[o],fairShare:fairShare,balance:net[o]-fairShare}));
 }
-function OwnerCapitalBalanceCard({cashLedger}){
+function OwnerCapitalBalanceCard({cashLedger,lang}){
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
-    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:4}}>👥 Owner Capital Balance</div>
-    <div style={{fontSize:11,color:"#888",marginBottom:12}}>Net capital each owner has put in (contributions minus draws) vs. an equal split — this is about invested capital, not profit (see Owner Shares in the Sales tab for each owner&apos;s profit balance). Positive = they&apos;ve put in more than their share — owed back in cash, or can take extra from future profit instead. Negative = they still owe to catch up.</div>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:4}}>{ft(lang,"ownerCapitalBalance")}</div>
+    <div style={{fontSize:11,color:"#888",marginBottom:12}}>{ft(lang,"ownerCapitalBalanceDesc")}</div>
     {OWNER_CAPITAL_LINES.map(line=>{
       const balances=ownerCapitalBalances(cashLedger,line);
       return(<div key={line} style={{marginBottom:14}}>
-        <div style={{fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",marginBottom:6}}>{line==="Silica Gel"?"🟡":"🔘"} {line} ({OWNERS_BY_LINE[line].length}-way)</div>
+        <div style={{fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",marginBottom:6}}>{line==="Silica Gel"?"🟡":"🔘"} {lineLabel(lang,line)} ({OWNERS_BY_LINE[line].length}{ft(lang,"wayLbl")})</div>
         {balances.map(b=>(<div key={b.owner} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
-          <span>{b.owner}</span>
-          <span>Net in <strong>{fmtN(b.net)}</strong> · <strong style={{color:b.balance>=0?"#1A6B2A":"#DC3545"}}>{b.balance>=0?"+":""}{fmtN(b.balance)}</strong></span></div>))}
+          <span>{ownerLabel(lang,b.owner)}</span>
+          <span>{ft(lang,"netIn")} <strong>{fmtN(b.net)}</strong> · <strong style={{color:b.balance>=0?"#1A6B2A":"#DC3545"}}>{b.balance>=0?"+":""}{fmtN(b.balance)}</strong></span></div>))}
       </div>);
     })}
   </div>);
@@ -400,20 +605,20 @@ function unallocatedCashBalance(cashOpening,cashLedger){
   const opening=cashOpening?Number(cashOpening.balance)||0:0;
   return (cashLedger||[]).reduce((s,e)=>e.line?s:s+(e.type==="in"?1:-1)*(Number(e.amount)||0),opening);
 }
-function LineCashBalanceCard({cashOpening,cashLedger}){
+function LineCashBalanceCard({cashOpening,cashLedger,lang}){
   const unallocated=unallocatedCashBalance(cashOpening,cashLedger);
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
-    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:4}}>💰 Cash by Line</div>
-    <div style={{fontSize:11,color:"#888",marginBottom:12}}>Silica Gel cash includes Islam&apos;s stake — don&apos;t spend it on Flip-Off directly. Use &quot;Transfer Between Lines&quot; below if Youssef or Roger want to move their own share across; it&apos;s tracked as owed back in the Owner Capital Balance above.</div>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:4}}>{ft(lang,"cashByLine")}</div>
+    <div style={{fontSize:11,color:"#888",marginBottom:12}}>{ft(lang,"cashByLineDesc")}</div>
     {OWNER_CAPITAL_LINES.map(line=>{
       const bal=lineCashBalance(cashLedger,line);
       return(<div key={line} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
-        <span>{line==="Silica Gel"?"🟡":"🔘"} {line} Pool</span>
-        <strong style={{color:bal>=0?"#1A6B2A":"#DC3545"}}>{fmtN(bal)} EGP</strong></div>);
+        <span>{line==="Silica Gel"?"🟡":"🔘"} {lineLabel(lang,line)} {ft(lang,"pool")}</span>
+        <strong style={{color:bal>=0?"#1A6B2A":"#DC3545"}}>{fmtN(bal)} {ft(lang,"egpLbl")}</strong></div>);
     })}
     <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
-      <span>⚪ Unallocated (untagged entries + opening balance)</span>
-      <strong style={{color:unallocated>=0?"#555":"#DC3545"}}>{fmtN(unallocated)} EGP</strong></div>
+      <span>{ft(lang,"unallocated")}</span>
+      <strong style={{color:unallocated>=0?"#555":"#DC3545"}}>{fmtN(unallocated)} {ft(lang,"egpLbl")}</strong></div>
   </div>);
 }
 function cashRunningBalance(opening,ledger){
@@ -519,7 +724,7 @@ function cashPeriodFilter(ledger,period){
   if(period==="year")return (ledger||[]).filter(e=>e.date&&e.date.slice(0,4)===thisYear);
   return ledger||[];
 }
-function PnLView({cashLedger}){
+function PnLView({cashLedger,lang}){
   const [period,setPeriod]=useState("month");
   const entries=cashPeriodFilter(cashLedger,period);
   const pnl=cashPnL(entries);
@@ -527,35 +732,35 @@ function PnLView({cashLedger}){
   const maxAbs=Math.max(1,...monthly.map(m=>Math.abs(m.net)));
   return(<div>
     <div style={{display:"flex",gap:8,marginBottom:14}}>
-      {[["month","This Month"],["year","This Year"],["all","All Time"]].map(x=>(
+      {[["month","thisMonth"],["year","thisYear"],["all","allTime"]].map(x=>(
         <button type="button" key={x[0]} onClick={()=>setPeriod(x[0])}
-          style={{flex:1,padding:9,borderRadius:8,fontWeight:700,fontSize:12,cursor:"pointer",border:"1.5px solid "+(period===x[0]?NAVY:"#E2E8F0"),background:period===x[0]?NAVY:"#fff",color:period===x[0]?"#fff":"#666"}}>{x[1]}</button>))}
+          style={{flex:1,padding:9,borderRadius:8,fontWeight:700,fontSize:12,cursor:"pointer",border:"1.5px solid "+(period===x[0]?NAVY:"#E2E8F0"),background:period===x[0]?NAVY:"#fff",color:period===x[0]?"#fff":"#666"}}>{ft(lang,x[1])}</button>))}
     </div>
     <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #EEF2F7",padding:18,marginBottom:14,textAlign:"center"}}>
-      <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase"}}>Net Profit / Loss</div>
-      <div style={{fontSize:30,fontWeight:900,color:pnl.netProfit>=0?"#1A6B2A":"#DC3545",marginTop:4}}>{fmtN(pnl.netProfit)} EGP</div>
-      <div style={{fontSize:11,color:"#999",marginTop:6}}>Income {fmtN(pnl.totalIncome)} − Expenses {fmtN(pnl.totalExpense)}</div></div>
+      <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase"}}>{ft(lang,"netProfitLoss")}</div>
+      <div style={{fontSize:30,fontWeight:900,color:pnl.netProfit>=0?"#1A6B2A":"#DC3545",marginTop:4}}>{fmtN(pnl.netProfit)} {ft(lang,"egpLbl")}</div>
+      <div style={{fontSize:11,color:"#999",marginTop:6}}>{ft(lang,"incomeWord")} {fmtN(pnl.totalIncome)} − {ft(lang,"expensesWord")} {fmtN(pnl.totalExpense)}</div></div>
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
-      <div style={{fontWeight:800,fontSize:13,color:"#1A6B2A",marginBottom:10}}>🟢 Income (excl. Owner Capital)</div>
-      {Object.keys(pnl.incomeByCat).length===0&&<div style={{fontSize:12,color:"#999"}}>None this period.</div>}
+      <div style={{fontWeight:800,fontSize:13,color:"#1A6B2A",marginBottom:10}}>{ft(lang,"incomeExclOwnerCapital")}</div>
+      {Object.keys(pnl.incomeByCat).length===0&&<div style={{fontSize:12,color:"#999"}}>{ft(lang,"noneThisPeriod")}</div>}
       {Object.keys(pnl.incomeByCat).map(c=>(<div key={c} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderBottom:"1px solid #F5F5F5"}}>
-        <span>{c}</span><strong>{fmtN(pnl.incomeByCat[c])}</strong></div>))}
+        <span>{categoryLabel(lang,c)}</span><strong>{fmtN(pnl.incomeByCat[c])}</strong></div>))}
       <div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:800,marginTop:8,paddingTop:8,borderTop:"1.5px solid #E2E8F0"}}>
-        <span>Total Income</span><span style={{color:"#1A6B2A"}}>{fmtN(pnl.totalIncome)}</span></div></div>
+        <span>{ft(lang,"totalIncome")}</span><span style={{color:"#1A6B2A"}}>{fmtN(pnl.totalIncome)}</span></div></div>
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
-      <div style={{fontWeight:800,fontSize:13,color:"#DC3545",marginBottom:10}}>🔴 Expenses (excl. Owner Draw)</div>
-      {Object.keys(pnl.expenseByCat).length===0&&<div style={{fontSize:12,color:"#999"}}>None this period.</div>}
+      <div style={{fontWeight:800,fontSize:13,color:"#DC3545",marginBottom:10}}>{ft(lang,"expensesExclOwnerDraw")}</div>
+      {Object.keys(pnl.expenseByCat).length===0&&<div style={{fontSize:12,color:"#999"}}>{ft(lang,"noneThisPeriod")}</div>}
       {Object.keys(pnl.expenseByCat).map(c=>(<div key={c} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderBottom:"1px solid #F5F5F5"}}>
-        <span>{c}</span><strong>{fmtN(pnl.expenseByCat[c])}</strong></div>))}
+        <span>{categoryLabel(lang,c)}</span><strong>{fmtN(pnl.expenseByCat[c])}</strong></div>))}
       <div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:800,marginTop:8,paddingTop:8,borderTop:"1.5px solid #E2E8F0"}}>
-        <span>Total Expenses</span><span style={{color:"#DC3545"}}>{fmtN(pnl.totalExpense)}</span></div></div>
+        <span>{ft(lang,"totalExpenses")}</span><span style={{color:"#DC3545"}}>{fmtN(pnl.totalExpense)}</span></div></div>
     {(pnl.ownerCapital>0||pnl.ownerDraws>0)&&<div style={{background:"#FFF9E6",borderRadius:12,border:"1px solid #E6A817",padding:14,marginBottom:14,fontSize:12,color:"#856404"}}>
-      <div style={{fontWeight:700,marginBottom:6}}>Not counted as profit/loss (equity movements, this period):</div>
-      {pnl.ownerCapital>0&&<div>Owner Capital in: <strong>{fmtN(pnl.ownerCapital)} EGP</strong></div>}
-      {pnl.ownerDraws>0&&<div>Owner Draws / Profit Withdrawals out: <strong>{fmtN(pnl.ownerDraws)} EGP</strong></div>}</div>}
+      <div style={{fontWeight:700,marginBottom:6}}>{ft(lang,"notCountedNote")}</div>
+      {pnl.ownerCapital>0&&<div>{ft(lang,"ownerCapitalInLbl")} <strong>{fmtN(pnl.ownerCapital)} {ft(lang,"egpLbl")}</strong></div>}
+      {pnl.ownerDraws>0&&<div>{ft(lang,"ownerDrawsWithdrawalsOut")} <strong>{fmtN(pnl.ownerDraws)} {ft(lang,"egpLbl")}</strong></div>}</div>}
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14}}>
-      <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:12}}>📈 Monthly Net Profit Trend</div>
-      {monthly.length===0&&<div style={{fontSize:12,color:"#999"}}>No entries yet.</div>}
+      <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:12}}>{ft(lang,"monthlyTrend")}</div>
+      {monthly.length===0&&<div style={{fontSize:12,color:"#999"}}>{ft(lang,"noEntriesYetShort")}</div>}
       {monthly.map(m=>{
         const pct=Math.round(Math.abs(m.net)/maxAbs*100);
         return(<div key={m.month} style={{marginBottom:8}}>
@@ -567,32 +772,32 @@ function PnLView({cashLedger}){
     </div>
   </div>);
 }
-function BalanceSheetView({cashOpening,cashLedger,data,laborRates,batches,silicaEntries}){
+function BalanceSheetView({cashOpening,cashLedger,data,laborRates,batches,silicaEntries,lang}){
   const bs=cashBalanceSheet(cashOpening,cashLedger,data,laborRates,batches,silicaEntries);
   return(<div>
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
-      <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>💼 Assets</div>
-      <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",marginBottom:6}}>Current Assets</div>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>Cash</span><strong>{fmtN(bs.cash)} EGP</strong></div>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>Inventory (raw materials, at cost)</span><strong>{fmtN(bs.inventory)} EGP</strong></div>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>Accounts Receivable (invoiced, not yet collected)</span><strong>{fmtN(bs.receivables)} EGP</strong></div>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:800,marginTop:8,paddingTop:8,borderTop:"1.5px solid #E2E8F0"}}><span>Total Assets</span><span style={{color:NAVY}}>{fmtN(bs.totalAssets)} EGP</span></div></div>
+      <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>{ft(lang,"assets")}</div>
+      <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",marginBottom:6}}>{ft(lang,"currentAssets")}</div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>{ft(lang,"cashLbl")}</span><strong>{fmtN(bs.cash)} {ft(lang,"egpLbl")}</strong></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>{ft(lang,"inventoryLbl")}</span><strong>{fmtN(bs.inventory)} {ft(lang,"egpLbl")}</strong></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>{ft(lang,"accountsReceivable")}</span><strong>{fmtN(bs.receivables)} {ft(lang,"egpLbl")}</strong></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:800,marginTop:8,paddingTop:8,borderTop:"1.5px solid #E2E8F0"}}><span>{ft(lang,"totalAssets")}</span><span style={{color:NAVY}}>{fmtN(bs.totalAssets)} {ft(lang,"egpLbl")}</span></div></div>
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
-      <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>🏛️ Liabilities</div>
-      <div style={{fontSize:12,color:"#999"}}>Not tracked yet (no Accounts Payable) — nothing owed to suppliers is logged here, so this shows as zero rather than a guessed number.</div></div>
+      <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>{ft(lang,"liabilities")}</div>
+      <div style={{fontSize:12,color:"#999"}}>{ft(lang,"liabilitiesNote")}</div></div>
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
-      <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>👤 Owner Equity</div>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>Opening Balance (as of {cashOpening?cashOpening.date:"—"})</span><strong>{fmtN(bs.openingBalance)} EGP</strong></div>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>+ Owner Capital Contributed</span><strong>{fmtN(bs.ownerCapital)} EGP</strong></div>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>− Owner Draws</span><strong>{fmtN(bs.ownerDraws)} EGP</strong></div>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>+ Retained Earnings (all-time net profit)</span><strong style={{color:bs.retainedEarnings>=0?"#1A6B2A":"#DC3545"}}>{fmtN(bs.retainedEarnings)} EGP</strong></div>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:800,marginTop:8,paddingTop:8,borderTop:"1.5px solid #E2E8F0"}}><span>Total Equity</span><span style={{color:NAVY}}>{fmtN(bs.totalEquity)} EGP</span></div></div>
+      <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>{ft(lang,"ownerEquity")}</div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>{ft(lang,"openingBalanceAsOf")}{cashOpening?cashOpening.date:"—"})</span><strong>{fmtN(bs.openingBalance)} {ft(lang,"egpLbl")}</strong></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>{ft(lang,"ownerCapitalContributed")}</span><strong>{fmtN(bs.ownerCapital)} {ft(lang,"egpLbl")}</strong></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>{ft(lang,"ownerDrawsLine")}</span><strong>{fmtN(bs.ownerDraws)} {ft(lang,"egpLbl")}</strong></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>{ft(lang,"retainedEarnings")}</span><strong style={{color:bs.retainedEarnings>=0?"#1A6B2A":"#DC3545"}}>{fmtN(bs.retainedEarnings)} {ft(lang,"egpLbl")}</strong></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:800,marginTop:8,paddingTop:8,borderTop:"1.5px solid #E2E8F0"}}><span>{ft(lang,"totalEquity")}</span><span style={{color:NAVY}}>{fmtN(bs.totalEquity)} {ft(lang,"egpLbl")}</span></div></div>
     <div style={{background:"#FFF9E6",border:"1px solid #E6A817",borderRadius:12,padding:14,fontSize:12,color:"#856404"}}>
-      <div style={{fontWeight:700,marginBottom:6}}>⚠️ Why Assets and Equity don&apos;t match exactly</div>
-      <div>Material purchases count as an expense the moment they&apos;re paid (matching how you log the ledger), but the material itself keeps counting as Inventory until it&apos;s used up — and Accounts Receivable is money you&apos;ve invoiced that hasn&apos;t hit Owner Capital yet because it hasn&apos;t been collected. So Assets normally run ahead of Equity by roughly unconsumed inventory plus uncollected receivables — right now that gap is <strong>{fmtN(bs.unreconciled)} EGP</strong>. That&apos;s not an error to fix — it&apos;s the tradeoff of a simple cash-basis ledger. A fully reconciled balance sheet would need proper accrual accounting (tracking cost of goods sold as material is actually consumed), which is a bigger step we can take later if you want it.</div></div>
+      <div style={{fontWeight:700,marginBottom:6}}>{ft(lang,"whyDontMatch")}</div>
+      <div>{ft(lang,"whyDontMatchBody")} <strong>{fmtN(bs.unreconciled)} {ft(lang,"egpLbl")}</strong>. {ft(lang,"whyDontMatchBody2")}</div></div>
   </div>);
 }
-function CashEntryForm({existing,onSave,onCancel}){
+function CashEntryForm({existing,onSave,onCancel,lang}){
   const e=existing||{};
   const [date,setDate]=useState(e.date||new Date().toISOString().split("T")[0]);
   const [type,setType]=useState(e.type||"out");
@@ -619,66 +824,66 @@ function CashEntryForm({existing,onSave,onCancel}){
   const switchLine=l=>{setLine(l);if(OWNERS_BY_LINE[l]&&OWNERS_BY_LINE[l].indexOf(owner)<0)setOwner(OWNERS_BY_LINE[l][0]);};
   const save=()=>{
     const amt=Number(amount)||0;
-    if(amt<=0){setErr("Enter an amount.");return;}
+    if(amt<=0){setErr(ft(lang,"enterAmount"));return;}
     onSave({id:e.id||genId(),date:date,type:type,category:category,amount:amt,note:note.trim(),
       line:(isOwnerMoney||isGeneralExpense)?(line||null):null,owner:isOwnerMoney?owner:null,createdAt:e.createdAt||new Date().toISOString()});
   };
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:14}}>
     <div style={{display:"flex",gap:8,marginBottom:12}}>
-      {[["in","🟢 Money In"],["out","🔴 Money Out"]].map(x=>(
+      {[["in","moneyIn"],["out","moneyOut"]].map(x=>(
         <button type="button" key={x[0]} onClick={()=>switchType(x[0])}
-          style={{flex:1,padding:11,borderRadius:8,fontWeight:700,fontSize:13,cursor:"pointer",border:"1.5px solid "+(type===x[0]?(x[0]==="in"?"#1A7A45":"#DC3545"):"#E2E8F0"),background:type===x[0]?(x[0]==="in"?"#E8F5E9":"#FFF0F0"):"#fff",color:type===x[0]?(x[0]==="in"?"#1A7A45":"#DC3545"):"#666"}}>{x[1]}</button>))}
+          style={{flex:1,padding:11,borderRadius:8,fontWeight:700,fontSize:13,cursor:"pointer",border:"1.5px solid "+(type===x[0]?(x[0]==="in"?"#1A7A45":"#DC3545"):"#E2E8F0"),background:type===x[0]?(x[0]==="in"?"#E8F5E9":"#FFF0F0"):"#fff",color:type===x[0]?(x[0]==="in"?"#1A7A45":"#DC3545"):"#666"}}>{ft(lang,x[1])}</button>))}
     </div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date</label>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"dateLbl")}</label>
         <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
-      <Field label="Amount (EGP)" value={amount} onChange={v=>{setAmount(v);setErr("");}} type="number" ph="0.00"/></div>
+      <Field label={ft(lang,"amountEgp")} value={amount} onChange={v=>{setAmount(v);setErr("");}} type="number" ph="0.00"/></div>
     <div style={{marginBottom:10}}>
-      <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Category</label>
+      <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"categoryLbl")}</label>
       <select value={category} onChange={ev=>switchCategory(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
-        {cats.map(c=><option key={c}>{c}</option>)}</select></div>
+        {cats.map(c=><option key={c} value={c}>{categoryLabel(lang,c)}</option>)}</select></div>
     {isOwnerMoney&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10,background:"#F7F9FC",borderRadius:8,padding:10}}>
-      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Business Line</label>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"businessLine")}</label>
         <select value={line} onChange={ev=>switchLine(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
-          {OWNER_CAPITAL_LINES.map(l=><option key={l}>{l}</option>)}</select></div>
-      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Owner</label>
+          {OWNER_CAPITAL_LINES.map(l=><option key={l} value={l}>{lineLabel(lang,l)}</option>)}</select></div>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"ownerLbl")}</label>
         <select value={owner} onChange={ev=>setOwner(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
-          {ownerOptions.map(o=><option key={o}>{o}</option>)}</select></div></div>}
+          {ownerOptions.map(o=><option key={o} value={o}>{ownerLabel(lang,o)}</option>)}</select></div></div>}
     {isGeneralExpense&&<div style={{marginBottom:10}}>
-      <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Which Line (optional)</label>
+      <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"whichLineOptional")}</label>
       <select value={line} onChange={ev=>setLine(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
-        <option value="">— not specified —</option>
-        {EXPENSE_LINE_OPTIONS.map(l=><option key={l}>{l}</option>)}</select>
-      <div style={{fontSize:11,color:"#999",marginTop:4}}>Pick a line if this is specific to one product, or Split (Both) for a shared cost like rent — leave blank if you don&apos;t need it broken out.</div></div>}
-    <div style={{marginBottom:14}}><Field label="Note (optional)" value={note} onChange={setNote} ph="e.g. Paid Ahmed for coil delivery"/></div>
+        <option value="">{ft(lang,"notSpecified")}</option>
+        {EXPENSE_LINE_OPTIONS.map(l=><option key={l} value={l}>{lineLabel(lang,l)}</option>)}</select>
+      <div style={{fontSize:11,color:"#999",marginTop:4}}>{ft(lang,"lineHelpText")}</div></div>}
+    <div style={{marginBottom:14}}><Field label={ft(lang,"noteOptional")} value={note} onChange={setNote} ph="e.g. Paid Ahmed for coil delivery"/></div>
     {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
     <div style={{display:"flex",gap:8}}>
-      <button type="button" onClick={save} style={{flex:1,padding:11,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 {existing?"Save Changes":"Add Entry"}</button>
-      <button type="button" onClick={onCancel} style={{padding:"11px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>Cancel</button></div>
+      <button type="button" onClick={save} style={{flex:1,padding:11,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 {existing?ft(lang,"saveChanges"):ft(lang,"addEntryBtn")}</button>
+      <button type="button" onClick={onCancel} style={{padding:"11px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>{ft(lang,"cancelLbl")}</button></div>
   </div>);
 }
-function CashEntryRow({entry,onSave,onDelete}){
+function CashEntryRow({entry,onSave,onDelete,lang}){
   const [editing,setEditing]=useState(false),[confDel,setConfDel]=useState(false);
-  if(editing)return <CashEntryForm existing={entry} onSave={u=>{onSave(u);setEditing(false);}} onCancel={()=>setEditing(false)}/>;
+  if(editing)return <CashEntryForm existing={entry} onSave={u=>{onSave(u);setEditing(false);}} onCancel={()=>setEditing(false)} lang={lang}/>;
   const isIn=entry.type==="in";
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:"12px 14px",marginBottom:8}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
       <div style={{flex:1,minWidth:0}}>
         <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-          <span style={{background:isIn?"#C6EFCE":"#FDDEDE",color:isIn?"#1A6B2A":"#8B1A1A",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700}}>{isIn?"🟢 In":"🔴 Out"}</span>
-          <span style={{fontSize:12,fontWeight:700,color:"#333"}}>{entry.category}</span>
-          {entry.owner&&<span style={{fontSize:11,color:"#7B3FB5"}}>{entry.owner} · {entry.line}</span>}
-          {!entry.owner&&entry.line&&<span style={{fontSize:11,color:"#7B3FB5"}}>{entry.line}</span>}
+          <span style={{background:isIn?"#C6EFCE":"#FDDEDE",color:isIn?"#1A6B2A":"#8B1A1A",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700}}>{isIn?"🟢 "+ft(lang,"inLbl"):"🔴 "+ft(lang,"outLbl")}</span>
+          <span style={{fontSize:12,fontWeight:700,color:"#333"}}>{categoryLabel(lang,entry.category)}</span>
+          {entry.owner&&<span style={{fontSize:11,color:"#7B3FB5"}}>{ownerLabel(lang,entry.owner)} · {lineLabel(lang,entry.line)}</span>}
+          {!entry.owner&&entry.line&&<span style={{fontSize:11,color:"#7B3FB5"}}>{lineLabel(lang,entry.line)}</span>}
           <span style={{fontSize:11,color:"#999"}}>{entry.date}</span></div>
         {entry.note&&<div style={{fontSize:12,color:"#888",marginTop:4}}>{entry.note}</div>}</div>
       <div style={{textAlign:"right"}}>
-        <div style={{fontWeight:800,fontSize:15,color:isIn?"#1A6B2A":"#DC3545",whiteSpace:"nowrap"}}>{isIn?"+":"-"}{fmtN(entry.amount)} EGP</div>
+        <div style={{fontWeight:800,fontSize:15,color:isIn?"#1A6B2A":"#DC3545",whiteSpace:"nowrap"}}>{isIn?"+":"-"}{fmtN(entry.amount)} {ft(lang,"egpLbl")}</div>
         <div style={{display:"flex",gap:10,marginTop:4,justifyContent:"flex-end"}}>
-          <button type="button" onClick={()=>setEditing(true)} style={{background:"none",border:"none",color:NAVY,cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>Edit</button>
+          <button type="button" onClick={()=>setEditing(true)} style={{background:"none",border:"none",color:NAVY,cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>{ft(lang,"editLbl")}</button>
           {confDel?<>
-            <button type="button" onClick={()=>onDelete()} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:11,fontWeight:700,padding:0}}>Confirm?</button>
-            <button type="button" onClick={()=>setConfDel(false)} style={{background:"none",border:"none",color:"#888",cursor:"pointer",fontSize:11,padding:0}}>Cancel</button></>
-          :<button type="button" onClick={()=>setConfDel(true)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>Delete</button>}
+            <button type="button" onClick={()=>onDelete()} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:11,fontWeight:700,padding:0}}>{ft(lang,"confirmQ")}</button>
+            <button type="button" onClick={()=>setConfDel(false)} style={{background:"none",border:"none",color:"#888",cursor:"pointer",fontSize:11,padding:0}}>{ft(lang,"cancelLbl")}</button></>
+          :<button type="button" onClick={()=>setConfDel(true)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>{ft(lang,"deleteLbl")}</button>}
         </div></div></div>
   </div>);
 }
@@ -689,7 +894,7 @@ function CashEntryRow({entry,onSave,onDelete}){
 // Capital Balance mechanism rather than a separate "loan" concept, since the resulting balance
 // shift (that owner's source-line contribution drops while their destination-line one rises) is
 // exactly the "amount owed back" the transfer is meant to track.
-function TransferBetweenLinesForm({onSaveEntry,onCancel}){
+function TransferBetweenLinesForm({onSaveEntry,onCancel,lang}){
   const [fromLine,setFromLine]=useState(OWNER_CAPITAL_LINES[0]);
   const otherLine=l=>OWNER_CAPITAL_LINES.find(x=>x!==l)||OWNER_CAPITAL_LINES[0];
   const [toLine,setToLine]=useState(otherLine(OWNER_CAPITAL_LINES[0]));
@@ -714,9 +919,9 @@ function TransferBetweenLinesForm({onSaveEntry,onCancel}){
   };
   const save=()=>{
     const amt=Number(amount)||0;
-    if(amt<=0){setErr("Enter an amount.");return;}
-    if(fromLine===toLine){setErr("Pick two different lines.");return;}
-    if(!owner){setErr("No owner has a stake in both lines, so there's no one eligible to transfer.");return;}
+    if(amt<=0){setErr(ft(lang,"enterAmount"));return;}
+    if(fromLine===toLine){setErr(ft(lang,"pickTwoDifferent"));return;}
+    if(!owner){setErr(ft(lang,"noOwnerBothLines"));return;}
     const transferId=genId();
     const noteBase=note.trim();
     onSaveEntry({id:genId(),date:date,type:"out",category:"Owner Draw",amount:amt,
@@ -726,53 +931,53 @@ function TransferBetweenLinesForm({onSaveEntry,onCancel}){
     onCancel();
   };
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:14}}>
-    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:4}}>🔁 Transfer Between Lines</div>
-    <div style={{fontSize:11,color:"#888",marginBottom:12}}>Only owners with a stake in both lines can transfer — for Silica Gel ↔ Flip-Off that&apos;s Youssef and Roger only, so Islam&apos;s money is never moved into Flip-Off. Shows up afterward as that owner owed back on the destination line.</div>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:4}}>{ft(lang,"transferBetweenLines")}</div>
+    <div style={{fontSize:11,color:"#888",marginBottom:12}}>{ft(lang,"transferDesc")}</div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>From</label>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"fromLbl")}</label>
         <select value={fromLine} onChange={ev=>switchFrom(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
-          {OWNER_CAPITAL_LINES.map(l=><option key={l}>{l}</option>)}</select></div>
-      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>To</label>
+          {OWNER_CAPITAL_LINES.map(l=><option key={l} value={l}>{lineLabel(lang,l)}</option>)}</select></div>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"toLbl")}</label>
         <select value={toLine} onChange={ev=>switchTo(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
-          {OWNER_CAPITAL_LINES.map(l=><option key={l}>{l}</option>)}</select></div></div>
+          {OWNER_CAPITAL_LINES.map(l=><option key={l} value={l}>{lineLabel(lang,l)}</option>)}</select></div></div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Owner</label>
-        {ownerOptions.length===0?<div style={{fontSize:12,color:"#DC3545",padding:"9px 0"}}>No eligible owner</div>:
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"ownerLbl")}</label>
+        {ownerOptions.length===0?<div style={{fontSize:12,color:"#DC3545",padding:"9px 0"}}>{ft(lang,"noEligibleOwner")}</div>:
         <select value={owner} onChange={ev=>setOwner(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
-          {ownerOptions.map(o=><option key={o}>{o}</option>)}</select>}</div>
-      <Field label="Amount (EGP)" value={amount} onChange={v=>{setAmount(v);setErr("");}} type="number" ph="0.00"/></div>
-    <div style={{marginBottom:10}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date</label>
+          {ownerOptions.map(o=><option key={o} value={o}>{ownerLabel(lang,o)}</option>)}</select>}</div>
+      <Field label={ft(lang,"amountEgp")} value={amount} onChange={v=>{setAmount(v);setErr("");}} type="number" ph="0.00"/></div>
+    <div style={{marginBottom:10}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"dateLbl")}</label>
       <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
-    <div style={{marginBottom:14}}><Field label="Note (optional)" value={note} onChange={setNote} ph="e.g. Covering Flip-Off coil order"/></div>
+    <div style={{marginBottom:14}}><Field label={ft(lang,"noteOptional")} value={note} onChange={setNote} ph="e.g. Covering Flip-Off coil order"/></div>
     {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
     <div style={{display:"flex",gap:8}}>
-      <button type="button" onClick={save} style={{flex:1,padding:11,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 Save Transfer</button>
-      <button type="button" onClick={onCancel} style={{padding:"11px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>Cancel</button></div>
+      <button type="button" onClick={save} style={{flex:1,padding:11,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>{ft(lang,"saveTransfer")}</button>
+      <button type="button" onClick={onCancel} style={{padding:"11px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>{ft(lang,"cancelLbl")}</button></div>
   </div>);
 }
-function CashOpeningSetup({opening,onSave}){
+function CashOpeningSetup({opening,onSave,lang}){
   const [editing,setEditing]=useState(!opening);
   const [date,setDate]=useState(opening?opening.date:new Date().toISOString().split("T")[0]);
   const [balance,setBalance]=useState(opening?String(opening.balance):"");
   const [err,setErr]=useState("");
   const save=()=>{
     const b=Number(balance);
-    if(balance===""||isNaN(b)){setErr("Enter the actual cash balance.");return;}
+    if(balance===""||isNaN(b)){setErr(ft(lang,"enterActualBalance"));return;}
     onSave({balance:b,date:date});
     setEditing(false);
   };
   if(!editing)return(<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11,color:"#888",marginBottom:10}}>
-    <span>Opening balance: <strong style={{color:"#555"}}>{fmtN(opening.balance)} EGP</strong> as of {opening.date}</span>
-    <button type="button" onClick={()=>setEditing(true)} style={{background:"none",border:"none",color:NAVY,cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>Edit</button></div>);
+    <span>{ft(lang,"openingBalanceLbl")} <strong style={{color:"#555"}}>{fmtN(opening.balance)} {ft(lang,"egpLbl")}</strong> {ft(lang,"asOfLbl")} {opening.date}</span>
+    <button type="button" onClick={()=>setEditing(true)} style={{background:"none",border:"none",color:NAVY,cursor:"pointer",fontSize:11,fontWeight:600,padding:0}}>{ft(lang,"editLbl")}</button></div>);
   return(<div style={{background:"#FFF9E6",border:"1.5px solid #E6A817",borderRadius:12,padding:14,marginBottom:14}}>
-    <div style={{fontWeight:800,fontSize:13,color:"#856404",marginBottom:4}}>💵 Set Your Starting Cash Balance</div>
-    <div style={{fontSize:11,color:"#856404",opacity:0.85,marginBottom:10}}>The real amount of cash you have on hand right now — everything logged after this date adds to or subtracts from it. It&apos;s fine if most of it is capital the owner put in rather than customer payments — that&apos;s what the &quot;Owner Capital&quot; category on each entry is for.</div>
+    <div style={{fontWeight:800,fontSize:13,color:"#856404",marginBottom:4}}>{ft(lang,"setStartingBalance")}</div>
+    <div style={{fontSize:11,color:"#856404",opacity:0.85,marginBottom:10}}>{ft(lang,"setStartingBalanceDesc")}</div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>As Of Date</label>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"asOfDate")}</label>
         <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
-      <Field label="Actual Balance (EGP)" value={balance} onChange={v=>{setBalance(v);setErr("");}} type="number" ph="e.g. 50000"/></div>
+      <Field label={ft(lang,"actualBalanceEgp")} value={balance} onChange={v=>{setBalance(v);setErr("");}} type="number" ph="e.g. 50000"/></div>
     {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
-    <button type="button" onClick={save} style={{width:"100%",padding:11,background:"#856404",color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 Save Starting Balance</button>
+    <button type="button" onClick={save} style={{width:"100%",padding:11,background:"#856404",color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>{ft(lang,"saveStartingBalance")}</button>
   </div>);
 }
 function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,onDeleteEntry,onSetOpening,
@@ -782,24 +987,26 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
   const [showAdd,setShowAdd]=useState(false);
   const [showTransfer,setShowTransfer]=useState(false);
   const [tab,setTab]=useState("ledger");
+  const [lang,setLang]=useState(()=>{try{return localStorage.getItem(FIN_LANG_KEY)||"en";}catch{return "en";}});
   const balance=cashRunningBalance(cashOpening,cashLedger);
   const sorted=cashLedger.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||"").localeCompare(a.createdAt||""));
   const monthly=cashMonthlySummary(cashLedger);
   const totalIn=cashLedger.reduce((s,e)=>e.type==="in"?s+(Number(e.amount)||0):s,0);
   const totalOut=cashLedger.reduce((s,e)=>e.type==="out"?s+(Number(e.amount)||0):s,0);
-  return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
+  return(<div dir={lang==="ar"?"rtl":"ltr"} style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"linear-gradient(135deg,#0E4A2A,#1A7A45)",position:"sticky",top:0,zIndex:100}}>
       <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
-        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13}}>← Back</button>
-        <div><div style={{color:"#fff",fontWeight:800,fontSize:17}}>🏦 East Pharma Finance</div>
-          <div style={{color:"rgba(255,255,255,0.6)",fontSize:11}}>Actual money in/out — separate from Finance estimates</div></div></div>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13}}>{lang==="ar"?"→":"←"} {ft(lang,"back")}</button>
+        <div style={{flex:1}}><div style={{color:"#fff",fontWeight:800,fontSize:17}}>🏦 {ft(lang,"financeTitle")}</div>
+          <div style={{color:"rgba(255,255,255,0.6)",fontSize:11}}>{ft(lang,"financeSubtitle")}</div></div>
+        <FinLangToggle lang={lang} setLang={setLang}/></div>
       <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
-        {[["ledger","📒 Ledger"],["pnl","📈 Profit & Loss"],["balance","🧾 Balance Sheet"],["sales","💰 Sales"]].map(x=>(
+        {[["ledger","📒","tabLedger"],["pnl","📈","tabPnl"],["balance","🧾","tabBalance"],["sales","💰","tabSales"]].map(x=>(
           <button type="button" key={x[0]} onClick={()=>setTab(x[0])}
-            style={{flex:1,background:"none",border:"none",color:tab===x[0]?"#fff":"rgba(255,255,255,0.45)",padding:"11px 8px",fontSize:12,fontWeight:tab===x[0]?700:400,cursor:"pointer",borderBottom:"2px solid "+(tab===x[0]?"#fff":"transparent"),fontFamily:"inherit"}}>{x[1]}</button>))}
+            style={{flex:1,background:"none",border:"none",color:tab===x[0]?"#fff":"rgba(255,255,255,0.45)",padding:"11px 8px",fontSize:12,fontWeight:tab===x[0]?700:400,cursor:"pointer",borderBottom:"2px solid "+(tab===x[0]?"#fff":"transparent"),fontFamily:"inherit"}}>{x[1]} {ft(lang,x[2])}</button>))}
       </div></div>
     <div style={{maxWidth:700,margin:"0 auto",padding:16}}>
-      {tab!=="sales"&&<CashOpeningSetup opening={cashOpening} onSave={onSetOpening}/>}
+      {tab!=="sales"&&<CashOpeningSetup opening={cashOpening} onSave={onSetOpening} lang={lang}/>}
       {tab==="sales"&&<CommissionsView batches={batches} data={data} laborRates={laborRates}
         silicaEntries={silicaEntries} silicaSettings={silicaSettings} silicaWithdrawals={silicaWithdrawals}
         flipOffSettings={flipOffSettings} flipOffWithdrawals={flipOffWithdrawals}
@@ -807,33 +1014,33 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
         onAddSilicaWithdrawal={onAddSilicaWithdrawal} onDeleteSilicaWithdrawal={onDeleteSilicaWithdrawal}
         onSaveBatch={onSaveBatch} onSaveFlipOffSettings={onSaveFlipOffSettings}
         onAddFlipOffWithdrawal={onAddFlipOffWithdrawal} onDeleteFlipOffWithdrawal={onDeleteFlipOffWithdrawal}
-        onSaveCashEntry={onSaveEntry} onDeleteCashEntry={onDeleteEntry}/>}
+        onSaveCashEntry={onSaveEntry} onDeleteCashEntry={onDeleteEntry} lang={lang}/>}
       {tab!=="sales"&&cashOpening&&<>
       {tab==="ledger"&&<>
       <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #EEF2F7",padding:18,marginBottom:14,textAlign:"center"}}>
-        <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase"}}>Current Cash Balance</div>
-        <div style={{fontSize:32,fontWeight:900,color:balance>=0?"#1A6B2A":"#DC3545",marginTop:4}}>{fmtN(balance)} EGP</div>
+        <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase"}}>{ft(lang,"currentCashBalance")}</div>
+        <div style={{fontSize:32,fontWeight:900,color:balance>=0?"#1A6B2A":"#DC3545",marginTop:4}}>{fmtN(balance)} {ft(lang,"egpLbl")}</div>
         <div style={{display:"flex",justifyContent:"center",gap:20,marginTop:10,fontSize:12}}>
-          <div>🟢 In: <strong style={{color:"#1A6B2A"}}>{fmtN(totalIn)}</strong></div>
-          <div>🔴 Out: <strong style={{color:"#DC3545"}}>{fmtN(totalOut)}</strong></div></div></div>
+          <div>🟢 {ft(lang,"inLbl")}: <strong style={{color:"#1A6B2A"}}>{fmtN(totalIn)}</strong></div>
+          <div>🔴 {ft(lang,"outLbl")}: <strong style={{color:"#DC3545"}}>{fmtN(totalOut)}</strong></div></div></div>
       {monthly.length>0&&<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
-        <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>📅 Monthly Summary</div>
+        <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>📅 {ft(lang,"monthlySummary")}</div>
         {monthly.map(m=>(<div key={m.month} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
           <span style={{fontWeight:700,color:"#555"}}>{m.month}</span>
-          <span>🟢 {fmtN(m.in)} · 🔴 {fmtN(m.out)} · <strong style={{color:m.in-m.out>=0?"#1A6B2A":"#DC3545"}}>{fmtN(m.in-m.out)} net</strong></span></div>))}
+          <span>🟢 {fmtN(m.in)} · 🔴 {fmtN(m.out)} · <strong style={{color:m.in-m.out>=0?"#1A6B2A":"#DC3545"}}>{fmtN(m.in-m.out)} {ft(lang,"netLbl")}</strong></span></div>))}
       </div>}
-      <LineCashBalanceCard cashOpening={cashOpening} cashLedger={cashLedger}/>
-      <OwnerCapitalBalanceCard cashLedger={cashLedger}/>
+      <LineCashBalanceCard cashOpening={cashOpening} cashLedger={cashLedger} lang={lang}/>
+      <OwnerCapitalBalanceCard cashLedger={cashLedger} lang={lang}/>
       {!showAdd&&!showTransfer&&<div style={{display:"flex",gap:8,marginBottom:14}}>
-        <button type="button" onClick={()=>setShowAdd(true)} style={{flex:1,padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer"}}>+ Add Entry</button>
-        <button type="button" onClick={()=>setShowTransfer(true)} style={{flex:1,padding:13,background:"#7B3FB5",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer"}}>🔁 Transfer Between Lines</button></div>}
-      {showAdd&&<CashEntryForm onSave={en=>{onSaveEntry(en);setShowAdd(false);}} onCancel={()=>setShowAdd(false)}/>}
-      {showTransfer&&<TransferBetweenLinesForm onSaveEntry={onSaveEntry} onCancel={()=>setShowTransfer(false)}/>}
-      {sorted.map(en=><CashEntryRow key={en.id} entry={en} onSave={onSaveEntry} onDelete={()=>onDeleteEntry(en.id)}/>)}
-      {cashLedger.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No entries yet — log your first payment in or out above.</div>}
+        <button type="button" onClick={()=>setShowAdd(true)} style={{flex:1,padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer"}}>{ft(lang,"addEntry")}</button>
+        <button type="button" onClick={()=>setShowTransfer(true)} style={{flex:1,padding:13,background:"#7B3FB5",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer"}}>{ft(lang,"transferBetweenLines")}</button></div>}
+      {showAdd&&<CashEntryForm onSave={en=>{onSaveEntry(en);setShowAdd(false);}} onCancel={()=>setShowAdd(false)} lang={lang}/>}
+      {showTransfer&&<TransferBetweenLinesForm onSaveEntry={onSaveEntry} onCancel={()=>setShowTransfer(false)} lang={lang}/>}
+      {sorted.map(en=><CashEntryRow key={en.id} entry={en} onSave={onSaveEntry} onDelete={()=>onDeleteEntry(en.id)} lang={lang}/>)}
+      {cashLedger.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>{ft(lang,"noEntriesYet")}</div>}
       </>}
-      {tab==="pnl"&&<PnLView cashLedger={cashLedger}/>}
-      {tab==="balance"&&<BalanceSheetView cashOpening={cashOpening} cashLedger={cashLedger} data={data} laborRates={laborRates} batches={batches} silicaEntries={silicaEntries}/>}
+      {tab==="pnl"&&<PnLView cashLedger={cashLedger} lang={lang}/>}
+      {tab==="balance"&&<BalanceSheetView cashOpening={cashOpening} cashLedger={cashLedger} data={data} laborRates={laborRates} batches={batches} silicaEntries={silicaEntries} lang={lang}/>}
       </>}
     </div></div>);
 }
@@ -946,45 +1153,45 @@ function removeCommissionCash(rowId,onDeleteCashEntry){
   onDeleteCashEntry("cmsn-comm-"+rowId);
   purgeStaleOwnerSplitCash(rowId,onDeleteCashEntry);
 }
-function CommissionSettingsCard({settings,onSave}){
+function CommissionSettingsCard({settings,onSave,lang}){
   const [editing,setEditing]=useState(false);
   const [tax,setTax]=useState(String((settings.incomeTaxRate||0)*100));
   const [comm,setComm]=useState(String((settings.commissionRate||0)*100));
   const [terms,setTerms]=useState(String(settings.paymentTermsDays||0));
   const save=()=>{onSave({incomeTaxRate:(Number(tax)||0)/100,commissionRate:(Number(comm)||0)/100,paymentTermsDays:Number(terms)||0});setEditing(false);};
   if(!editing)return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,gap:8,flexWrap:"wrap"}}>
-    <div>Income Tax <strong>{((settings.incomeTaxRate||0)*100).toFixed(1)}%</strong> · Commission <strong>{((settings.commissionRate||0)*100).toFixed(1)}%</strong> · Terms <strong>{settings.paymentTermsDays} days</strong></div>
-    <button type="button" onClick={()=>setEditing(true)} style={{background:"#F5F7FA",border:"none",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ Edit</button></div>);
+    <div>{ft(lang,"incomeTaxWord")} <strong>{((settings.incomeTaxRate||0)*100).toFixed(1)}%</strong> · {ft(lang,"commissionWord")} <strong>{((settings.commissionRate||0)*100).toFixed(1)}%</strong> · {ft(lang,"termsWord")} <strong>{settings.paymentTermsDays} {ft(lang,"daysWord")}</strong></div>
+    <button type="button" onClick={()=>setEditing(true)} style={{background:"#F5F7FA",border:"none",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ {ft(lang,"editLbl")}</button></div>);
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:14}}>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}}>
-      <Field label="Income Tax %" value={tax} onChange={setTax} type="number" ph="22"/>
-      <Field label="Commission %" value={comm} onChange={setComm} type="number" ph="8"/>
-      <Field label="Payment Terms (days)" value={terms} onChange={setTerms} type="number" ph="60"/></div>
+      <Field label={ft(lang,"incomeTaxPct")} value={tax} onChange={setTax} type="number" ph="22"/>
+      <Field label={ft(lang,"commissionPct")} value={comm} onChange={setComm} type="number" ph="8"/>
+      <Field label={ft(lang,"paymentTermsDaysLbl")} value={terms} onChange={setTerms} type="number" ph="60"/></div>
     <div style={{display:"flex",gap:8}}>
-      <button type="button" onClick={save} style={{flex:1,padding:10,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 Save</button>
-      <button type="button" onClick={()=>setEditing(false)} style={{padding:"10px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>Cancel</button></div>
+      <button type="button" onClick={save} style={{flex:1,padding:10,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 {ft(lang,"saveLbl")}</button>
+      <button type="button" onClick={()=>setEditing(false)} style={{padding:"10px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>{ft(lang,"cancelLbl")}</button></div>
   </div>);
 }
-function CommissionSummaryCard({summary}){
+function CommissionSummaryCard({summary,lang}){
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
-    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>📊 Summary</div>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>{ft(lang,"summaryLbl")}</div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,fontSize:12}}>
-      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>Total Money In</div><div style={{fontWeight:800,fontSize:15}}>{fmtN(summary.totalSales)} EGP</div></div>
-      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>Total Gross Profit</div><div style={{fontWeight:800,fontSize:15}}>{fmtN(summary.totalGrossProfit)} EGP</div><div style={{color:"#999",fontSize:10}}>{(summary.marginPct*100).toFixed(1)}% margin</div></div>
-      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>Money Received</div><div style={{fontWeight:800,fontSize:15,color:"#1A6B2A"}}>{fmtN(summary.totalMoneyReceived)} EGP</div><div style={{color:"#999",fontSize:10}}>{(summary.pctCollected*100).toFixed(1)}% collected</div></div>
-      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>Still Owed (Receivables)</div><div style={{fontWeight:800,fontSize:15,color:"#DC3545"}}>{fmtN(summary.receivables)} EGP</div><div style={{color:"#999",fontSize:10}}>{fmtN(summary.overdue)} overdue · {fmtN(summary.notYetDue)} not due yet</div></div>
-      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>Net Profit After Tax (received)</div><div style={{fontWeight:800,fontSize:15}}>{fmtN(summary.netProfitReceived)} EGP</div></div>
-      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>Commission Outstanding</div><div style={{fontWeight:800,fontSize:15,color:summary.commissionOutstanding>0?"#DC3545":"#1A6B2A"}}>{fmtN(summary.commissionOutstanding)} EGP</div><div style={{color:"#999",fontSize:10}}>Due {fmtN(summary.commissionDueTotal)} · Paid {fmtN(summary.commissionPaidTotal)}</div></div>
+      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>{ft(lang,"totalMoneyIn")}</div><div style={{fontWeight:800,fontSize:15}}>{fmtN(summary.totalSales)} {ft(lang,"egpLbl")}</div></div>
+      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>{ft(lang,"totalGrossProfit")}</div><div style={{fontWeight:800,fontSize:15}}>{fmtN(summary.totalGrossProfit)} {ft(lang,"egpLbl")}</div><div style={{color:"#999",fontSize:10}}>{(summary.marginPct*100).toFixed(1)}% {ft(lang,"marginWord")}</div></div>
+      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>{ft(lang,"moneyReceivedLbl")}</div><div style={{fontWeight:800,fontSize:15,color:"#1A6B2A"}}>{fmtN(summary.totalMoneyReceived)} {ft(lang,"egpLbl")}</div><div style={{color:"#999",fontSize:10}}>{(summary.pctCollected*100).toFixed(1)}% {ft(lang,"collectedWord")}</div></div>
+      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>{ft(lang,"stillOwedReceivables")}</div><div style={{fontWeight:800,fontSize:15,color:"#DC3545"}}>{fmtN(summary.receivables)} {ft(lang,"egpLbl")}</div><div style={{color:"#999",fontSize:10}}>{fmtN(summary.overdue)} {ft(lang,"overdueWord")} · {fmtN(summary.notYetDue)} {ft(lang,"notYetDueWord")}</div></div>
+      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>{ft(lang,"netProfitAfterTaxReceived")}</div><div style={{fontWeight:800,fontSize:15}}>{fmtN(summary.netProfitReceived)} {ft(lang,"egpLbl")}</div></div>
+      <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>{ft(lang,"commissionOutstanding")}</div><div style={{fontWeight:800,fontSize:15,color:summary.commissionOutstanding>0?"#DC3545":"#1A6B2A"}}>{fmtN(summary.commissionOutstanding)} {ft(lang,"egpLbl")}</div><div style={{color:"#999",fontSize:10}}>{ft(lang,"dueWord")} {fmtN(summary.commissionDueTotal)} · {ft(lang,"paidWord")} {fmtN(summary.commissionPaidTotal)}</div></div>
     </div></div>);
 }
-function OwnerSharesCard({owners,distributableProfit,withdrawals,onAddWithdrawal,onDeleteWithdrawal,line,onSaveCashEntry,onDeleteCashEntry}){
+function OwnerSharesCard({owners,distributableProfit,withdrawals,onAddWithdrawal,onDeleteWithdrawal,line,onSaveCashEntry,onDeleteCashEntry,lang}){
   const shares=ownerSharesCalc(owners,distributableProfit,withdrawals);
   const [showAdd,setShowAdd]=useState(false);
   const [date,setDate]=useState(new Date().toISOString().split("T")[0]),[owner,setOwner]=useState(owners[0].name);
   const [amount,setAmount]=useState(""),[method,setMethod]=useState(""),[notes,setNotes]=useState(""),[err,setErr]=useState("");
   const add=()=>{
     const amt=Number(amount)||0;
-    if(amt<=0){setErr("Enter an amount.");return;}
+    if(amt<=0){setErr(ft(lang,"enterAmount"));return;}
     const id=genId();
     onAddWithdrawal({id:id,date:date,owner:owner,amountEGP:amt,method:method.trim(),notes:notes.trim()});
     // Also removes the money from the line's real cash pool (Ledger tab) — this is a payout of
@@ -1000,42 +1207,42 @@ function OwnerSharesCard({owners,distributableProfit,withdrawals,onAddWithdrawal
   const removeWithdrawal=id=>{onDeleteWithdrawal(id);if(onDeleteCashEntry&&line)onDeleteCashEntry(id);};
   const sortedW=(withdrawals||[]).slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
-    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:4}}>👥 Owner Shares</div>
-    <div style={{fontSize:11,color:"#888",marginBottom:10}}>Distributable Profit (received net profit − commission) = <strong>{fmtN(distributableProfit)} EGP</strong>{line&&" · a withdrawal here also removes the cash from the "+line+" balance in the Ledger tab."}</div>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:4}}>{ft(lang,"ownerSharesLbl")}</div>
+    <div style={{fontSize:11,color:"#888",marginBottom:10}}>{ft(lang,"distributableProfitLbl")} <strong>{fmtN(distributableProfit)} {ft(lang,"egpLbl")}</strong>{line&&ft(lang,"withdrawalRemovesCash")+lineLabel(lang,line)+ft(lang,"balanceInLedgerTab")}</div>
     {shares.map(s=>(<div key={s.name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #F5F5F5",fontSize:12}}>
-      <div><strong>{s.name}</strong> <span style={{color:"#999"}}>({(s.share*100).toFixed(1)}%)</span></div>
+      <div><strong>{ownerLabel(lang,s.name)}</strong> <span style={{color:"#999"}}>({(s.share*100).toFixed(1)}%)</span></div>
       <div style={{textAlign:"right"}}>
-        <div>Share: <strong>{fmtN(s.shareEGP)}</strong> · Taken: <strong>{fmtN(s.withdrawn)}</strong></div>
-        <div style={{color:s.balanceDue<=0?"#1A6B2A":"#DC3545",fontWeight:700}}>{s.balanceDue<=0?"✅ Fully Paid":fmtN(s.balanceDue)+" EGP owed"}</div></div></div>))}
-    {!showAdd&&<button type="button" onClick={()=>setShowAdd(true)} style={{width:"100%",padding:10,marginTop:10,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:12}}>+ Log Withdrawal</button>}
+        <div>{ft(lang,"shareWord")} <strong>{fmtN(s.shareEGP)}</strong> · {ft(lang,"takenWord")} <strong>{fmtN(s.withdrawn)}</strong></div>
+        <div style={{color:s.balanceDue<=0?"#1A6B2A":"#DC3545",fontWeight:700}}>{s.balanceDue<=0?ft(lang,"fullyPaidLbl"):fmtN(s.balanceDue)+" "+ft(lang,"egpOwedLbl")}</div></div></div>))}
+    {!showAdd&&<button type="button" onClick={()=>setShowAdd(true)} style={{width:"100%",padding:10,marginTop:10,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:12}}>{ft(lang,"logWithdrawal")}</button>}
     {showAdd&&<div style={{marginTop:10,background:"#F7F9FC",borderRadius:10,padding:12}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-        <div><label style={{display:"block",fontSize:10,fontWeight:700,color:"#666",marginBottom:3,textTransform:"uppercase"}}>Date</label>
+        <div><label style={{display:"block",fontSize:10,fontWeight:700,color:"#666",marginBottom:3,textTransform:"uppercase"}}>{ft(lang,"dateLbl")}</label>
           <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:6,padding:"7px 9px",fontSize:12,boxSizing:"border-box"}}/></div>
-        <div><label style={{display:"block",fontSize:10,fontWeight:700,color:"#666",marginBottom:3,textTransform:"uppercase"}}>Owner</label>
+        <div><label style={{display:"block",fontSize:10,fontWeight:700,color:"#666",marginBottom:3,textTransform:"uppercase"}}>{ft(lang,"ownerLbl")}</label>
           <select value={owner} onChange={e=>setOwner(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:6,padding:"7px 9px",fontSize:12,background:"#fff"}}>
-            {owners.map(o=><option key={o.name}>{o.name}</option>)}</select></div></div>
-      <div style={{marginBottom:8}}><Field label="Amount Taken (EGP)" value={amount} onChange={v=>{setAmount(v);setErr("");}} type="number" ph="e.g. 10000"/></div>
-      <div style={{marginBottom:8}}><Field label="Method (optional)" value={method} onChange={setMethod} ph="e.g. Bank transfer"/></div>
-      <div style={{marginBottom:8}}><Field label="Notes (optional)" value={notes} onChange={setNotes}/></div>
+            {owners.map(o=><option key={o.name} value={o.name}>{ownerLabel(lang,o.name)}</option>)}</select></div></div>
+      <div style={{marginBottom:8}}><Field label={ft(lang,"amountTakenEgp")} value={amount} onChange={v=>{setAmount(v);setErr("");}} type="number" ph="e.g. 10000"/></div>
+      <div style={{marginBottom:8}}><Field label={ft(lang,"methodOptional")} value={method} onChange={setMethod} ph="e.g. Bank transfer"/></div>
+      <div style={{marginBottom:8}}><Field label={ft(lang,"notesOptionalLbl")} value={notes} onChange={setNotes}/></div>
       {err&&<div style={{color:"#DC3545",fontSize:11,fontWeight:600,marginBottom:8}}>{err}</div>}
       <div style={{display:"flex",gap:8}}>
-        <button type="button" onClick={add} style={{flex:1,padding:9,background:NAVY,color:"#fff",border:"none",borderRadius:7,fontWeight:700,cursor:"pointer",fontSize:12}}>💾 Save</button>
-        <button type="button" onClick={()=>setShowAdd(false)} style={{padding:"9px 14px",border:"1.5px solid #E2E8F0",borderRadius:7,background:"#fff",cursor:"pointer",fontSize:12}}>Cancel</button></div></div>}
+        <button type="button" onClick={add} style={{flex:1,padding:9,background:NAVY,color:"#fff",border:"none",borderRadius:7,fontWeight:700,cursor:"pointer",fontSize:12}}>💾 {ft(lang,"saveLbl")}</button>
+        <button type="button" onClick={()=>setShowAdd(false)} style={{padding:"9px 14px",border:"1.5px solid #E2E8F0",borderRadius:7,background:"#fff",cursor:"pointer",fontSize:12}}>{ft(lang,"cancelLbl")}</button></div></div>}
     {sortedW.length>0&&<div style={{marginTop:14,paddingTop:10,borderTop:"1px solid #E2E8F0"}}>
-      <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",marginBottom:8}}>Withdrawal Log</div>
+      <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",marginBottom:8}}>{ft(lang,"withdrawalLog")}</div>
       {sortedW.map(w=>(<div key={w.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
-        <div><strong>{w.owner}</strong> <span style={{color:"#999"}}>{w.date}{w.method?" · "+w.method:""}</span>{w.notes&&<div style={{fontSize:11,color:"#999"}}>{w.notes}</div>}</div>
-        <div style={{display:"flex",alignItems:"center",gap:8}}><strong>{fmtN(w.amountEGP)} EGP</strong>
+        <div><strong>{ownerLabel(lang,w.owner)}</strong> <span style={{color:"#999"}}>{w.date}{w.method?" · "+w.method:""}</span>{w.notes&&<div style={{fontSize:11,color:"#999"}}>{w.notes}</div>}</div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}><strong>{fmtN(w.amountEGP)} {ft(lang,"egpLbl")}</strong>
           <button type="button" onClick={()=>removeWithdrawal(w.id)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:14,padding:0}}>✕</button></div></div>))}
     </div>}
   </div>);
 }
-function PaymentStatusBadge({status}){
+function PaymentStatusBadge({status,lang}){
   const cfg={"RECEIVED":["#C6EFCE","#1A6B2A"],"OVERDUE":["#FDDEDE","#8B1A1A"],"DUE LATER":["#FFF3CD","#856404"],"NEED SHIP DATE":["#EEE","#666"]}[status]||["#EEE","#666"];
-  return <span style={{background:cfg[0],color:cfg[1],borderRadius:20,padding:"2px 9px",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{status}</span>;
+  return <span style={{background:cfg[0],color:cfg[1],borderRadius:20,padding:"2px 9px",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{statusLabel(lang,status)}</span>;
 }
-function SilicaCommissionRowEdit({row,batches,onSave,onCancel,onDelete}){
+function SilicaCommissionRowEdit({row,batches,onSave,onCancel,onDelete,lang}){
   const e=row||{};
   const [date,setDate]=useState(e.date||""),[client,setClient]=useState(e.client||""),[product,setProduct]=useState(e.product||"Silica Gel Sachet");
   const [size,setSize]=useState(e.size||""),[qty,setQty]=useState(e.qty!=null?String(e.qty):""),[sales,setSales]=useState(e.totalSalesEGP!=null?String(e.totalSalesEGP):""),[profit,setProfit]=useState(e.grossProfitEGP!=null?String(e.grossProfitEGP):"");
@@ -1048,66 +1255,66 @@ function SilicaCommissionRowEdit({row,batches,onSave,onCancel,onDelete}){
   const addBatchLink=id=>{if(id)setBatchIds(batchIds.concat([id]));};
   const removeBatchLink=id=>setBatchIds(batchIds.filter(x=>x!==id));
   const save=()=>{
-    if(!client.trim()){setErr("Enter a client.");return;}
+    if(!client.trim()){setErr(ft(lang,"enterClientErr"));return;}
     onSave(Object.assign({},e,{id:e.id||genId(),date:date,client:client.trim(),product:product,size:size,qty:Number(qty)||0,
       totalSalesEGP:Number(sales)||0,grossProfitEGP:Number(profit)||0,moneyReceived:moneyReceived,commissionPaid:commissionPaid,datePaid:datePaid||null,batchIds:batchIds}));
   };
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:8}}>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date Shipped</label>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"dateShippedLbl")}</label>
         <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
-      <Field label="Client" value={client} onChange={v=>{setClient(v);setErr("");}} ph="e.g. Adwia"/></div>
+      <Field label={ft(lang,"clientLbl")} value={client} onChange={v=>{setClient(v);setErr("");}} ph="e.g. Adwia"/></div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-      <Field label="Product" value={product} onChange={setProduct}/>
-      <Field label="Size" value={size} onChange={setSize} ph="e.g. 0.5 or 10 g"/></div>
+      <Field label={ft(lang,"productLbl")} value={product} onChange={setProduct}/>
+      <Field label={ft(lang,"sizeLbl")} value={size} onChange={setSize} ph="e.g. 0.5 or 10 g"/></div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10}}>
-      <Field label="Qty (pcs)" value={qty} onChange={setQty} type="number"/>
-      <Field label="Money In (EGP)" value={sales} onChange={setSales} type="number"/>
-      <Field label="Gross Profit (EGP)" value={profit} onChange={setProfit} type="number"/></div>
+      <Field label={ft(lang,"qtyPcsLbl")} value={qty} onChange={setQty} type="number"/>
+      <Field label={ft(lang,"moneyInEgpLbl")} value={sales} onChange={setSales} type="number"/>
+      <Field label={ft(lang,"grossProfitEgpLbl")} value={profit} onChange={setProfit} type="number"/></div>
     <div style={{marginBottom:10}}>
-      <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Linked Batches (optional)</label>
-      <div style={{fontSize:11,color:"#999",marginBottom:6}}>Link every real production batch this one receipt covers — useful when several batches were sent under one big invoice with no per-batch e-invoicing. Keeps them from also showing up as separate auto-rows below.</div>
+      <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"linkedBatchesOptional")}</label>
+      <div style={{fontSize:11,color:"#999",marginBottom:6}}>{ft(lang,"linkedBatchesDesc")}</div>
       {linkedBatches.length>0&&<div style={{marginBottom:8,display:"flex",flexDirection:"column",gap:6}}>
         {linkedBatches.map(b=>(<div key={b.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"#F7F9FC",borderRadius:6,padding:"6px 10px",fontSize:12}}>
           <span>{b.batchNo} · {b.client||"—"} · {fmtN(b.totalPcs)} pcs</span>
           <button type="button" onClick={()=>removeBatchLink(b.id)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:14,padding:0}}>✕</button></div>))}</div>}
       {availableBatches.length>0&&<select value="" onChange={ev=>{if(ev.target.value)addBatchLink(ev.target.value);}} style={{width:"100%",border:"1.5px dashed #CBD5E0",borderRadius:8,padding:"8px 10px",fontSize:13,background:"#fff",color:"#555"}}>
-        <option value="">+ Link a batch…</option>
+        <option value="">{ft(lang,"linkABatch")}</option>
         {availableBatches.map(b=><option key={b.id} value={b.id}>{b.batchNo} · {b.client||"—"} · {fmtN(b.totalPcs)} pcs</option>)}</select>}
-      {linkedBatches.length===0&&availableBatches.length===0&&<div style={{fontSize:12,color:"#999"}}>No Silica Gel batches to link yet.</div>}</div>
+      {linkedBatches.length===0&&availableBatches.length===0&&<div style={{fontSize:12,color:"#999"}}>{ft(lang,"noSilicaBatchesToLink")}</div>}</div>
     <div style={{display:"flex",gap:16,marginBottom:10}}>
-      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}><input type="checkbox" checked={moneyReceived} onChange={ev=>setMoneyReceived(ev.target.checked)}/> Money Received</label>
-      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}><input type="checkbox" checked={commissionPaid} onChange={ev=>setCommissionPaid(ev.target.checked)}/> Commission Paid</label></div>
-    {commissionPaid&&<div style={{marginBottom:10}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date Paid</label>
+      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}><input type="checkbox" checked={moneyReceived} onChange={ev=>setMoneyReceived(ev.target.checked)}/> {ft(lang,"moneyReceivedLbl")}</label>
+      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}><input type="checkbox" checked={commissionPaid} onChange={ev=>setCommissionPaid(ev.target.checked)}/> {ft(lang,"commissionPaidCk")}</label></div>
+    {commissionPaid&&<div style={{marginBottom:10}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"datePaidLbl")}</label>
       <input type="date" value={datePaid} onChange={ev=>setDatePaid(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>}
     {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
     <div style={{display:"flex",gap:8,marginBottom:10}}>
-      <button type="button" onClick={save} style={{flex:1,padding:11,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 Save</button>
-      <button type="button" onClick={onCancel} style={{padding:"11px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>Cancel</button></div>
+      <button type="button" onClick={save} style={{flex:1,padding:11,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 {ft(lang,"saveLbl")}</button>
+      <button type="button" onClick={onCancel} style={{padding:"11px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>{ft(lang,"cancelLbl")}</button></div>
     {onDelete&&(confDel?(<div style={{display:"flex",gap:8}}>
-      <button type="button" onClick={()=>onDelete()} style={{padding:"8px 14px",background:"#DC3545",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700}}>Yes, delete</button>
-      <button type="button" onClick={()=>setConfDel(false)} style={{padding:"8px 14px",border:"1.5px solid #E2E8F0",borderRadius:6,background:"#fff",cursor:"pointer",fontSize:12}}>Cancel</button></div>)
-    :(<button type="button" onClick={()=>setConfDel(true)} style={{padding:"8px 14px",border:"1.5px solid #F1948A",color:"#DC3545",background:"#FFF0F0",borderRadius:6,cursor:"pointer",fontSize:12}}>Delete entry</button>))}
+      <button type="button" onClick={()=>onDelete()} style={{padding:"8px 14px",background:"#DC3545",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700}}>{ft(lang,"yesDeleteLbl")}</button>
+      <button type="button" onClick={()=>setConfDel(false)} style={{padding:"8px 14px",border:"1.5px solid #E2E8F0",borderRadius:6,background:"#fff",cursor:"pointer",fontSize:12}}>{ft(lang,"cancelLbl")}</button></div>)
+    :(<button type="button" onClick={()=>setConfDel(true)} style={{padding:"8px 14px",border:"1.5px solid #F1948A",color:"#DC3545",background:"#FFF0F0",borderRadius:6,cursor:"pointer",fontSize:12}}>{ft(lang,"deleteEntryBtn")}</button>))}
   </div>);
 }
-function SilicaCommissionRow({row,batches,settings,onSave,onDelete}){
+function SilicaCommissionRow({row,batches,settings,onSave,onDelete,lang}){
   const [editing,setEditing]=useState(false);
   const calc=commissionRowCalc(row,settings);
   const linkedBatches=(row.batchIds||(row.batchId?[row.batchId]:[])).map(id=>(batches||[]).filter(b=>b.id===id)[0]).filter(Boolean);
-  if(editing)return <SilicaCommissionRowEdit row={row} batches={batches} onSave={u=>{onSave(u);setEditing(false);}} onCancel={()=>setEditing(false)} onDelete={onDelete}/>;
+  if(editing)return <SilicaCommissionRowEdit row={row} batches={batches} onSave={u=>{onSave(u);setEditing(false);}} onCancel={()=>setEditing(false)} onDelete={onDelete} lang={lang}/>;
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:"12px 14px",marginBottom:8}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:6}}>
       <div><strong>{row.client}</strong> <span style={{color:"#999",fontSize:11}}>{row.product}{row.size?" · "+row.size:""}</span>
-        <div style={{fontSize:11,color:"#999"}}>{row.date||"— no ship date —"} · {fmtN(row.qty)} pcs{linkedBatches.length>0?" · 🔗 "+linkedBatches.map(b=>b.batchNo).join(", "):""}</div></div>
-      <PaymentStatusBadge status={calc.paymentStatus}/></div>
+        <div style={{fontSize:11,color:"#999"}}>{row.date||ft(lang,"noShipDate")} · {fmtN(row.qty)} pcs{linkedBatches.length>0?" · 🔗 "+linkedBatches.map(b=>b.batchNo).join(", "):""}</div></div>
+      <PaymentStatusBadge status={calc.paymentStatus} lang={lang}/></div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:11,marginBottom:8}}>
-      <div>Money In<div style={{fontWeight:700,fontSize:13}}>{fmtN(row.totalSalesEGP)}</div></div>
-      <div>Gross Profit<div style={{fontWeight:700,fontSize:13}}>{fmtN(row.grossProfitEGP)}</div></div>
-      <div>Commission Due<div style={{fontWeight:700,fontSize:13,color:calc.commissionDue>0?"#1A6B2A":"#999"}}>{fmtN(calc.commissionDue)}</div></div></div>
+      <div>{ft(lang,"moneyInWord")}<div style={{fontWeight:700,fontSize:13}}>{fmtN(row.totalSalesEGP)}</div></div>
+      <div>{ft(lang,"grossProfitWord")}<div style={{fontWeight:700,fontSize:13}}>{fmtN(row.grossProfitEGP)}</div></div>
+      <div>{ft(lang,"commissionDueWord")}<div style={{fontWeight:700,fontSize:13,color:calc.commissionDue>0?"#1A6B2A":"#999"}}>{fmtN(calc.commissionDue)}</div></div></div>
     <div style={{display:"flex",gap:14,fontSize:11,color:"#666",marginBottom:8}}>
-      <span>{row.moneyReceived?"✅ Received":"⏳ Not received"}</span>
-      <span>{row.commissionPaid?"✅ Commission paid":"⏳ Commission unpaid"}</span></div>
-    <button type="button" onClick={()=>setEditing(true)} style={{background:"#F5F7FA",border:"none",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ Edit</button></div>);
+      <span>{row.moneyReceived?ft(lang,"receivedTagLbl"):ft(lang,"notReceivedTagLbl")}</span>
+      <span>{row.commissionPaid?ft(lang,"commissionPaidTagLbl"):ft(lang,"commissionUnpaidTagLbl")}</span></div>
+    <button type="button" onClick={()=>setEditing(true)} style={{background:"#F5F7FA",border:"none",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ {ft(lang,"editLbl")}</button></div>);
 }
 // Each shipment/invoice is a real production Batch, not an Order — an Order can span several
 // batches shipped (and invoiced, and paid) separately over time, so the batch is the right unit
@@ -1133,7 +1340,7 @@ function commissionRowsFromBatches(batches,data,laborRates,forSilica,excludeBatc
       moneyReceived:!!b.moneyReceived,commissionPaid:!!b.commissionPaid};
   });
 }
-function BatchCommissionRow({batch,batches,data,laborRates,settings,onSave}){
+function BatchCommissionRow({batch,batches,data,laborRates,settings,onSave,lang}){
   const [editing,setEditing]=useState(false),[confExclude,setConfExclude]=useState(false);
   const fin=buildBatchCost(batch,batches,data,laborRates);
   const row={date:batch.dateShipped,totalSalesEGP:fin.revenueEGP,grossProfitEGP:fin.profitEGP,moneyReceived:!!batch.moneyReceived};
@@ -1145,54 +1352,54 @@ function BatchCommissionRow({batch,batches,data,laborRates,settings,onSave}){
   if(!editing)return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:"12px 14px",marginBottom:8}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:6}}>
       <div><strong>{batch.client||"—"}</strong> <span style={{color:"#999",fontSize:11}}>{batch.batchNo} · {batch.product}{batch.color?" · "+batch.color:""}</span>
-        <div style={{fontSize:11,color:"#999"}}>{batch.dateShipped||"— no ship date —"} · {fmtN(batch.totalPcs)} pcs</div></div>
-      <PaymentStatusBadge status={calc.paymentStatus}/></div>
+        <div style={{fontSize:11,color:"#999"}}>{batch.dateShipped||ft(lang,"noShipDate")} · {fmtN(batch.totalPcs)} pcs</div></div>
+      <PaymentStatusBadge status={calc.paymentStatus} lang={lang}/></div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:11,marginBottom:8}}>
-      <div>Money In<div style={{fontWeight:700,fontSize:13}}>{fmtN(fin.revenueEGP)}</div></div>
-      <div>Gross Profit<div style={{fontWeight:700,fontSize:13}}>{fmtN(fin.profitEGP)}</div></div>
-      <div>Commission Due<div style={{fontWeight:700,fontSize:13,color:calc.commissionDue>0?"#1A6B2A":"#999"}}>{fmtN(calc.commissionDue)}</div></div></div>
+      <div>{ft(lang,"moneyInWord")}<div style={{fontWeight:700,fontSize:13}}>{fmtN(fin.revenueEGP)}</div></div>
+      <div>{ft(lang,"grossProfitWord")}<div style={{fontWeight:700,fontSize:13}}>{fmtN(fin.profitEGP)}</div></div>
+      <div>{ft(lang,"commissionDueWord")}<div style={{fontWeight:700,fontSize:13,color:calc.commissionDue>0?"#1A6B2A":"#999"}}>{fmtN(calc.commissionDue)}</div></div></div>
     <div style={{display:"flex",gap:14,fontSize:11,color:"#666",marginBottom:8}}>
-      <span>{batch.moneyReceived?"✅ Received":"⏳ Not received"}</span>
-      <span>{batch.commissionPaid?"✅ Commission paid":"⏳ Commission unpaid"}</span></div>
+      <span>{batch.moneyReceived?ft(lang,"receivedTagLbl"):ft(lang,"notReceivedTagLbl")}</span>
+      <span>{batch.commissionPaid?ft(lang,"commissionPaidTagLbl"):ft(lang,"commissionUnpaidTagLbl")}</span></div>
     <div style={{display:"flex",gap:8,alignItems:"center"}}>
-      <button type="button" onClick={()=>setEditing(true)} style={{background:"#F5F7FA",border:"none",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ Edit</button>
+      <button type="button" onClick={()=>setEditing(true)} style={{background:"#F5F7FA",border:"none",borderRadius:7,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ {ft(lang,"editLbl")}</button>
       {confExclude?(<>
-        <span style={{fontSize:11,color:"#8B1A1A"}}>Remove — free sample, no real sale?</span>
-        <button type="button" onClick={exclude} style={{background:"#DC3545",border:"none",borderRadius:7,padding:"6px 10px",cursor:"pointer",fontSize:11,fontWeight:700,color:"#fff"}}>Yes</button>
-        <button type="button" onClick={()=>setConfExclude(false)} style={{background:"none",border:"none",color:"#888",cursor:"pointer",fontSize:11}}>Cancel</button></>)
-      :<button type="button" onClick={()=>setConfExclude(true)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:12,fontWeight:600,padding:0}}>🗑 Not a real sale</button>}
+        <span style={{fontSize:11,color:"#8B1A1A"}}>{ft(lang,"removeFreeSampleQ")}</span>
+        <button type="button" onClick={exclude} style={{background:"#DC3545",border:"none",borderRadius:7,padding:"6px 10px",cursor:"pointer",fontSize:11,fontWeight:700,color:"#fff"}}>{ft(lang,"yesLbl")}</button>
+        <button type="button" onClick={()=>setConfExclude(false)} style={{background:"none",border:"none",color:"#888",cursor:"pointer",fontSize:11}}>{ft(lang,"cancelLbl")}</button></>)
+      :<button type="button" onClick={()=>setConfExclude(true)} style={{background:"none",border:"none",color:"#DC3545",cursor:"pointer",fontSize:12,fontWeight:600,padding:0}}>{ft(lang,"notARealSale")}</button>}
     </div></div>);
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+NAVY,padding:14,marginBottom:8}}>
-    <div style={{fontSize:12,color:"#888",marginBottom:8}}>{batch.batchNo} · {batch.client} — Sales/Profit pull live from the batch&apos;s own production cost; edit sell price on the batch itself, not here.</div>
-    <div style={{marginBottom:10}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date Shipped (invoiced)</label>
+    <div style={{fontSize:12,color:"#888",marginBottom:8}}>{batch.batchNo} · {batch.client} — {ft(lang,"salesProfitPullNote")}</div>
+    <div style={{marginBottom:10}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"dateShippedInvoiced")}</label>
       <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
     <div style={{display:"flex",gap:16,marginBottom:10}}>
-      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}><input type="checkbox" checked={moneyReceived} onChange={e=>setMoneyReceived(e.target.checked)}/> Money Received</label>
-      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}><input type="checkbox" checked={commissionPaid} onChange={e=>setCommissionPaid(e.target.checked)}/> Commission Paid</label></div>
-    {commissionPaid&&<div style={{marginBottom:10}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date Paid</label>
+      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}><input type="checkbox" checked={moneyReceived} onChange={e=>setMoneyReceived(e.target.checked)}/> {ft(lang,"moneyReceivedLbl")}</label>
+      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}><input type="checkbox" checked={commissionPaid} onChange={e=>setCommissionPaid(e.target.checked)}/> {ft(lang,"commissionPaidCk")}</label></div>
+    {commissionPaid&&<div style={{marginBottom:10}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"datePaidLbl")}</label>
       <input type="date" value={datePaid} onChange={e=>setDatePaid(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>}
     <div style={{display:"flex",gap:8}}>
-      <button type="button" onClick={save} style={{flex:1,padding:11,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 Save</button>
-      <button type="button" onClick={()=>setEditing(false)} style={{padding:"11px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>Cancel</button></div>
+      <button type="button" onClick={save} style={{flex:1,padding:11,background:NAVY,color:"#fff",border:"none",borderRadius:8,fontWeight:700,cursor:"pointer",fontSize:13}}>💾 {ft(lang,"saveLbl")}</button>
+      <button type="button" onClick={()=>setEditing(false)} style={{padding:"11px 16px",border:"1.5px solid #E2E8F0",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:13}}>{ft(lang,"cancelLbl")}</button></div>
   </div>);
 }
 // Recovery list for batches hidden from commission — samples are auto-hidden (isSample) and
 // can't be un-hidden here (that flag belongs to the batch's own Production record); a manually
 // excluded one (excludeFromCommission) can be restored in case it was hidden by mistake.
-function ExcludedBatchesList({batches,forSilica,onSaveBatch}){
+function ExcludedBatchesList({batches,forSilica,onSaveBatch,lang}){
   const excluded=(batches||[]).filter(b=>!b.isSubBatch&&isSilicaProduct(b.product)===forSilica&&b.status!=="Rejected"&&(b.isSample||b.excludeFromCommission));
   if(excluded.length===0)return null;
   return(<div style={{marginTop:18,paddingTop:12,borderTop:"1px solid #E2E8F0"}}>
-    <div style={{fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",marginBottom:8}}>Excluded (samples / not real sales)</div>
+    <div style={{fontSize:11,fontWeight:700,color:"#999",textTransform:"uppercase",marginBottom:8}}>{ft(lang,"excludedHeader")}</div>
     {excluded.map(b=>(<div key={b.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"6px 0",borderBottom:"1px solid #F5F5F5",opacity:0.7}}>
-      <span>{b.client||"—"} · {b.batchNo}{b.isSample?" · sample":""}</span>
-      {!b.isSample&&<button type="button" onClick={()=>onSaveBatch(Object.assign({},b,{excludeFromCommission:false}))} style={{background:"none",border:"none",color:NAVY,cursor:"pointer",fontSize:11,fontWeight:600}}>Restore</button>}</div>))}
+      <span>{b.client||"—"} · {b.batchNo}{b.isSample?ft(lang,"sampleTagLbl"):""}</span>
+      {!b.isSample&&<button type="button" onClick={()=>onSaveBatch(Object.assign({},b,{excludeFromCommission:false}))} style={{background:"none",border:"none",color:NAVY,cursor:"pointer",fontSize:11,fontWeight:600}}>{ft(lang,"restoreLbl")}</button>}</div>))}
   </div>);
 }
 // Silica keeps its historical manually-typed rows (receipts that don't match batch records) as
 // the permanent record of what was already sold — but every Silica batch shipped from now on
 // shows up automatically here too, same mechanism as Flip-Off, so nothing new needs typing in.
-function SilicaCommissionTracker({entries,settings,withdrawals,batches,data,laborRates,onSaveEntry,onDeleteEntry,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal,onSaveBatch,onSaveCashEntry,onDeleteCashEntry}){
+function SilicaCommissionTracker({entries,settings,withdrawals,batches,data,laborRates,onSaveEntry,onDeleteEntry,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal,onSaveBatch,onSaveCashEntry,onDeleteCashEntry,lang}){
   const [showAdd,setShowAdd]=useState(false);
   const linkedBatchIds={};entries.forEach(en=>{(en.batchIds||(en.batchId?[en.batchId]:[])).forEach(id=>{linkedBatchIds[id]=1;});});
   const batchRows=commissionRowsFromBatches(batches,data,laborRates,true,linkedBatchIds);
@@ -1226,21 +1433,21 @@ function SilicaCommissionTracker({entries,settings,withdrawals,batches,data,labo
     });
   },[]);// eslint-disable-line react-hooks/exhaustive-deps
   return(<div>
-    <CommissionSettingsCard settings={settings} onSave={onSaveSettings}/>
-    <CommissionSummaryCard summary={summary}/>
-    <OwnerSharesCard owners={COMMISSION_OWNERS_SILICA} distributableProfit={summary.distributableProfit} withdrawals={withdrawals} onAddWithdrawal={onAddWithdrawal} onDeleteWithdrawal={onDeleteWithdrawal} line="Silica Gel" onSaveCashEntry={onSaveCashEntry} onDeleteCashEntry={onDeleteCashEntry}/>
-    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>🧾 Sales (typed in — historical receipts)</div>
-    {!showAdd&&<button type="button" onClick={()=>setShowAdd(true)} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:14}}>+ Add Sale</button>}
-    {showAdd&&<SilicaCommissionRowEdit row={{}} batches={batches} onSave={r=>{saveEntry(r);setShowAdd(false);}} onCancel={()=>setShowAdd(false)}/>}
-    {sortedEntries.map(r=><SilicaCommissionRow key={r.id} row={r} batches={batches} settings={settings} onSave={saveEntry} onDelete={()=>deleteEntry(r.id)}/>)}
-    {entries.length===0&&<div style={{textAlign:"center",padding:20,color:"#888",fontSize:13}}>No typed-in sales.</div>}
-    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginTop:18,marginBottom:10}}>📦 Batches (auto, from Production — not already linked above)</div>
-    {silicaBatches.map(b=><BatchCommissionRow key={b.id} batch={b} batches={batches} data={data} laborRates={laborRates} settings={settings} onSave={saveBatch}/>)}
-    {silicaBatches.length===0&&<div style={{textAlign:"center",padding:20,color:"#888",fontSize:13}}>No unlinked Silica Gel batches — link a sale above to its batch, or create a new one under Production.</div>}
-    <ExcludedBatchesList batches={batches} forSilica={true} onSaveBatch={saveBatch}/>
+    <CommissionSettingsCard settings={settings} onSave={onSaveSettings} lang={lang}/>
+    <CommissionSummaryCard summary={summary} lang={lang}/>
+    <OwnerSharesCard owners={COMMISSION_OWNERS_SILICA} distributableProfit={summary.distributableProfit} withdrawals={withdrawals} onAddWithdrawal={onAddWithdrawal} onDeleteWithdrawal={onDeleteWithdrawal} line="Silica Gel" onSaveCashEntry={onSaveCashEntry} onDeleteCashEntry={onDeleteCashEntry} lang={lang}/>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>{ft(lang,"salesTypedIn")}</div>
+    {!showAdd&&<button type="button" onClick={()=>setShowAdd(true)} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:"pointer",marginBottom:14}}>{ft(lang,"addSaleLbl")}</button>}
+    {showAdd&&<SilicaCommissionRowEdit row={{}} batches={batches} onSave={r=>{saveEntry(r);setShowAdd(false);}} onCancel={()=>setShowAdd(false)} lang={lang}/>}
+    {sortedEntries.map(r=><SilicaCommissionRow key={r.id} row={r} batches={batches} settings={settings} onSave={saveEntry} onDelete={()=>deleteEntry(r.id)} lang={lang}/>)}
+    {entries.length===0&&<div style={{textAlign:"center",padding:20,color:"#888",fontSize:13}}>{ft(lang,"noTypedSales")}</div>}
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginTop:18,marginBottom:10}}>{ft(lang,"batchesAutoNotLinked")}</div>
+    {silicaBatches.map(b=><BatchCommissionRow key={b.id} batch={b} batches={batches} data={data} laborRates={laborRates} settings={settings} onSave={saveBatch} lang={lang}/>)}
+    {silicaBatches.length===0&&<div style={{textAlign:"center",padding:20,color:"#888",fontSize:13}}>{ft(lang,"noUnlinkedSilicaBatches")}</div>}
+    <ExcludedBatchesList batches={batches} forSilica={true} onSaveBatch={saveBatch} lang={lang}/>
   </div>);
 }
-function FlipOffCommissionTracker({batches,data,laborRates,settings,withdrawals,onSaveBatch,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal,onSaveCashEntry,onDeleteCashEntry}){
+function FlipOffCommissionTracker({batches,data,laborRates,settings,withdrawals,onSaveBatch,onSaveSettings,onAddWithdrawal,onDeleteWithdrawal,onSaveCashEntry,onDeleteCashEntry,lang}){
   const rows=commissionRowsFromBatches(batches,data,laborRates,false);
   const summary=commissionSummary(rows,settings);
   const sorted=(batches||[]).filter(b=>isCommissionEligibleBatch(b,false)).sort((a,b)=>(b.dateShipped||"").localeCompare(a.dateShipped||""));
@@ -1265,32 +1472,32 @@ function FlipOffCommissionTracker({batches,data,laborRates,settings,withdrawals,
     });
   },[]);// eslint-disable-line react-hooks/exhaustive-deps
   return(<div>
-    <CommissionSettingsCard settings={settings} onSave={onSaveSettings}/>
-    <CommissionSummaryCard summary={summary}/>
-    <OwnerSharesCard owners={COMMISSION_OWNERS_FLIPOFF} distributableProfit={summary.distributableProfit} withdrawals={withdrawals} onAddWithdrawal={onAddWithdrawal} onDeleteWithdrawal={onDeleteWithdrawal} line="Flip-Off" onSaveCashEntry={onSaveCashEntry} onDeleteCashEntry={onDeleteCashEntry}/>
-    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>🧾 Batches</div>
-    {sorted.map(b=><BatchCommissionRow key={b.id} batch={b} batches={batches} data={data} laborRates={laborRates} settings={settings} onSave={saveBatch}/>)}
-    {sorted.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>No Flip-Off batches yet — create one under Production.</div>}
-    <ExcludedBatchesList batches={batches} forSilica={false} onSaveBatch={saveBatch}/>
+    <CommissionSettingsCard settings={settings} onSave={onSaveSettings} lang={lang}/>
+    <CommissionSummaryCard summary={summary} lang={lang}/>
+    <OwnerSharesCard owners={COMMISSION_OWNERS_FLIPOFF} distributableProfit={summary.distributableProfit} withdrawals={withdrawals} onAddWithdrawal={onAddWithdrawal} onDeleteWithdrawal={onDeleteWithdrawal} line="Flip-Off" onSaveCashEntry={onSaveCashEntry} onDeleteCashEntry={onDeleteCashEntry} lang={lang}/>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>{ft(lang,"batchesHeaderLbl")}</div>
+    {sorted.map(b=><BatchCommissionRow key={b.id} batch={b} batches={batches} data={data} laborRates={laborRates} settings={settings} onSave={saveBatch} lang={lang}/>)}
+    {sorted.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>{ft(lang,"noFlipOffBatches")}</div>}
+    <ExcludedBatchesList batches={batches} forSilica={false} onSaveBatch={saveBatch} lang={lang}/>
   </div>);
 }
 function CommissionsView({batches,data,laborRates,silicaEntries,silicaSettings,silicaWithdrawals,flipOffSettings,flipOffWithdrawals,
   onSaveSilicaEntry,onDeleteSilicaEntry,onSaveSilicaSettings,onAddSilicaWithdrawal,onDeleteSilicaWithdrawal,
-  onSaveBatch,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal,onSaveCashEntry,onDeleteCashEntry}){
+  onSaveBatch,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal,onSaveCashEntry,onDeleteCashEntry,lang}){
   const [line,setLine]=useState("silica");
   return(<div>
     <div style={{display:"flex",gap:8,marginBottom:14}}>
-      {[["silica","🟡 Silica Gel"],["flipoff","🔘 Flip-Off"]].map(x=>(
+      {[["silica","🟡","Silica Gel"],["flipoff","🔘","Flip-Off"]].map(x=>(
         <button type="button" key={x[0]} onClick={()=>setLine(x[0])}
-          style={{flex:1,padding:9,borderRadius:8,fontWeight:700,fontSize:12,cursor:"pointer",border:"1.5px solid "+(line===x[0]?NAVY:"#E2E8F0"),background:line===x[0]?NAVY:"#fff",color:line===x[0]?"#fff":"#666"}}>{x[1]}</button>))}
+          style={{flex:1,padding:9,borderRadius:8,fontWeight:700,fontSize:12,cursor:"pointer",border:"1.5px solid "+(line===x[0]?NAVY:"#E2E8F0"),background:line===x[0]?NAVY:"#fff",color:line===x[0]?"#fff":"#666"}}>{x[1]} {lineLabel(lang,x[2])}</button>))}
     </div>
     {line==="silica"&&<SilicaCommissionTracker entries={silicaEntries} settings={silicaSettings} withdrawals={silicaWithdrawals} batches={batches} data={data} laborRates={laborRates}
       onSaveEntry={onSaveSilicaEntry} onDeleteEntry={onDeleteSilicaEntry} onSaveSettings={onSaveSilicaSettings}
       onAddWithdrawal={onAddSilicaWithdrawal} onDeleteWithdrawal={onDeleteSilicaWithdrawal} onSaveBatch={onSaveBatch}
-      onSaveCashEntry={onSaveCashEntry} onDeleteCashEntry={onDeleteCashEntry}/>}
+      onSaveCashEntry={onSaveCashEntry} onDeleteCashEntry={onDeleteCashEntry} lang={lang}/>}
     {line==="flipoff"&&<FlipOffCommissionTracker batches={batches} data={data} laborRates={laborRates} settings={flipOffSettings} withdrawals={flipOffWithdrawals}
       onSaveBatch={onSaveBatch} onSaveSettings={onSaveFlipOffSettings} onAddWithdrawal={onAddFlipOffWithdrawal} onDeleteWithdrawal={onDeleteFlipOffWithdrawal}
-      onSaveCashEntry={onSaveCashEntry} onDeleteCashEntry={onDeleteCashEntry}/>}
+      onSaveCashEntry={onSaveCashEntry} onDeleteCashEntry={onDeleteCashEntry} lang={lang}/>}
   </div>);
 }
 
