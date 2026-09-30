@@ -434,6 +434,13 @@ const FIN_T={
   ownerDrawsWithdrawalsOut:{en:"Owner Draws / Profit Withdrawals out:",ar:"سحوبات المالك / سحوبات الأرباح الصادرة:"},
   monthlyTrend:{en:"📈 Monthly Net Profit Trend",ar:"📈 اتجاه صافي الربح الشهري"},
   noEntriesYetShort:{en:"No entries yet.",ar:"لا توجد قيود بعد."},
+  bothLinesTab:{en:"Both Lines",ar:"كلا الخطين"},
+  silicaGelOnlyTab:{en:"🟡 Silica Gel Only",ar:"🟡 السيليكا جل فقط"},
+  flipOffOnlyTab:{en:"🔘 Flip-Off Only",ar:"🔘 فليب أوف فقط"},
+  lineScopeNote:{en:"Scoped to this line: entries tagged to it count in full, entries split between both lines count half, and untagged entries are left out (same rule as Cash by Line).",
+    ar:"مُقتصر على هذا الخط: القيود المُخصَّصة له تُحتسب بالكامل، والقيود المشتركة بين الخطين تُحتسب بالنصف، والقيود غير المُصنَّفة تُستبعد (نفس قاعدة النقدية حسب الخط)."},
+  balanceScopeNote:{en:"Scoped to this line: Cash follows the same rule as Cash by Line; Inventory only counts materials that line uses (Cartons, used by both, counts half); Receivables only counts that line's sales. Opening balance predates line-tagging and isn't shown here — it only appears in Both Lines.",
+    ar:"مُقتصر على هذا الخط: النقدية تتبع نفس قاعدة النقدية حسب الخط؛ المخزون يحتسب فقط الخامات التي يستخدمها هذا الخط (الكرتون، المستخدَم في كليهما، يُحتسب بالنصف)؛ الذمم المدينة تحتسب فقط مبيعات هذا الخط. الرصيد الافتتاحي يسبق تصنيف الخطوط ولا يظهر هنا — يظهر فقط في عرض كلا الخطين."},
   assets:{en:"💼 Assets",ar:"💼 الأصول"},
   currentAssets:{en:"Current Assets",ar:"الأصول المتداولة"},
   cashLbl:{en:"Cash",ar:"النقدية"},
@@ -605,6 +612,17 @@ function unallocatedCashBalance(cashOpening,cashLedger){
   const opening=cashOpening?Number(cashOpening.balance)||0:0;
   return (cashLedger||[]).reduce((s,e)=>e.line?s:s+(e.type==="in"?1:-1)*(Number(e.amount)||0),opening);
 }
+// Same line-attribution convention as lineCashBalance (used by P&L and Balance Sheet's per-line
+// views): entries tagged directly to the line count in full, "Split (Both)" counts half, and
+// anything untagged is left out entirely rather than guessed into one line or the other.
+function filterEntriesByLine(entries,line){
+  if(!line||line==="all")return entries||[];
+  return (entries||[]).reduce((out,e)=>{
+    if(e.line===line)out.push(e);
+    else if(e.line==="Split (Both)")out.push(Object.assign({},e,{amount:(Number(e.amount)||0)/2}));
+    return out;
+  },[]);
+}
 function LineCashBalanceCard({cashOpening,cashLedger,lang}){
   const unallocated=unallocatedCashBalance(cashOpening,cashLedger);
   return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
@@ -668,10 +686,17 @@ function cashMonthlyNetProfit(ledger){
 // Inventory value for the Balance Sheet — same USD→EGP conversion convention used everywhere
 // else in Finance: a lot's own purchase-time rate when set, otherwise the Finance fallback rate;
 // a USD lot with neither is excluded rather than guessed at.
-function inventoryValueEGP(data,laborRates){
+// lineFilter (optional): "Silica Gel" or "Flip-Off" scopes this to that line's materials only,
+// via MATERIAL_LINE_MAP — a material mapped to "Split (Both)" (Cartons) counts at half value.
+// Omitted, or "all", totals every material as before.
+function inventoryValueEGP(data,laborRates,lineFilter){
   const fallbackRate=Number(laborRates&&laborRates.usdToEgpFallbackRate)||0;
+  const scoped=lineFilter&&lineFilter!=="all";
   let total=0;
   Object.keys(data||{}).forEach(matKey=>{
+    const ml=MATERIAL_LINE_MAP[matKey]||"Split (Both)";
+    if(scoped&&ml!==lineFilter&&ml!=="Split (Both)")return;
+    const shareFactor=scoped&&ml==="Split (Both)"?0.5:1;
     ((data[matKey]&&data[matKey].lots)||[]).forEach(l=>{
       const qty=Number(l.qtyRemaining)||0,cost=Number(l.unitCost)||0;
       if(qty<=0||cost<=0)return;
@@ -682,7 +707,7 @@ function inventoryValueEGP(data,laborRates){
         else if(fallbackRate>0)lineEGP*=fallbackRate;
         else return;
       }
-      total+=lineEGP;
+      total+=lineEGP*shareFactor;
     });
   });
   return total;
@@ -693,11 +718,14 @@ function inventoryValueEGP(data,laborRates){
 // further down this file), so this always agrees with what Sales shows, just totalled across both
 // lines for the Balance Sheet. commissionRowCalc's balanceOwed is tax/commission-independent
 // (just totalSalesEGP when not yet received), so no settings are needed here.
-function accountsReceivableEGP(batches,silicaEntries,data,laborRates){
+// lineFilter (optional): "Silica Gel" totals only silicaEntries + Silica batch rows; "Flip-Off"
+// only Flip-Off batch rows (which were never split by line before — the eligibility check itself
+// is what separates them). Omitted, or "all", totals both, same as before.
+function accountsReceivableEGP(batches,silicaEntries,data,laborRates,lineFilter){
   const linkedBatchIds={};(silicaEntries||[]).forEach(en=>{(en.batchIds||(en.batchId?[en.batchId]:[])).forEach(id=>{linkedBatchIds[id]=1;});});
-  const rows=(silicaEntries||[]).concat(
-    commissionRowsFromBatches(batches,data,laborRates,true,linkedBatchIds),
-    commissionRowsFromBatches(batches,data,laborRates,false));
+  let rows=[];
+  if(!lineFilter||lineFilter==="all"||lineFilter==="Silica Gel")rows=rows.concat(silicaEntries||[],commissionRowsFromBatches(batches,data,laborRates,true,linkedBatchIds));
+  if(!lineFilter||lineFilter==="all"||lineFilter==="Flip-Off")rows=rows.concat(commissionRowsFromBatches(batches,data,laborRates,false));
   return rows.reduce((s,r)=>s+(r.moneyReceived?0:(Number(r.totalSalesEGP)||0)),0);
 }
 // A cash-basis snapshot, not a fully reconciled accrual balance sheet — Material Purchases are
@@ -706,12 +734,18 @@ function accountsReceivableEGP(batches,silicaEntries,data,laborRates){
 // ahead of Equity by roughly the value of inventory still on hand plus any money invoiced but not
 // yet collected (Accounts Receivable). That gap is real, not a bug — see the note rendered
 // alongside this in BalanceSheetView.
-function cashBalanceSheet(opening,ledger,data,laborRates,batches,silicaEntries){
-  const cash=cashRunningBalance(opening,ledger);
-  const inventory=inventoryValueEGP(data,laborRates);
-  const receivables=accountsReceivableEGP(batches,silicaEntries,data,laborRates);
-  const pnl=cashPnL(ledger);
-  const openingBalance=opening?Number(opening.balance)||0:0;
+// lineFilter (optional): "Silica Gel" or "Flip-Off" scopes every figure to that line — Cash via
+// lineCashBalance (Split (Both) counted half, untagged entries left out, same as the Cash by Line
+// card), Inventory/Receivables as above, and P&L off filterEntriesByLine. The opening balance
+// predates line-tagging and is never split retroactively, so it's left out of a per-line view
+// (it only ever appears in the combined one) — flagged to the reader in BalanceSheetView.
+function cashBalanceSheet(opening,ledger,data,laborRates,batches,silicaEntries,lineFilter){
+  const scoped=lineFilter&&lineFilter!=="all";
+  const cash=scoped?lineCashBalance(ledger,lineFilter):cashRunningBalance(opening,ledger);
+  const inventory=inventoryValueEGP(data,laborRates,lineFilter);
+  const receivables=accountsReceivableEGP(batches,silicaEntries,data,laborRates,lineFilter);
+  const pnl=cashPnL(scoped?filterEntriesByLine(ledger,lineFilter):ledger);
+  const openingBalance=scoped?0:(opening?Number(opening.balance)||0:0);
   const equity=openingBalance+pnl.ownerCapital-pnl.ownerDraws+pnl.netProfit;
   return {cash:cash,inventory:inventory,receivables:receivables,totalAssets:cash+inventory+receivables,
     openingBalance:openingBalance,ownerCapital:pnl.ownerCapital,ownerDraws:pnl.ownerDraws,retainedEarnings:pnl.netProfit,
@@ -724,18 +758,31 @@ function cashPeriodFilter(ledger,period){
   if(period==="year")return (ledger||[]).filter(e=>e.date&&e.date.slice(0,4)===thisYear);
   return ledger||[];
 }
+// Shared by PnLView and BalanceSheetView so both can be scoped to one product line, or the
+// combined view — filterEntriesByLine (P&L) and cashBalanceSheet's own lineFilter handling
+// (Balance Sheet) both key off the same three values.
+function LineFilterTabs({lineFilter,setLineFilter,lang}){
+  return(<div style={{display:"flex",gap:8,marginBottom:8}}>
+    {[["all","bothLinesTab"],["Silica Gel","silicaGelOnlyTab"],["Flip-Off","flipOffOnlyTab"]].map(x=>(
+      <button type="button" key={x[0]} onClick={()=>setLineFilter(x[0])}
+        style={{flex:1,padding:9,borderRadius:8,fontWeight:700,fontSize:12,cursor:"pointer",border:"1.5px solid "+(lineFilter===x[0]?"#7B3FB5":"#E2E8F0"),background:lineFilter===x[0]?"#7B3FB5":"#fff",color:lineFilter===x[0]?"#fff":"#666"}}>{ft(lang,x[1])}</button>))}
+  </div>);
+}
 function PnLView({cashLedger,lang}){
   const [period,setPeriod]=useState("month");
-  const entries=cashPeriodFilter(cashLedger,period);
+  const [lineFilter,setLineFilter]=useState("all");
+  const entries=filterEntriesByLine(cashPeriodFilter(cashLedger,period),lineFilter);
   const pnl=cashPnL(entries);
-  const monthly=cashMonthlyNetProfit(cashLedger).slice(-12);
+  const monthly=cashMonthlyNetProfit(filterEntriesByLine(cashLedger,lineFilter)).slice(-12);
   const maxAbs=Math.max(1,...monthly.map(m=>Math.abs(m.net)));
   return(<div>
+    <LineFilterTabs lineFilter={lineFilter} setLineFilter={setLineFilter} lang={lang}/>
     <div style={{display:"flex",gap:8,marginBottom:14}}>
       {[["month","thisMonth"],["year","thisYear"],["all","allTime"]].map(x=>(
         <button type="button" key={x[0]} onClick={()=>setPeriod(x[0])}
           style={{flex:1,padding:9,borderRadius:8,fontWeight:700,fontSize:12,cursor:"pointer",border:"1.5px solid "+(period===x[0]?NAVY:"#E2E8F0"),background:period===x[0]?NAVY:"#fff",color:period===x[0]?"#fff":"#666"}}>{ft(lang,x[1])}</button>))}
     </div>
+    {lineFilter!=="all"&&<div style={{fontSize:11,color:"#999",marginBottom:14}}>{ft(lang,"lineScopeNote")}</div>}
     <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #EEF2F7",padding:18,marginBottom:14,textAlign:"center"}}>
       <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase"}}>{ft(lang,"netProfitLoss")}</div>
       <div style={{fontSize:30,fontWeight:900,color:pnl.netProfit>=0?"#1A6B2A":"#DC3545",marginTop:4}}>{fmtN(pnl.netProfit)} {ft(lang,"egpLbl")}</div>
@@ -773,8 +820,12 @@ function PnLView({cashLedger,lang}){
   </div>);
 }
 function BalanceSheetView({cashOpening,cashLedger,data,laborRates,batches,silicaEntries,lang}){
-  const bs=cashBalanceSheet(cashOpening,cashLedger,data,laborRates,batches,silicaEntries);
+  const [lineFilter,setLineFilter]=useState("all");
+  const scoped=lineFilter!=="all";
+  const bs=cashBalanceSheet(cashOpening,cashLedger,data,laborRates,batches,silicaEntries,lineFilter);
   return(<div>
+    <LineFilterTabs lineFilter={lineFilter} setLineFilter={setLineFilter} lang={lang}/>
+    {scoped&&<div style={{fontSize:11,color:"#999",marginBottom:14}}>{ft(lang,"balanceScopeNote")}</div>}
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
       <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>{ft(lang,"assets")}</div>
       <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase",marginBottom:6}}>{ft(lang,"currentAssets")}</div>
@@ -787,7 +838,7 @@ function BalanceSheetView({cashOpening,cashLedger,data,laborRates,batches,silica
       <div style={{fontSize:12,color:"#999"}}>{ft(lang,"liabilitiesNote")}</div></div>
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
       <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>{ft(lang,"ownerEquity")}</div>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>{ft(lang,"openingBalanceAsOf")}{cashOpening?cashOpening.date:"—"})</span><strong>{fmtN(bs.openingBalance)} {ft(lang,"egpLbl")}</strong></div>
+      {!scoped&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>{ft(lang,"openingBalanceAsOf")}{cashOpening?cashOpening.date:"—"})</span><strong>{fmtN(bs.openingBalance)} {ft(lang,"egpLbl")}</strong></div>}
       <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>{ft(lang,"ownerCapitalContributed")}</span><strong>{fmtN(bs.ownerCapital)} {ft(lang,"egpLbl")}</strong></div>
       <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>{ft(lang,"ownerDrawsLine")}</span><strong>{fmtN(bs.ownerDraws)} {ft(lang,"egpLbl")}</strong></div>
       <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>{ft(lang,"retainedEarnings")}</span><strong style={{color:bs.retainedEarnings>=0?"#1A6B2A":"#DC3545"}}>{fmtN(bs.retainedEarnings)} {ft(lang,"egpLbl")}</strong></div>
@@ -1510,6 +1561,15 @@ const MATERIAL_META={
   "Silica Gel":{color:"#0E4A2A",accent:"#1A7A45",light:"#D0F0E0",emoji:"🟡"},
   "WIP Inventory":{color:"#6B4F9E",accent:"#8B6FC7",light:"#EFEAFB",emoji:"🗂️"},
   "Cartons":{color:"#7A5230",accent:"#B8865C",light:"#F5E8D8",emoji:"📦"},
+};
+// Which line each material feeds — mirrors buildBatchCost's own split ("Flip-Off from Plastic
+// Material + Aluminum Caps"; "Silica Gel Sachets from the Silica Gel + Sachets Paper lots"; WIP
+// Inventory only ever holds leftover Silica Gel Sachets). Cartons pack both products, so they're
+// shared rather than assigned — used by the Balance Sheet's per-line Inventory figure.
+const MATERIAL_LINE_MAP={
+  "Silica Gel":"Silica Gel","Sachets Paper":"Silica Gel","WIP Inventory":"Silica Gel",
+  "Aluminum Coils":"Flip-Off","Aluminum Caps":"Flip-Off","Aluminum Scrap":"Flip-Off","Plastic Material":"Flip-Off",
+  "Cartons":"Split (Both)",
 };
 const STATUS_CONFIG={
   "In Stock":{bg:"#C6EFCE",text:"#1A6B2A",dot:"#22A03A"},
