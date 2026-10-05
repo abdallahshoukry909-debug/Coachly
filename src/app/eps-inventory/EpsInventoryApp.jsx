@@ -3309,6 +3309,7 @@ function SilicaShiftForm({parentBatch,batches,data,employees,existing,onSave,onC
   const subNo=existing?existing.batchNo:parentBatch.batchNo+"-"+String.fromCharCode(65+mySubs.length);
   const e=existing||{};
   const [date,setDate]=useState(e.mfgDate||new Date().toISOString().split("T")[0]);
+  const [machine,setMachine]=useState(e.machine||"Machine 1");
   const [workers,setWorkers]=useState(e.workers||[]);
   const [amount,setAmount]=useState(e.amountPcs!=null?String(e.amountPcs):"");
   const [silicaLotId,setSilicaLotId]=useState(e.silicaLotId||"");
@@ -3345,7 +3346,7 @@ function SilicaShiftForm({parentBatch,batches,data,employees,existing,onSave,onC
       product:parentBatch.product,color:parentBatch.color,client:parentBatch.client,orderNo:parentBatch.orderNo,
       stage:"Complete",status:"Complete",
       cartons:0,bagsPerCarton:0,pcsPerBag:0,partialCartonBags:0,totalPcs:0,
-      mfgDate:date,operator:workers.map(w=>w.name).join(", "),workers:workers,amountPcs:amt,goodPcs:amt,
+      mfgDate:date,machine:machine,operator:workers.map(w=>w.name).join(", "),workers:workers,amountPcs:amt,goodPcs:amt,
       silicaLotId:silicaLotId||null,silicaLotNo:selSilica?selSilica.lotNumber:null,silicaKg:sKg,
       rollsLotId:rollsLotId||null,rollsLotNo:selRolls?selRolls.lotNumber:null,rollsUsed:rQty,
       cartonsLotId:noCartons?null:(cartonsLotId||null),cartonsLotNo:noCartons?null:(selCartons?selCartons.lotNumber:null),cartonsUsed:cartonsUsed,noCartons:noCartons,
@@ -3358,9 +3359,12 @@ function SilicaShiftForm({parentBatch,batches,data,employees,existing,onSave,onC
       <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>🟡 Shift — {subNo}</div><div style={{color:"rgba(255,255,255,0.65)",fontSize:12}}>{existing?"Editing saved data":"Silica Gel Sachets production"}</div></div>
       <button type="button" onClick={onCancel} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:13}}>Cancel</button></div>
     <div style={{background:"#fff",borderRadius:"0 0 12px 12px",border:"1.5px solid #EEF2F7",borderTop:"none",padding:20}}>
-      <div style={{marginBottom:14}}>
-        <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date of Production</label>
-        <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+        <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date of Production</label>
+          <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+        <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Machine</label>
+          <select value={machine} onChange={ev=>setMachine(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+            {["Machine 1","Machine 2","Machine 3"].map(m=><option key={m}>{m}</option>)}</select></div></div>
       <div style={{background:"#D0F0E0",borderRadius:10,padding:14,marginBottom:14}}>
         <div style={{fontWeight:700,fontSize:13,color:"#0E4A2A",marginBottom:10}}>👷 Workers on this shift</div>
         <WorkerPicker employees={employees} station="Silica" value={workers} onChange={v=>{setWorkers(v);setErr("");}}/>
@@ -3544,7 +3548,7 @@ function SilicaShiftManager({parentBatch,batches,data,employees,onClose,onCreate
         {mySubs.map(sub=>(<div key={sub.id} style={{background:"#FAFBFC",borderRadius:10,border:"1.5px solid #EEF2F7",padding:"10px 14px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
             <div><span style={{fontFamily:"monospace",fontWeight:800,fontSize:14,color:NAVY}}>{sub.batchNo}</span>
-              <span style={{fontSize:11,color:"#888",marginLeft:8}}>{sub.mfgDate}{sub.operator?" · "+sub.operator:""}</span>
+              <span style={{fontSize:11,color:"#888",marginLeft:8}}>{sub.mfgDate}{sub.machine?" · 🏭 "+sub.machine:""}{sub.operator?" · "+sub.operator:""}</span>
               {sub.isCarryover&&<span style={{background:"#EEF3EC",color:"#4A6741",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700,marginLeft:8}}>↩️ from {sub.carryoverFrom}</span>}</div>
             <button type="button" onClick={()=>setForm({subId:sub.id,editing:true})} style={{background:"#fff",border:"1px solid #0E4A2A",color:"#0E4A2A",borderRadius:20,padding:"3px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>✏️ Edit</button></div>
           <div style={{display:"flex",gap:14,fontSize:11,color:"#666",flexWrap:"wrap",marginTop:8}}>
