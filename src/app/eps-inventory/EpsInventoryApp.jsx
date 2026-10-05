@@ -49,11 +49,11 @@ const INITIAL_EMPLOYEES=[
   {id:"emp-ashraf",name:"Ashraf",stations:["Press"],payType:"monthly",rate:12000,assumedDaysPerMonth:17,active:true,notes:"8h, 4 days/week"},
   {id:"emp-nagy",name:"Nagy",stations:["Assembly"],payType:"perShift",rate:500,active:true,notes:"Occasional fill-in"},
   {id:"emp-somia",name:"Somia",stations:["Plastic Sorting","Final Sorting"],payType:"perShift",rate:350,active:true,notes:"Supervises — 300 base + 50"},
-  {id:"emp-rahma",name:"Rahma",stations:["Plastic Sorting","Final Sorting"],payType:"perShift",rate:300,active:true,notes:""},
-  {id:"emp-mena",name:"Mena",stations:["Plastic Sorting","Final Sorting"],payType:"perShift",rate:300,active:true,notes:""},
-  {id:"emp-habiba",name:"Habiba",stations:["Plastic Sorting","Final Sorting"],payType:"perShift",rate:300,active:true,notes:""},
-  {id:"emp-yasmine",name:"Yasmine",stations:["Plastic Sorting","Final Sorting"],payType:"perShift",rate:300,active:true,notes:""},
-  {id:"emp-omrahma",name:"Om Rahma",stations:["Plastic Sorting","Final Sorting"],payType:"perShift",rate:300,active:true,notes:""},
+  {id:"emp-rahma",name:"Rahma",stations:["Plastic Sorting","Final Sorting","Silica"],payType:"perShift",rate:300,active:true,notes:""},
+  {id:"emp-mena",name:"Mena",stations:["Plastic Sorting","Final Sorting","Silica"],payType:"perShift",rate:300,active:true,notes:""},
+  {id:"emp-habiba",name:"Habiba",stations:["Plastic Sorting","Final Sorting","Silica"],payType:"perShift",rate:300,active:true,notes:""},
+  {id:"emp-yasmine",name:"Yasmine",stations:["Plastic Sorting","Final Sorting","Silica"],payType:"perShift",rate:300,active:true,notes:""},
+  {id:"emp-omrahma",name:"Om Rahma",stations:["Plastic Sorting","Final Sorting","Silica"],payType:"perShift",rate:300,active:true,notes:""},
 ];
 // The default wage suggested when an employee is first added to a shift/lot — a starting point,
 // always editable, and once saved the number stored on that shift/lot is what's actually used
