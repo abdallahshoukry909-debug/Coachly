@@ -333,6 +333,13 @@ function EmployeesSection({employees,batches,onSave,onDelete,onClose}){
 // capital/draws from income/expenses (they're equity movements, not business performance).
 const CASH_CATEGORIES_IN=["Customer Payment","Owner Capital","Asset Sale","Other Income"];
 const CASH_CATEGORIES_OUT=["Material Purchase","Wages","Maintenance","Utilities","Rent","Transport","Owner Draw","Profit Withdrawal","Commission Expense","Other Expense"];
+// Fixed per-category color for the P&L's expense breakdown chart — picked from colors already
+// used elsewhere in the app (material accents, status dots) so a category reads the same way
+// everywhere, and a category always gets the same color rather than one assigned by sort order.
+const EXPENSE_CATEGORY_COLORS={
+  "Material Purchase":"#2D6A9F","Wages":"#B8860B","Maintenance":"#B85C1A","Utilities":"#17A2B8",
+  "Rent":"#8B6FC7","Transport":"#607D8B","Commission Expense":"#DC3545","Other Expense":"#999999",
+};
 // Owner Capital, Owner Draw and Profit Withdrawal are the only categories where money moves
 // between a specific owner and the business, so only they carry an "owner" — the split matches
 // the Sales tab's owner shares exactly: Silica is 3-way, Flip-Off excludes Islam. IMPORTANT: a
@@ -441,6 +448,8 @@ const FIN_T={
     ar:"مُقتصر على هذا الخط: القيود المُخصَّصة له تُحتسب بالكامل، والقيود المشتركة بين الخطين تُحتسب بالنصف، والقيود غير المُصنَّفة تُستبعد (نفس قاعدة النقدية حسب الخط)."},
   balanceScopeNote:{en:"Scoped to this line: Cash follows the same rule as Cash by Line; Inventory only counts materials that line uses (Cartons, used by both, counts half); Receivables only counts that line's sales. Opening balance predates line-tagging and isn't shown here — it only appears in Both Lines.",
     ar:"مُقتصر على هذا الخط: النقدية تتبع نفس قاعدة النقدية حسب الخط؛ المخزون يحتسب فقط الخامات التي يستخدمها هذا الخط (الكرتون، المستخدَم في كليهما، يُحتسب بالنصف)؛ الذمم المدينة تحتسب فقط مبيعات هذا الخط. الرصيد الافتتاحي يسبق تصنيف الخطوط ولا يظهر هنا — يظهر فقط في عرض كلا الخطين."},
+  expenseBreakdownTitle:{en:"📊 Where The Money Goes",ar:"📊 إلى أين تذهب الأموال"},
+  expenseBreakdownDesc:{en:"Expense categories ranked by share of total expenses, highest first.",ar:"فئات المصروفات مُرتَّبة حسب نسبتها من إجمالي المصروفات، الأعلى أولًا."},
   assets:{en:"💼 Assets",ar:"💼 الأصول"},
   currentAssets:{en:"Current Assets",ar:"الأصول المتداولة"},
   cashLbl:{en:"Cash",ar:"النقدية"},
@@ -768,6 +777,28 @@ function LineFilterTabs({lineFilter,setLineFilter,lang}){
         style={{flex:1,padding:9,borderRadius:8,fontWeight:700,fontSize:12,cursor:"pointer",border:"1.5px solid "+(lineFilter===x[0]?"#7B3FB5":"#E2E8F0"),background:lineFilter===x[0]?"#7B3FB5":"#fff",color:lineFilter===x[0]?"#fff":"#666"}}>{ft(lang,x[1])}</button>))}
   </div>);
 }
+// Ranks expense categories by how much of totalExpense each one ate, highest first — the direct
+// answer to "what are we spending most of our money on." Reuses pnl.expenseByCat as-is, so it
+// always agrees with the plain list above it (same period/line scope, same Owner Draw exclusion).
+function ExpenseBreakdownChart({expenseByCat,totalExpense,lang}){
+  const rows=Object.keys(expenseByCat).map(c=>({cat:c,amt:expenseByCat[c]})).sort((a,b)=>b.amt-a.amt);
+  const maxAmt=Math.max(1,...rows.map(r=>r.amt));
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
+    <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:4}}>{ft(lang,"expenseBreakdownTitle")}</div>
+    <div style={{fontSize:11,color:"#888",marginBottom:12}}>{ft(lang,"expenseBreakdownDesc")}</div>
+    {rows.length===0&&<div style={{fontSize:12,color:"#999"}}>{ft(lang,"noneThisPeriod")}</div>}
+    {rows.map(r=>{
+      const pct=totalExpense>0?(r.amt/totalExpense*100):0;
+      const barPct=Math.round((r.amt/maxAmt)*100);
+      const color=EXPENSE_CATEGORY_COLORS[r.cat]||"#999999";
+      return(<div key={r.cat} style={{marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}>
+          <span style={{fontWeight:700,color:"#444"}}>{categoryLabel(lang,r.cat)}</span>
+          <span style={{fontWeight:700,color:color}}>{fmtN(r.amt)} ({pct.toFixed(1)}%)</span></div>
+        <div style={{height:9,background:"#F0F0F0",borderRadius:4,overflow:"hidden"}}>
+          <div style={{height:"100%",width:barPct+"%",background:color,borderRadius:4}}/></div></div>);})}
+  </div>);
+}
 function PnLView({cashLedger,lang}){
   const [period,setPeriod]=useState("month");
   const [lineFilter,setLineFilter]=useState("all");
@@ -801,6 +832,7 @@ function PnLView({cashLedger,lang}){
         <span>{categoryLabel(lang,c)}</span><strong>{fmtN(pnl.expenseByCat[c])}</strong></div>))}
       <div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:800,marginTop:8,paddingTop:8,borderTop:"1.5px solid #E2E8F0"}}>
         <span>{ft(lang,"totalExpenses")}</span><span style={{color:"#DC3545"}}>{fmtN(pnl.totalExpense)}</span></div></div>
+    <ExpenseBreakdownChart expenseByCat={pnl.expenseByCat} totalExpense={pnl.totalExpense} lang={lang}/>
     {(pnl.ownerCapital>0||pnl.ownerDraws>0)&&<div style={{background:"#FFF9E6",borderRadius:12,border:"1px solid #E6A817",padding:14,marginBottom:14,fontSize:12,color:"#856404"}}>
       <div style={{fontWeight:700,marginBottom:6}}>{ft(lang,"notCountedNote")}</div>
       {pnl.ownerCapital>0&&<div>{ft(lang,"ownerCapitalInLbl")} <strong>{fmtN(pnl.ownerCapital)} {ft(lang,"egpLbl")}</strong></div>}
