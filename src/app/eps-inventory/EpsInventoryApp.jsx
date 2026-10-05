@@ -3364,7 +3364,7 @@ function SilicaShiftForm({parentBatch,batches,data,employees,existing,onSave,onC
           <input type="date" value={date} onChange={ev=>setDate(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
         <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Machine</label>
           <select value={machine} onChange={ev=>setMachine(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
-            {["Machine 1","Machine 2","Machine 3"].map(m=><option key={m}>{m}</option>)}</select></div></div>
+            {["Machine 1","Machine 2"].map(m=><option key={m}>{m}</option>)}</select></div></div>
       <div style={{background:"#D0F0E0",borderRadius:10,padding:14,marginBottom:14}}>
         <div style={{fontWeight:700,fontSize:13,color:"#0E4A2A",marginBottom:10}}>👷 Workers on this shift</div>
         <WorkerPicker employees={employees} station="Silica" value={workers} onChange={v=>{setWorkers(v);setErr("");}}/>
