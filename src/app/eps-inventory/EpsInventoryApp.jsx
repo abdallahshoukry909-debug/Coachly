@@ -2034,7 +2034,7 @@ function buildBatchCost(batch,batches,data,laborRates){
 const PRODUCT_META={
   "Flip-Off Caps 20mm":{code:"FO",variantLabel:"Cap Colour",sizes:null,lines:null},
   "Silica Gel Capsules":{code:"SC",variantLabel:"Size",sizes:["0.3g","0.5g","1g"],lines:["Line 1","Line 2","Line 3"]},
-  "Silica Gel Sachets":{code:"SS",variantLabel:"Size",sizes:["0.5g","1g","5g","10g"],lines:["Line 1","Line 2"]},
+  "Silica Gel Sachets":{code:"SS",variantLabel:"Size",sizes:["0.5g","1g","5g","10g"],lines:["Line 1","Line 2","Both"]},
 };
 const PRODUCTS=Object.keys(PRODUCT_META);
 // Known Pcs-per-Bag packaging convention per Silica Gel Sachets size — pre-fills Pcs per Bag
