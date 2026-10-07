@@ -651,6 +651,19 @@ function LineCashBalanceCard({cashOpening,cashLedger,lang}){
       <strong style={{color:unallocated>=0?"#555":"#DC3545"}}>{fmtN(unallocated)} {ft(lang,"egpLbl")}</strong></div>
   </div>);
 }
+// Shown right on the Ledger tab, not just buried in the Balance Sheet or a per-entry note — the
+// one figure the owner asked to see every time they open the ledger, so spending it by mistake
+// means actually scrolling past a flagged number, not just missing a note on one old entry.
+function TaxReserveCard({batches,silicaEntries,data,laborRates,silicaSettings,flipOffSettings,lang}){
+  const total=taxReserveEGP(batches,silicaEntries,data,laborRates,silicaSettings,flipOffSettings,"all");
+  if(total<=0)return null;
+  return(<div style={{background:"#FFF9E6",borderRadius:12,border:"1.5px solid #E6A817",padding:14,marginBottom:14}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div style={{fontWeight:800,fontSize:13,color:"#856404"}}>{ft(lang,"taxReserveLbl")}</div>
+      <div style={{fontSize:18,fontWeight:900,color:"#856404"}}>{fmtN(total)} {ft(lang,"egpLbl")}</div></div>
+    <div style={{fontSize:11,color:"#856404",opacity:0.85,marginTop:6}}>{ft(lang,"taxReserveNote")}</div>
+  </div>);
+}
 function cashRunningBalance(opening,ledger){
   const start=opening?Number(opening.balance)||0:0;
   return (ledger||[]).reduce((s,e)=>s+(e.type==="in"?Number(e.amount)||0:-(Number(e.amount)||0)),start);
@@ -1134,6 +1147,7 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
         <div style={{display:"flex",justifyContent:"center",gap:20,marginTop:10,fontSize:12}}>
           <div>🟢 {ft(lang,"inLbl")}: <strong style={{color:"#1A6B2A"}}>{fmtN(totalIn)}</strong></div>
           <div>🔴 {ft(lang,"outLbl")}: <strong style={{color:"#DC3545"}}>{fmtN(totalOut)}</strong></div></div></div>
+      <TaxReserveCard batches={batches} silicaEntries={silicaEntries} data={data} laborRates={laborRates} silicaSettings={silicaSettings} flipOffSettings={flipOffSettings} lang={lang}/>
       {monthly.length>0&&<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
         <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>📅 {ft(lang,"monthlySummary")}</div>
         {monthly.map(m=>(<div key={m.month} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
