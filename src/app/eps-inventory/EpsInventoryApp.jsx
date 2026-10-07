@@ -3514,7 +3514,9 @@ function SilicaSaveLeftoverForm({parentBatch,onSave,onClose}){
 function SilicaShiftManager({parentBatch,batches,data,employees,onClose,onCreateSub,onUpdateSub,onDeleteSub,onSaveLeftover}){
   const [form,setForm]=useState(null);      // {mode:"new"} | {mode:"carryover"} | {mode:"leftover"} | {subId, editing:true}
   const [confDel,setConfDel]=useState(null);
-  const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch).sort((a,b)=>a.batchNo.localeCompare(b.batchNo));
+  // Sorted by actual production date, not by shift letter — letters are assigned in the order
+  // shifts were entered, which can lag or jump ahead of when the shift actually ran.
+  const mySubs=batches.filter(b=>b.parentBatchNo===parentBatch.batchNo&&b.isSubBatch).sort((a,b)=>(a.mfgDate||"").localeCompare(b.mfgDate||"")||a.batchNo.localeCompare(b.batchNo));
   const totalGood=mySubs.reduce((s,b)=>s+(b.goodPcs||0),0);
   const target=parentBatch.totalPcs||0;
   const pct=target?Math.min(100,Math.round(totalGood/target*100)):0;
