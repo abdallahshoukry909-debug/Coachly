@@ -460,6 +460,9 @@ const FIN_T={
   accountsReceivable:{en:"Accounts Receivable (invoiced, not yet collected)",ar:"الذمم المدينة (مُفوتَرة، لم تُحصَّل بعد)"},
   totalAssets:{en:"Total Assets",ar:"إجمالي الأصول"},
   liabilities:{en:"🏛️ Liabilities",ar:"🏛️ الخصوم"},
+  taxReserveLbl:{en:"⚠️ Tax Reserve — do not spend",ar:"⚠️ احتياطي الضريبة — لا تُنفَق"},
+  taxReserveNote:{en:"22% (or whatever each line's Sales tab has set) of gross profit on sales already received — owed to taxes the moment that money lands, even though it still sits in Cash above like any other receipt. Treat this amount as already spent.",
+    ar:"22% (أو النسبة المحددة في إعدادات تبويب المبيعات لكل خط) من إجمالي الربح على المبيعات المُحصَّلة بالفعل — مستحقة للضرائب بمجرد وصول هذا المبلغ، رغم بقائها ضمن النقدية أعلاه مثل أي مقبوضات أخرى. تعامل مع هذا المبلغ على أنه مُنفَق بالفعل."},
   liabilitiesNote:{en:"Not tracked yet (no Accounts Payable) — nothing owed to suppliers is logged here, so this shows as zero rather than a guessed number.",
     ar:"غير مُتتبَّعة بعد (لا توجد ذمم دائنة) — لا يوجد أي مبلغ مستحق للموردين مُسجَّل هنا، لذا تظهر صفرًا بدلًا من رقم تخميني."},
   ownerEquity:{en:"👤 Owner Equity",ar:"👤 حقوق الملكية"},
@@ -737,6 +740,27 @@ function accountsReceivableEGP(batches,silicaEntries,data,laborRates,lineFilter)
   if(!lineFilter||lineFilter==="all"||lineFilter==="Flip-Off")rows=rows.concat(commissionRowsFromBatches(batches,data,laborRates,false));
   return rows.reduce((s,r)=>s+(r.moneyReceived?0:(Number(r.totalSalesEGP)||0)),0);
 }
+// Income tax owed on sales already collected — 22% (or whatever each line's Sales tab settings
+// say) of gross profit, the same figure commissionRowCalc already computes to work out
+// commission (tax comes off gross profit first, commission is on what's left — unchanged by
+// this). The cash itself is never pulled out of the ledger for it (the full sale still posts as
+// one Customer Payment, same as always — "it's in the bank"), but the amount is owed the moment
+// money is received, so it's shown here as a real liability rather than silently folded into
+// spendable cash. Only money already received counts — nothing is reserved against a sale still
+// outstanding, since no tax is owed on gross profit not yet collected.
+function taxReserveEGP(batches,silicaEntries,data,laborRates,silicaSettings,flipOffSettings,lineFilter){
+  const linkedBatchIds={};(silicaEntries||[]).forEach(en=>{(en.batchIds||(en.batchId?[en.batchId]:[])).forEach(id=>{linkedBatchIds[id]=1;});});
+  let total=0;
+  if((!lineFilter||lineFilter==="all"||lineFilter==="Silica Gel")&&silicaSettings){
+    (silicaEntries||[]).concat(commissionRowsFromBatches(batches,data,laborRates,true,linkedBatchIds)).forEach(r=>{
+      if(r.moneyReceived)total+=commissionRowCalc(r,silicaSettings).incomeTax;});
+  }
+  if((!lineFilter||lineFilter==="all"||lineFilter==="Flip-Off")&&flipOffSettings){
+    commissionRowsFromBatches(batches,data,laborRates,false).forEach(r=>{
+      if(r.moneyReceived)total+=commissionRowCalc(r,flipOffSettings).incomeTax;});
+  }
+  return total;
+}
 // A cash-basis snapshot, not a fully reconciled accrual balance sheet — Material Purchases are
 // expensed the moment they're paid (matching how the ledger is logged), while the material
 // itself keeps counting as an Inventory asset until it's used up, so Assets will generally run
@@ -748,16 +772,17 @@ function accountsReceivableEGP(batches,silicaEntries,data,laborRates,lineFilter)
 // card), Inventory/Receivables as above, and P&L off filterEntriesByLine. The opening balance
 // predates line-tagging and is never split retroactively, so it's left out of a per-line view
 // (it only ever appears in the combined one) — flagged to the reader in BalanceSheetView.
-function cashBalanceSheet(opening,ledger,data,laborRates,batches,silicaEntries,lineFilter){
+function cashBalanceSheet(opening,ledger,data,laborRates,batches,silicaEntries,silicaSettings,flipOffSettings,lineFilter){
   const scoped=lineFilter&&lineFilter!=="all";
   const cash=scoped?lineCashBalance(ledger,lineFilter):cashRunningBalance(opening,ledger);
   const inventory=inventoryValueEGP(data,laborRates,lineFilter);
   const receivables=accountsReceivableEGP(batches,silicaEntries,data,laborRates,lineFilter);
+  const taxReserve=taxReserveEGP(batches,silicaEntries,data,laborRates,silicaSettings,flipOffSettings,lineFilter);
   const pnl=cashPnL(scoped?filterEntriesByLine(ledger,lineFilter):ledger);
   const openingBalance=scoped?0:(opening?Number(opening.balance)||0:0);
   const equity=openingBalance+pnl.ownerCapital-pnl.ownerDraws+pnl.netProfit;
   return {cash:cash,inventory:inventory,receivables:receivables,totalAssets:cash+inventory+receivables,
-    openingBalance:openingBalance,ownerCapital:pnl.ownerCapital,ownerDraws:pnl.ownerDraws,retainedEarnings:pnl.netProfit,
+    taxReserve:taxReserve,openingBalance:openingBalance,ownerCapital:pnl.ownerCapital,ownerDraws:pnl.ownerDraws,retainedEarnings:pnl.netProfit,
     totalEquity:equity,unreconciled:(cash+inventory+receivables)-equity};
 }
 function cashPeriodFilter(ledger,period){
@@ -851,10 +876,10 @@ function PnLView({cashLedger,lang}){
     </div>
   </div>);
 }
-function BalanceSheetView({cashOpening,cashLedger,data,laborRates,batches,silicaEntries,lang}){
+function BalanceSheetView({cashOpening,cashLedger,data,laborRates,batches,silicaEntries,silicaSettings,flipOffSettings,lang}){
   const [lineFilter,setLineFilter]=useState("all");
   const scoped=lineFilter!=="all";
-  const bs=cashBalanceSheet(cashOpening,cashLedger,data,laborRates,batches,silicaEntries,lineFilter);
+  const bs=cashBalanceSheet(cashOpening,cashLedger,data,laborRates,batches,silicaEntries,silicaSettings,flipOffSettings,lineFilter);
   return(<div>
     <LineFilterTabs lineFilter={lineFilter} setLineFilter={setLineFilter} lang={lang}/>
     {scoped&&<div style={{fontSize:11,color:"#999",marginBottom:14}}>{ft(lang,"balanceScopeNote")}</div>}
@@ -867,7 +892,10 @@ function BalanceSheetView({cashOpening,cashLedger,data,laborRates,batches,silica
       <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:800,marginTop:8,paddingTop:8,borderTop:"1.5px solid #E2E8F0"}}><span>{ft(lang,"totalAssets")}</span><span style={{color:NAVY}}>{fmtN(bs.totalAssets)} {ft(lang,"egpLbl")}</span></div></div>
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
       <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>{ft(lang,"liabilities")}</div>
-      <div style={{fontSize:12,color:"#999"}}>{ft(lang,"liabilitiesNote")}</div></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
+        <span>{ft(lang,"taxReserveLbl")}</span><strong style={{color:"#B8860B"}}>{fmtN(bs.taxReserve)} {ft(lang,"egpLbl")}</strong></div>
+      <div style={{fontSize:11,color:"#999",marginTop:6}}>{ft(lang,"taxReserveNote")}</div>
+      <div style={{fontSize:12,color:"#999",marginTop:10,paddingTop:10,borderTop:"1px solid #F5F5F5"}}>{ft(lang,"liabilitiesNote")}</div></div>
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
       <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>{ft(lang,"ownerEquity")}</div>
       {!scoped&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}><span>{ft(lang,"openingBalanceAsOf")}{cashOpening?cashOpening.date:"—"})</span><strong>{fmtN(bs.openingBalance)} {ft(lang,"egpLbl")}</strong></div>}
@@ -1123,7 +1151,7 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
       {cashLedger.length===0&&<div style={{textAlign:"center",padding:30,color:"#888",fontSize:13}}>{ft(lang,"noEntriesYet")}</div>}
       </>}
       {tab==="pnl"&&<PnLView cashLedger={cashLedger} lang={lang}/>}
-      {tab==="balance"&&<BalanceSheetView cashOpening={cashOpening} cashLedger={cashLedger} data={data} laborRates={laborRates} batches={batches} silicaEntries={silicaEntries} lang={lang}/>}
+      {tab==="balance"&&<BalanceSheetView cashOpening={cashOpening} cashLedger={cashLedger} data={data} laborRates={laborRates} batches={batches} silicaEntries={silicaEntries} silicaSettings={silicaSettings} flipOffSettings={flipOffSettings} lang={lang}/>}
       </>}
     </div></div>);
 }
@@ -1171,6 +1199,7 @@ function commissionSummary(rows,settings){
   const marginPct=totalSales>0?totalGrossProfit/totalSales:0;
   const receivedRows=calcs.filter(r=>r.moneyReceived);
   const netProfitReceived=receivedRows.reduce((s,r)=>s+r.netProfitAfterTax,0);
+  const taxReserveTotal=receivedRows.reduce((s,r)=>s+r.incomeTax,0);
   const commissionDueTotal=calcs.reduce((s,r)=>s+r.commissionDue,0);
   const commissionPaidTotal=calcs.filter(r=>r.commissionPaid).reduce((s,r)=>s+r.commissionDue,0);
   const commissionOutstanding=commissionDueTotal-commissionPaidTotal;
@@ -1183,7 +1212,7 @@ function commissionSummary(rows,settings){
   return {calcs:calcs,totalSales:totalSales,totalGrossProfit:totalGrossProfit,marginPct:marginPct,netProfitReceived:netProfitReceived,
     commissionDueTotal:commissionDueTotal,commissionPaidTotal:commissionPaidTotal,commissionOutstanding:commissionOutstanding,
     totalMoneyReceived:totalMoneyReceived,receivables:receivables,overdue:overdue,notYetDue:notYetDue,pctCollected:pctCollected,
-    distributableProfit:distributableProfit};
+    distributableProfit:distributableProfit,taxReserveTotal:taxReserveTotal};
 }
 function ownerSharesCalc(owners,distributableProfit,withdrawals){
   return owners.map(o=>{
@@ -1221,8 +1250,12 @@ function syncCommissionCash(row,settings,line,onSaveCashEntry,onDeleteCashEntry)
   const calc=commissionRowCalc(row,settings);
   const d=row.date||new Date().toISOString().split("T")[0];
   const now=new Date().toISOString();
+  // The full sale amount still posts as one Customer Payment (cash isn't split or pulled out for
+  // tax — it's in the bank like any other receipt), but the note spells out how much of it is
+  // already owed to taxes, right on the ledger entry itself, so it isn't mistaken for spendable.
+  const taxNote=calc.incomeTax>0?" · "+((Number(settings.incomeTaxRate)||0)*100).toFixed(0)+"% ("+fmtN(calc.incomeTax)+" EGP) reserved for tax — don't spend":"";
   onSaveCashEntry({id:inId,date:d,type:"in",category:"Customer Payment",amount:Number(row.totalSalesEGP)||0,
-    note:"Auto (Sales) — "+(row.client?row.client+" ":"")+"money in",line:line,owner:null,createdAt:now});
+    note:"Auto (Sales) — "+(row.client?row.client+" ":"")+"money in"+taxNote,line:line,owner:null,createdAt:now});
   if(calc.commissionDue>0){
     onSaveCashEntry({id:commId,date:d,type:"out",category:"Commission Expense",amount:calc.commissionDue,
       note:"Auto (Sales) — commission reserved on receipt",line:line,owner:null,createdAt:now});
@@ -1265,7 +1298,12 @@ function CommissionSummaryCard({summary,lang}){
       <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>{ft(lang,"stillOwedReceivables")}</div><div style={{fontWeight:800,fontSize:15,color:"#DC3545"}}>{fmtN(summary.receivables)} {ft(lang,"egpLbl")}</div><div style={{color:"#999",fontSize:10}}>{fmtN(summary.overdue)} {ft(lang,"overdueWord")} · {fmtN(summary.notYetDue)} {ft(lang,"notYetDueWord")}</div></div>
       <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>{ft(lang,"netProfitAfterTaxReceived")}</div><div style={{fontWeight:800,fontSize:15}}>{fmtN(summary.netProfitReceived)} {ft(lang,"egpLbl")}</div></div>
       <div><div style={{color:"#888",fontSize:10,textTransform:"uppercase"}}>{ft(lang,"commissionOutstanding")}</div><div style={{fontWeight:800,fontSize:15,color:summary.commissionOutstanding>0?"#DC3545":"#1A6B2A"}}>{fmtN(summary.commissionOutstanding)} {ft(lang,"egpLbl")}</div><div style={{color:"#999",fontSize:10}}>{ft(lang,"dueWord")} {fmtN(summary.commissionDueTotal)} · {ft(lang,"paidWord")} {fmtN(summary.commissionPaidTotal)}</div></div>
-    </div></div>);
+    </div>
+    {summary.taxReserveTotal>0&&<div style={{marginTop:10,background:"#FFF9E6",border:"1px solid #E6A817",borderRadius:8,padding:"8px 12px"}}>
+      <div style={{color:"#856404",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>{ft(lang,"taxReserveLbl")}</div>
+      <div style={{fontWeight:800,fontSize:15,color:"#856404"}}>{fmtN(summary.taxReserveTotal)} {ft(lang,"egpLbl")}</div>
+      <div style={{fontSize:10,color:"#856404",opacity:0.85,marginTop:2}}>{ft(lang,"taxReserveNote")}</div></div>}
+    </div>);
 }
 function OwnerSharesCard({owners,distributableProfit,withdrawals,onAddWithdrawal,onDeleteWithdrawal,line,onSaveCashEntry,onDeleteCashEntry,lang}){
   const shares=ownerSharesCalc(owners,distributableProfit,withdrawals);
