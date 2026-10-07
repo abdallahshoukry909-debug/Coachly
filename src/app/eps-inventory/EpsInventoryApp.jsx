@@ -1734,7 +1734,7 @@ function computeWaste(shifts){
 function computeShiftMaterials(shifts){
   let virginBags=0,regrindKg=0,totalPlasticKg=0,alPcs=0;const alLots={};
   shifts.forEach(s=>{
-    virginBags+=s.virginBags||0;regrindKg+=s.regrindKg||0;totalPlasticKg+=s.totalPlasticKg||0;
+    virginBags+=(s.virginBags||0)+(s.virginBags2||0);regrindKg+=s.regrindKg||0;totalPlasticKg+=s.totalPlasticKg||0;
     alPcs+=s.aluminumPcsIn||0;
     (s.aluminumSelections||[]).forEach(sel=>{alLots[sel.lotNo]=(alLots[sel.lotNo]||0)+(sel.pcs||0);});
   });
@@ -1882,13 +1882,17 @@ function buildBatchCost(batch,batches,data,laborRates){
   }else{
     shifts.forEach(s=>{
       regrindKgTotal+=s.regrindKg||0;
-      const bags=s.virginBags||0;if(bags<=0)return;
-      const lot=s.plasticLotId?plasticLots.filter(l=>l.id===s.plasticLotId)[0]:null;
-      if(lot&&lot.unitCost){
-        const cur=lot.unitCostCurrency||"EGP";
-        plasticCost[cur]=(plasticCost[cur]||0)+bags*Number(lot.unitCost);
-        plasticBagsCosted+=bags;
-      }else plasticBagsUncosted+=bags;
+      // A shift can draw from a second plastic lot when the first ran out mid-shift — costed
+      // the same way, just as a second lot/bags pair on the same shift.
+      [["plasticLotId","virginBags"],["plasticLotId2","virginBags2"]].forEach(pair=>{
+        const bags=s[pair[1]]||0;if(bags<=0)return;
+        const lot=s[pair[0]]?plasticLots.filter(l=>l.id===s[pair[0]])[0]:null;
+        if(lot&&lot.unitCost){
+          const cur=lot.unitCostCurrency||"EGP";
+          plasticCost[cur]=(plasticCost[cur]||0)+bags*Number(lot.unitCost);
+          plasticBagsCosted+=bags;
+        }else plasticBagsUncosted+=bags;
+      });
     });
 
     // alCostEGP converts non-EGP aluminum cost using each coil's own purchase-time rate when
@@ -2676,23 +2680,34 @@ function InjectionForm({parentBatch,batches,data,employees,existing,onSave,onCan
   // shift rather than a fixed constant, since it can change shift to shift.
   const [cavities,setCavities]=useState(e.cavities!=null?String(e.cavities):String(PCS_INJ));
   const [virginBags,setVirginBags]=useState(e.virginBags||"");
+  // Second lot — for when the first lot runs out mid-shift and the rest is drawn from a
+  // different one. Optional; hidden behind a toggle so the common single-lot case stays simple.
+  const [useSecondLot,setUseSecondLot]=useState(!!e.plasticLotId2);
+  const [plasticLotId2,setPlasticLotId2]=useState(e.plasticLotId2||"");
+  const [virginBags2,setVirginBags2]=useState(e.virginBags2||"");
   const [weightBefore,setWeightBefore]=useState(e.weightBeforeSorting||""),[notes,setNotes]=useState(e.notes||""),[err,setErr]=useState("");
-  const plasticLots=((data&&data["Plastic Material"]&&data["Plastic Material"].lots)||[]).filter(l=>l.status!=="Out of Stock"||l.id===e.plasticLotId);
+  const plasticLots=((data&&data["Plastic Material"]&&data["Plastic Material"].lots)||[]).filter(l=>l.status!=="Out of Stock"||l.id===e.plasticLotId||l.id===e.plasticLotId2);
   const selPlastic=plasticLotId?plasticLots.filter(l=>l.id===plasticLotId)[0]:null;
+  const plasticLots2=plasticLots.filter(l=>l.id!==plasticLotId);
+  const selPlastic2=plasticLotId2?plasticLots2.filter(l=>l.id===plasticLotId2)[0]:null;
   const capWt=parentBatch.capWt||CAP_WT,asmWt=parentBatch.asmWt||ASM_WT,wastePerInj=parentBatch.wastePerInj||WASTE_PER_INJ;
   const inj=Number(injections)||0,vBags=Number(virginBags)||0,vKg=vBags*PLASTIC_BAG_KG,wBef=Number(weightBefore)||0;
+  const vBags2=useSecondLot?(Number(virginBags2)||0):0,vKg2=vBags2*PLASTIC_BAG_KG;
   const cav=Number(cavities)||PCS_INJ;
-  const thPcs=inj*cav,thKg=pcsToKg(thPcs,capWt),totalPlastic=vKg;
+  const thPcs=inj*cav,thKg=pcsToKg(thPcs,capWt),totalPlastic=vKg+vKg2;
   // Each shot uses more material than just the cap itself — sprue/runner waste per shot,
   // regardless of mold cavity count — so the material a shift SHOULD need is caps + that waste.
   const theoWasteKg=inj*wastePerInj/1000,theoMaterialKg=thKg+theoWasteKg;
   const actualLossKg=totalPlastic>0&&wBef>0?Math.max(0,totalPlastic-wBef):0;
   const availBags=selPlastic?Number(selPlastic.qtyRemaining):0;
+  const availBags2=selPlastic2?Number(selPlastic2.qtyRemaining):0;
   const save=()=>{
     if(inj<1){setErr("Enter number of injections.");return;}
-    if(!vBags){setErr("Enter plastic material used.");return;}
+    if(!vBags&&!vBags2){setErr("Enter plastic material used.");return;}
     if(vBags>0&&!plasticLotId){setErr("Select which plastic lot the bags came from — otherwise inventory can't be deducted.");return;}
     if(selPlastic&&!existing&&vBags>availBags){setErr("Only "+availBags+" bags available.");return;}
+    if(useSecondLot&&vBags2>0&&!plasticLotId2){setErr("Select which second plastic lot the bags came from.");return;}
+    if(selPlastic2&&!existing&&vBags2>availBags2){setErr("Only "+availBags2+" bags available in the second lot.");return;}
     if(!wBef){setErr("Enter weight before sorting.");return;}
     const payload=Object.assign({},e,{id:e.id||genId(),batchNo:subNo,isSubBatch:true,parentBatchNo:parentBatch.batchNo,product:parentBatch.product,
       status:e.stage&&e.stage!=="Injection"?e.status:"Plastic Sorting",stage:e.stage&&e.stage!=="Injection"?e.stage:"Plastic Sorting",
@@ -2700,10 +2715,11 @@ function InjectionForm({parentBatch,batches,data,employees,existing,onSave,onCan
       cartons:e.cartons||0,bagsPerCarton:e.bagsPerCarton||0,pcsPerBag:e.pcsPerBag||0,partialCartonBags:0,totalPcs:e.totalPcs||0,
       mfgDate:date,shift:shift,operator:injectionWorkers.map(w=>w.name).join(", "),injectionWorkers:injectionWorkers,injections:inj,cavities:cav,theoreticalPcs:thPcs,theoreticalKg:thKg,
       plasticLotId:plasticLotId||null,plasticLotNo:selPlastic?selPlastic.lotNumber:null,
-      virginBags:vBags,virginKg:vKg,totalPlasticKg:totalPlastic,weightBeforeSorting:wBef,
+      plasticLotId2:useSecondLot?(plasticLotId2||null):null,plasticLotNo2:useSecondLot&&selPlastic2?selPlastic2.lotNumber:null,
+      virginBags:vBags,virginBags2:vBags2,virginKg:vKg+vKg2,totalPlasticKg:totalPlastic,weightBeforeSorting:wBef,
       notes:notes,createdAt:e.createdAt||today()});
     if(!existing){payload.acceptedWeightKg=null;payload.rejectedWeightKg=null;payload.acceptedPcs=null;payload.aluminumSelections=[];payload.assembledPcs=null;payload.goodPcs=null;}
-    onSave(payload,{plasticLotId:plasticLotId,plasticBags:vBags});
+    onSave(payload,{plasticLotId:plasticLotId,plasticBags:vBags,plasticLotId2:useSecondLot?(plasticLotId2||null):null,plasticBags2:vBags2});
   };
   return(<div style={{maxWidth:660,fontFamily:"'Inter',sans-serif"}}>
     <div style={{background:"#856404",borderRadius:"12px 12px 0 0",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -2739,8 +2755,21 @@ function InjectionForm({parentBatch,batches,data,employees,existing,onSave,onCan
           {plasticLots.length===0&&<div style={{fontSize:11,color:"#DC3545",marginTop:5,fontWeight:600,background:"#FFF0F0",padding:"7px 10px",borderRadius:6}}>⚠️ No plastic lots in inventory. Go to Inventory → Plastic Material → + Add Lot (set unit to &quot;Bags&quot;) before recording usage, or inventory won&apos;t be deducted.</div>}
           {selPlastic&&<div style={{fontSize:11,color:"#7B3FB5",marginTop:4}}>{availBags} bags available · 1 bag = {PLASTIC_BAG_KG} KG</div>}</div>
         <Field label="Virgin Plastic (BAGS)" value={virginBags} onChange={v=>{setVirginBags(v);setErr("");}} type="number" ph="e.g. 3" accent="#7B3FB5"/>
+        {!useSecondLot&&<button type="button" onClick={()=>setUseSecondLot(true)} style={{marginTop:10,background:"none",border:"none",padding:0,color:"#7B3FB5",fontSize:11,fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>+ Ran out — add a second lot</button>}
+        {useSecondLot&&<div style={{marginTop:12,paddingTop:12,borderTop:"1px dashed #CBD5E0"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <label style={{fontSize:11,fontWeight:700,color:"#666",textTransform:"uppercase"}}>Second Lot</label>
+            <button type="button" onClick={()=>{setUseSecondLot(false);setPlasticLotId2("");setVirginBags2("");setErr("");}} style={{background:"none",border:"none",color:"#DC3545",fontSize:11,fontWeight:600,cursor:"pointer",padding:0}}>Remove</button></div>
+          <div style={{marginBottom:10}}>
+            <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Draw From Lot</label>
+            <select value={plasticLotId2} onChange={ev=>{setPlasticLotId2(ev.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+              <option value="">— not specified —</option>
+              {plasticLots2.map(l=><option key={l.id} value={l.id}>{l.lotNumber} · {fmtN(l.qtyRemaining)} bags available</option>)}</select>
+            {selPlastic2&&<div style={{fontSize:11,color:"#7B3FB5",marginTop:4}}>{availBags2} bags available</div>}</div>
+          <Field label="Virgin Plastic (BAGS)" value={virginBags2} onChange={v=>{setVirginBags2(v);setErr("");}} type="number" ph="e.g. 2" accent="#7B3FB5"/></div>}
         {totalPlastic>0&&<div style={{marginTop:8,background:"#fff",borderRadius:8,padding:"10px 12px",fontSize:12,display:"flex",gap:20,flexWrap:"wrap"}}>
-          <div>Virgin: <strong>{vBags} bags = {vKg.toFixed(0)} KG</strong></div></div>}</div>
+          <div>Virgin: <strong>{vBags+vBags2} bags = {totalPlastic.toFixed(0)} KG</strong></div>
+          {useSecondLot&&vBags2>0&&<div style={{color:"#888"}}>({vBags} + {vBags2} across 2 lots)</div>}</div>}</div>
       <div style={{background:"#F0F4F8",borderRadius:10,padding:14,marginBottom:14}}>
         <div style={{fontWeight:700,fontSize:13,color:NAVY,marginBottom:10}}>⚖️ Weigh Output (before sorting)</div>
         <Field label="Actual Weight (KG)" value={weightBefore} onChange={v=>{setWeightBefore(v);setErr("");}} type="number" ph="0.00" accent={ACCENT}/>
@@ -2753,6 +2782,8 @@ function InjectionForm({parentBatch,batches,data,employees,existing,onSave,onCan
       {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
       {!existing&&vBags>0&&selPlastic&&<div style={{background:"#E8F5E9",border:"1px solid #A5D6A7",borderRadius:8,padding:"9px 12px",marginBottom:10,fontSize:12,color:"#1A6B2A",fontWeight:600}}>
         On save: <strong>{vBags} bags</strong> will be deducted from lot <strong>{selPlastic.lotNumber}</strong> → {Math.max(0,availBags-vBags)} bags left</div>}
+      {!existing&&vBags2>0&&selPlastic2&&<div style={{background:"#E8F5E9",border:"1px solid #A5D6A7",borderRadius:8,padding:"9px 12px",marginBottom:10,fontSize:12,color:"#1A6B2A",fontWeight:600}}>
+        On save: <strong>{vBags2} bags</strong> will be deducted from lot <strong>{selPlastic2.lotNumber}</strong> → {Math.max(0,availBags2-vBags2)} bags left</div>}
       <button type="button" onClick={save} style={{width:"100%",padding:13,background:"#856404",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>{existing?"💾 Save Changes":"Save Injection → Plastic Sorting"}</button>
     </div></div>);
 }
@@ -3274,7 +3305,7 @@ function ShiftManager({parentBatch,batches,data,employees,onClose,onCreateSub,on
                 style={{background:"#fff",border:"1px solid "+stageColor[s],color:stageColor[s],borderRadius:20,padding:"3px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>✏️ {s}</button>)}</div>}
             <div style={{display:"flex",gap:14,fontSize:11,color:"#666",flexWrap:"wrap"}}>
               {sub.injections?<span>💉 {sub.injections} inj</span>:null}
-              {sub.totalPlasticKg?<span>🧴 {sub.virginBags||0} bags{sub.regrindKg?" + "+sub.regrindKg.toFixed(1)+" KG regrind":""}</span>:null}
+              {sub.totalPlasticKg?<span>🧴 {(sub.virginBags||0)+(sub.virginBags2||0)} bags{sub.regrindKg?" + "+sub.regrindKg.toFixed(1)+" KG regrind":""}</span>:null}
               {sub.acceptedPcs?<span>✅ {sub.acceptedPcs.toLocaleString()} sorted</span>:null}
               {sub.aluminumLotNo?<span>🔘 {sub.aluminumLotNo}</span>:null}
               {sub.assembledPcs?<span>⚙️ {sub.assembledPcs.toLocaleString()} asm</span>:null}
@@ -3282,7 +3313,7 @@ function ShiftManager({parentBatch,batches,data,employees,onClose,onCreateSub,on
               {sub.finalCartons?<span>📦 {sub.finalCartons} ctn{(sub.finalPartialBags||sub.finalPartialKg)?" + "+(sub.finalPartialBags||0)+" bag"+(sub.finalPartialBags===1?"":"s")+(sub.finalPartialKg?" + "+fmt(sub.finalPartialKg)+" KG":""):""}</span>:null}</div>
             <div style={{marginTop:9,paddingTop:9,borderTop:"1px solid #F0F0F0"}}>
               {confDel===sub.id?(<div style={{display:"flex",gap:8,alignItems:"center"}}>
-                <span style={{fontSize:11,color:"#8B1A1A",fontWeight:600,flex:1}}>Delete {sub.batchNo}{(sub.plasticLotId||(sub.aluminumSelections&&sub.aluminumSelections.length))?" — any material it drew will be returned to stock":""}?</span>
+                <span style={{fontSize:11,color:"#8B1A1A",fontWeight:600,flex:1}}>Delete {sub.batchNo}{(sub.plasticLotId||sub.plasticLotId2||(sub.aluminumSelections&&sub.aluminumSelections.length))?" — any material it drew will be returned to stock":""}?</span>
                 <button type="button" onClick={()=>{onDeleteSub(sub);setConfDel(null);}} style={{background:"#DC3545",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11,color:"#fff",fontWeight:800}}>Yes, delete</button>
                 <button type="button" onClick={()=>setConfDel(null)} style={{background:"#E2E8F0",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11}}>Cancel</button></div>)
               :(<div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
@@ -3863,9 +3894,11 @@ function ProductionSection({data,batches,orders,employees,onCreateBatch,onUpdate
   if(parent)return <ShiftManager parentBatch={parent} batches={all} data={data} employees={employees} onClose={()=>setShiftId(null)}
     onCreateSub={(b,m)=>{onCreateBatch(b);
       if(m&&m.plasticLotId!==undefined)onApplyPlastic(null,0,m.plasticLotId,m.plasticBags,b.batchNo);
+      if(m&&m.plasticLotId2!==undefined)onApplyPlastic(null,0,m.plasticLotId2,m.plasticBags2,b.batchNo);
       if(m&&m.wipLotId)onApplyMaterial("WIP Inventory",null,0,m.wipLotId,m.wipPcsUsed,b.batchNo);}}
     onUpdateSub={(b,m,old)=>{onUpdateBatch(b);
       if(m&&m.plasticLotId!==undefined)onApplyPlastic(old?old.plasticLotId:null,old?(old.virginBags||0):0,m.plasticLotId,m.plasticBags,b.batchNo);
+      if(m&&m.plasticLotId2!==undefined)onApplyPlastic(old?old.plasticLotId2:null,old?(old.virginBags2||0):0,m.plasticLotId2,m.plasticBags2,b.batchNo);
       if(m&&m.selections)onApplyAluminum(old?(old.aluminumSelections||[]):[],m.selections);
       if(m&&m.cartonsLotId!==undefined)onApplyMaterial("Cartons",old?old.cartonsLotId:null,old?(old.cartonsUsed||0):0,m.cartonsLotId,m.cartonsUsed,b.batchNo);}}
     onDeleteSub={onDeleteSub} onSaveLeftover={onSaveLeftover}/>;
@@ -5374,6 +5407,7 @@ export default function EpsInventoryApp(){
   // nothing is reversed for it.
   const deleteSub=sub=>{
     if(sub.plasticLotId&&sub.virginBags)applyPlastic(sub.plasticLotId,sub.virginBags,null,0,sub.batchNo);
+    if(sub.plasticLotId2&&sub.virginBags2)applyPlastic(sub.plasticLotId2,sub.virginBags2,null,0,sub.batchNo);
     if(sub.aluminumSelections&&sub.aluminumSelections.length)applyAluminum(sub.aluminumSelections,[]);
     if(sub.silicaLotId&&sub.silicaKg)applyMaterialQty("Silica Gel",sub.silicaLotId,sub.silicaKg,null,0,sub.batchNo);
     if(sub.rollsLotId&&sub.rollsUsed)applyMaterialQty("Sachets Paper",sub.rollsLotId,sub.rollsUsed,null,0,sub.batchNo);
