@@ -15,6 +15,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
 
   const isAuthPage = AUTH_PATHS.some((p) => pathname.startsWith(p))
+  const isTerminal = pathname.startsWith('/terminal')
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
@@ -48,10 +49,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <main className={`max-w-lg mx-auto min-h-screen ${!isAuthPage && user ? 'pb-20' : ''}`}>
-        {children}
-      </main>
-      {!isAuthPage && user && <BottomNav role={role} />}
+      {isTerminal ? (
+        children
+      ) : (
+        <main className={`max-w-lg mx-auto min-h-screen ${!isAuthPage && user ? 'pb-20' : ''}`}>
+          {children}
+        </main>
+      )}
+      {!isAuthPage && !isTerminal && user && <BottomNav role={role} />}
     </>
   )
 }
