@@ -4047,7 +4047,14 @@ function ProductionSection({data,batches,orders,employees,onCreateBatch,onUpdate
       <div style={{fontSize:32,marginBottom:8}}>🏭</div><div style={{fontWeight:700,color:"#333"}}>No batches</div></div>)
     :(<div style={{display:"flex",flexDirection:"column",gap:8}}>
       {filtered.map(batch=><BatchCard key={batch.id} batch={batch} subBatches={all.filter(b=>b.parentBatchNo===batch.batchNo&&b.isSubBatch)} orders={orders}
-        onStatusChange={st=>onUpdateBatch(Object.assign({},batch,{status:st}))} onDelete={()=>onDeleteBatch(batch.id)} onManageShifts={()=>setShiftId(batch.id)} onUpdateBatch={onUpdateBatch}/>)}</div>)}
+        onStatusChange={st=>onUpdateBatch(Object.assign({},batch,{status:st},
+          // Marking Shipped sets dateShipped to today automatically — that date drives the Sales
+          // tab's payment terms countdown and the P&L/Balance Sheet, so it should reflect the day
+          // the batch actually shipped rather than needing a separate manual entry in Finance.
+          // Never overwrites an existing value (a correction already made, or a backfilled
+          // historical batch) — only fills it in the first time a batch goes Shipped.
+          st==="Shipped"&&!batch.dateShipped?{dateShipped:new Date().toISOString().split("T")[0]}:null))}
+        onDelete={()=>onDeleteBatch(batch.id)} onManageShifts={()=>setShiftId(batch.id)} onUpdateBatch={onUpdateBatch}/>)}</div>)}
   </div>);
 }
 
