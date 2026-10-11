@@ -3867,8 +3867,66 @@ function BatchQuantityModal({batch,onSave,onClose}){
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Amount</button>
       </div></div></div>);
 }
-function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts,onUpdateBatch}){
-  const [exp,setExp]=useState(false),[confDel,setConfDel]=useState(false),[showWeights,setShowWeights]=useState(false),[showQty,setShowQty]=useState(false);
+// Lets the "header" details set at Create Batch — client, color/variant, production line, dates,
+// status, linked order, selling price, notes — be corrected afterward, same as Edit Amount and
+// Edit Weights already let you fix quantity/weight mistakes. Product type is deliberately not
+// editable here — switching it would orphan whatever shifts/sub-batches already drew material
+// under the old product, which is a bigger change than a typo fix.
+function BatchDetailsModal({batch,orders,onSave,onClose}){
+  const meta=PRODUCT_META[batch.product]||{variantLabel:"Variant",sizes:null,lines:null};
+  const isSachets=batch.product==="Silica Gel Sachets";
+  const isFO=batch.product==="Flip-Off Caps 20mm";
+  const [client,setClient]=useState(batch.client||"");
+  const [variant,setVariant]=useState(batch.color||"");
+  const [line,setLine]=useState(batch.line||(meta.lines?meta.lines[0]:""));
+  const [mfgDate,setMfgDate]=useState(batch.mfgDate||"");
+  const [expDate,setExpDate]=useState(batch.expiryDate||"");
+  const [status,setStatus]=useState(batch.status);
+  const [orderNo,setOrderNo]=useState(batch.orderNo||"");
+  const [sellPrice,setSellPrice]=useState(batch.sellPricePerPc?String(batch.sellPricePerPc):"");
+  const [notes,setNotes]=useState(batch.notes||"");
+  const [err,setErr]=useState("");
+  const sachetExpiry=isSachets?addYears(mfgDate,3):"";
+  const save=()=>{
+    if(!variant.trim()){setErr(meta.variantLabel+" is required.");return;}
+    onSave(Object.assign({},batch,{client:client.trim(),color:variant.trim(),line:meta.lines?line:batch.line,
+      mfgDate:mfgDate,expiryDate:isSachets?sachetExpiry:expDate,status:status,orderNo:orderNo||null,
+      sellPricePerPc:Number(sellPrice)||0,notes:notes.trim()}));
+  };
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:480,maxHeight:"92vh",overflowY:"auto"}}>
+      <div style={{background:NAVY,borderRadius:"16px 16px 0 0",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>✏️ Edit Batch Details</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12,fontFamily:"monospace"}}>{batch.batchNo}</div></div>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
+      <div style={{padding:24}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+          <div style={{gridColumn:"1/-1"}}><Field label="Client" value={client} onChange={setClient} ph="e.g. Pharco"/></div>
+          {meta.sizes?(<div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{meta.variantLabel} *</label>
+            <select value={variant} onChange={e=>{setVariant(e.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+              <option value="">— select —</option>{meta.sizes.map(s=><option key={s}>{s}</option>)}</select></div>)
+          :(<Field label={meta.variantLabel+" *"} value={variant} onChange={v=>{setVariant(v);setErr("");}} ph="e.g. Blue"/>)}
+          {meta.lines&&<div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Production Line</label>
+            <select value={line} onChange={e=>setLine(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+              {meta.lines.map(l=><option key={l}>{l}</option>)}</select></div>}
+          <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Mfg. Date</label>
+            <input type="date" value={mfgDate} onChange={e=>setMfgDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>
+          {isSachets?(<div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Expiry Date (auto — 3 yrs from Mfg.)</label>
+            <div style={{padding:"9px 12px",background:"#F7F9FC",borderRadius:8,fontSize:13,color:"#555",border:"1.5px solid #E2E8F0"}}>{sachetExpiry||"—"}</div></div>)
+          :(<div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{isFO?"Retest Date (optional)":"Expiry Date"}</label>
+            <input type="date" value={expDate} onChange={e=>setExpDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/></div>)}
+          <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Status</label>
+            <select value={status} onChange={e=>setStatus(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>{BSTATUSES.map(s=><option key={s}>{s}</option>)}</select></div>
+          <div style={{gridColumn:"1/-1"}}><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Link to Order</label>
+            <select value={orderNo} onChange={e=>setOrderNo(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+              <option value="">— none —</option>{(orders||[]).map(o=><option key={o.id} value={o.orderNo}>{o.orderNo} · {o.client}</option>)}</select></div>
+          <div style={{gridColumn:"1/-1"}}><Field label="Selling Price per Pc (EGP, optional)" value={sellPrice} onChange={setSellPrice} type="number" ph="e.g. 0.85"/></div>
+          <div style={{gridColumn:"1/-1"}}><Field label="Notes" value={notes} onChange={setNotes}/></div></div>
+        {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
+        <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Details</button>
+      </div></div></div>);
+}
+function BatchCard({batch,subBatches,orders,onStatusChange,onDelete,onManageShifts,onUpdateBatch}){
+  const [exp,setExp]=useState(false),[confDel,setConfDel]=useState(false),[showWeights,setShowWeights]=useState(false),[showQty,setShowQty]=useState(false),[showDetails,setShowDetails]=useState(false);
   const cfg=BST[batch.status]||BST.Production;
   const subs=subBatches||[];
   const subGood=subs.reduce((s,b)=>s+(b.goodPcs||0),0);
@@ -3906,6 +3964,7 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts,onUp
         {batch.expiryDate&&<div><strong>Expiry:</strong> {batch.expiryDate}{batch.shelfLife?" ("+batch.shelfLife+")":""}</div>}
         {isFO&&<div><strong>Weights:</strong> {batch.capWt||CAP_WT} g/cap plastic · {batch.asmWt||ASM_WT} g/cap assembled · {batch.wastePerInj||WASTE_PER_INJ} g/shot waste</div>}
         {batch.notes&&<div><strong>Notes:</strong> {batch.notes}</div>}</div>
+      <button type="button" onClick={()=>setShowDetails(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:10,marginRight:8}}>✏️ Edit Details</button>
       <button type="button" onClick={()=>setShowQty(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:10,marginRight:8}}>🔢 Edit Amount</button>
       <button type="button" onClick={()=>onUpdateBatch(Object.assign({},batch,{isSample:!batch.isSample}))} style={{padding:"6px 14px",border:"1.5px solid "+(batch.isSample?"#E6C200":"#E2E8F0"),color:batch.isSample?"#8A6D00":"#555",background:batch.isSample?"#FFF3CD":"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:10,marginRight:8}}>🎁 {batch.isSample?"Unmark Sample":"Mark as Sample"}</button>
       {isFO&&<button type="button" onClick={()=>setShowWeights(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:10,marginRight:8}}>⚖️ Edit Weights</button>}
@@ -3916,6 +3975,7 @@ function BatchCard({batch,subBatches,onStatusChange,onDelete,onManageShifts,onUp
     </div>}
     {showWeights&&<BatchWeightsModal batch={batch} onSave={u=>{onUpdateBatch(u);setShowWeights(false);}} onClose={()=>setShowWeights(false)}/>}
     {showQty&&<BatchQuantityModal batch={batch} onSave={u=>{onUpdateBatch(u);setShowQty(false);}} onClose={()=>setShowQty(false)}/>}
+    {showDetails&&<BatchDetailsModal batch={batch} orders={orders} onSave={u=>{onUpdateBatch(u);setShowDetails(false);}} onClose={()=>setShowDetails(false)}/>}
   </div>);
 }
 function ProductionSection({data,batches,orders,employees,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic,onApplyMaterial,onDeleteSub,onSaveLeftover,onMarkUnpricedSamples}){
@@ -3975,7 +4035,7 @@ function ProductionSection({data,batches,orders,employees,onCreateBatch,onUpdate
     {filtered.length===0?(<div style={{textAlign:"center",padding:40,background:"#fff",borderRadius:12,border:"2px dashed #E2E8F0"}}>
       <div style={{fontSize:32,marginBottom:8}}>🏭</div><div style={{fontWeight:700,color:"#333"}}>No batches</div></div>)
     :(<div style={{display:"flex",flexDirection:"column",gap:8}}>
-      {filtered.map(batch=><BatchCard key={batch.id} batch={batch} subBatches={all.filter(b=>b.parentBatchNo===batch.batchNo&&b.isSubBatch)}
+      {filtered.map(batch=><BatchCard key={batch.id} batch={batch} subBatches={all.filter(b=>b.parentBatchNo===batch.batchNo&&b.isSubBatch)} orders={orders}
         onStatusChange={st=>onUpdateBatch(Object.assign({},batch,{status:st}))} onDelete={()=>onDeleteBatch(batch.id)} onManageShifts={()=>setShiftId(batch.id)} onUpdateBatch={onUpdateBatch}/>)}</div>)}
   </div>);
 }
