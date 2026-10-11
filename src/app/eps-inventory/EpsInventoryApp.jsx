@@ -2311,15 +2311,24 @@ function UseStockModal({lot,matConfig,onSave,onClose}){
 function SellScrapModal({lot,matConfig,onSave,onClose}){
   const [qty,setQty]=useState(""),[price,setPrice]=useState(""),[buyer,setBuyer]=useState(""),[error,setError]=useState("");
   const remKg=Number(lot.qtyRemaining)||0,qtyNum=Number(qty)||0,priceNum=Number(price)||0;
-  const newRem=remKg-qtyNum,rate=qtyNum>0?priceNum/qtyNum:0;
+  // Selling more than the tracked estimate shows (the tracked figure is a %-based estimate, not
+  // a measurement — see creditScrap) no longer blocks the sale: it auto-corrects the pool up to
+  // what's actually being sold first, logged as its own entry, then records the sale on top of
+  // that — same net effect as doing it in two steps via "Correct to actual weighed amount", just
+  // without having to leave this screen.
+  const needsCorrection=qtyNum>remKg+0.01;
+  const correctionKg=needsCorrection?qtyNum-remKg:0;
+  const baseRem=needsCorrection?qtyNum:remKg;
+  const newRem=baseRem-qtyNum,rate=qtyNum>0?priceNum/qtyNum:0;
   const save=()=>{
     if(!qty||qtyNum<=0){setError("Enter how much you sold.");return;}
-    if(qtyNum>remKg+0.01){setError("Max "+fmt(remKg)+" "+lot.unit+" available.");return;}
     if(!price||priceNum<=0){setError("Enter the price you sold it for.");return;}
     const ns=newRem<=0?"Out of Stock":lot.status;
+    const correctionLog=needsCorrection?[{id:genId(),date:today(),qtyUsed:-correctionKg,
+      reason:"Weight correction (auto, via Sell Scrap): estimate was low by "+fmt(correctionKg)+" KG",remainingAfter:baseRem}]:[];
     // saleRevenue/saleCurrency are structured (for finance calcs to sum directly) alongside
     // the human-readable reason text — the two are always kept in sync here.
-    onSave(Object.assign({},lot,{qtyRemaining:Math.max(0,newRem),status:ns,usageLog:(lot.usageLog||[]).concat([{id:genId(),date:today(),qtyUsed:qtyNum,reason:"Sold"+(buyer?" to "+buyer:"")+" — "+fmt(priceNum)+" EGP ("+fmt(rate)+" EGP/KG)",remainingAfter:Math.max(0,newRem),saleRevenue:priceNum,saleCurrency:"EGP",buyer:buyer||null}])}));
+    onSave(Object.assign({},lot,{qtyRemaining:Math.max(0,newRem),status:ns,usageLog:(lot.usageLog||[]).concat(correctionLog).concat([{id:genId(),date:today(),qtyUsed:qtyNum,reason:"Sold"+(buyer?" to "+buyer:"")+" — "+fmt(priceNum)+" EGP ("+fmt(rate)+" EGP/KG)",remainingAfter:Math.max(0,newRem),saleRevenue:priceNum,saleCurrency:"EGP",buyer:buyer||null}])}));
   };
   return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:420,overflow:"hidden"}}>
@@ -2328,12 +2337,14 @@ function SellScrapModal({lot,matConfig,onSave,onClose}){
         <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
       <div style={{padding:24}}>
         <div style={{background:matConfig.light,borderRadius:10,padding:"12px 16px",marginBottom:18}}>
-          <div style={{fontSize:11,color:matConfig.color,fontWeight:700,marginBottom:4}}>Current Stock</div>
+          <div style={{fontSize:11,color:matConfig.color,fontWeight:700,marginBottom:4}}>Current Stock (estimate)</div>
           <span style={{fontSize:22,fontWeight:900,color:matConfig.color}}>{fmt(remKg)} {lot.unit}</span></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
           <Field label={"Qty Sold ("+lot.unit+")"} value={qty} onChange={v=>{setQty(v);setError("");}} type="number" accent={matConfig.accent}/>
           <Field label="Sale Price (EGP)" value={price} onChange={v=>{setPrice(v);setError("");}} type="number" ph="Total, not per-KG" accent={matConfig.accent}/></div>
         {qtyNum>0&&priceNum>0&&<div style={{fontSize:12,color:matConfig.color,marginBottom:14}}>≈ {fmt(rate)} EGP/KG</div>}
+        {needsCorrection&&<div style={{background:"#FFF9E6",border:"1px solid #E6A817",borderRadius:8,padding:"9px 12px",marginBottom:14,fontSize:12,color:"#856404"}}>
+          ⚖️ That&apos;s {fmt(correctionKg)} {lot.unit} more than tracked — the estimate was low. Recording this sale will also correct the pool up to {fmt(qtyNum)} {lot.unit} first.</div>}
         <div style={{marginBottom:18}}><Field label="Buyer (optional)" value={buyer} onChange={setBuyer} ph="e.g. Scrap dealer name" accent={matConfig.accent}/></div>
         {error&&<div style={{color:"#DC3545",fontSize:11,marginBottom:14,fontWeight:600}}>{error}</div>}
         <div style={{display:"flex",gap:10}}>
