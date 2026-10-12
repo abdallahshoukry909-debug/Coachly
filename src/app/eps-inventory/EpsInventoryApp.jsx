@@ -552,6 +552,11 @@ const FIN_T={
     ar:"لا توجد دفعات سيليكا جل غير مرتبطة — اربط عملية بيع أعلاه بدفعتها، أو أنشئ دفعة جديدة من قسم الإنتاج."},
   batchesHeaderLbl:{en:"🧾 Batches",ar:"🧾 الدفعات"},
   noFlipOffBatches:{en:"No Flip-Off batches yet — create one under Production.",ar:"لا توجد دفعات فليب أوف بعد — أنشئ واحدة من قسم الإنتاج."},
+  generateExcelBtn:{en:"📊 Generate Excel Report",ar:"📊 إنشاء تقرير إكسل"},
+  generatingExcelBtn:{en:"Generating…",ar:"جاري الإنشاء…"},
+  generateExcelDesc:{en:"One Excel file, both product lines — same layout as the commission tracker spreadsheet, filled in with your current sales, tax, commission and owner-withdrawal data.",
+    ar:"ملف إكسل واحد لكلا الخطين — بنفس تنسيق جدول تتبع العمولة، معبأ ببيانات مبيعاتك والضرائب والعمولات وسحوبات الشركاء الحالية."},
+  excelGeneratedToast:{en:"Excel report downloaded ✓",ar:"تم تنزيل تقرير الإكسل ✓"},
 };
 function ft(lang,key){const e=FIN_T[key];if(!e)return key;return e[lang]||e.en;}
 const LINE_LABEL_AR={"Silica Gel":"السيليكا جل","Flip-Off":"فليب أوف","Split (Both)":"مشترك (كلاهما)"};
@@ -1107,7 +1112,7 @@ function CashOpeningSetup({opening,onSave,lang}){
 function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,onDeleteEntry,onSetOpening,
   batches,silicaEntries,silicaSettings,silicaWithdrawals,flipOffSettings,flipOffWithdrawals,
   onSaveSilicaEntry,onDeleteSilicaEntry,onSaveSilicaSettings,onAddSilicaWithdrawal,onDeleteSilicaWithdrawal,
-  onSaveBatch,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal,onClose}){
+  onSaveBatch,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal,onToast,onClose}){
   const [showAdd,setShowAdd]=useState(false);
   const [showTransfer,setShowTransfer]=useState(false);
   const [tab,setTab]=useState("ledger");
@@ -1133,7 +1138,7 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
       {tab!=="sales"&&<CashOpeningSetup opening={cashOpening} onSave={onSetOpening} lang={lang}/>}
       {tab==="sales"&&<CommissionsView batches={batches} data={data} laborRates={laborRates}
         silicaEntries={silicaEntries} silicaSettings={silicaSettings} silicaWithdrawals={silicaWithdrawals}
-        flipOffSettings={flipOffSettings} flipOffWithdrawals={flipOffWithdrawals}
+        flipOffSettings={flipOffSettings} flipOffWithdrawals={flipOffWithdrawals} onToast={onToast}
         onSaveSilicaEntry={onSaveSilicaEntry} onDeleteSilicaEntry={onDeleteSilicaEntry} onSaveSilicaSettings={onSaveSilicaSettings}
         onAddSilicaWithdrawal={onAddSilicaWithdrawal} onDeleteSilicaWithdrawal={onDeleteSilicaWithdrawal}
         onSaveBatch={onSaveBatch} onSaveFlipOffSettings={onSaveFlipOffSettings}
@@ -1616,11 +1621,256 @@ function FlipOffCommissionTracker({batches,data,laborRates,settings,withdrawals,
     <ExcludedBatchesList batches={batches} forSilica={false} onSaveBatch={saveBatch} lang={lang}/>
   </div>);
 }
+// ══ EXCEL EXPORT — Sales Commission Tracker (xlsx) ═══════════════════════════
+// Rebuilds the real spreadsheet this feature was ported from — same title text, Doc
+// No., Settings/Summary formulas, table headers, column widths, freeze pane and
+// color convention ("white = you type, grey = automatic") — via ExcelJS in the
+// browser, but fills it with the live app's CURRENT data instead of the template's
+// sample rows. One workbook, four sheets (Silica Gel + Flip-Off, Tracker + Owner
+// Shares each). Every computed cell is a real Excel formula (not a baked-in number),
+// so the downloaded file keeps recalculating if edited by hand afterwards, exactly
+// like the original. ExcelJS is only pulled in (dynamic import) when this runs, so
+// the ~1MB library never loads for people who never click the button.
+const XLSX_NAVY="FF0A2342",XLSX_GREY="FFF2F2F2",XLSX_YELLOW="FFFFFF00",XLSX_WHITE="FFFFFFFF",XLSX_BLUE="FF0000FF",XLSX_BLACK="FF000000",XLSX_BORDERCLR="FFBFBFBF";
+const XLSX_FIRST_ROW=21,XLSX_LAST_ROW=220;
+const XLSX_MONEY_FMT="#,##0.00;\\(#,##0.00\\);\\-",XLSX_MONEY_FMT0="#,##0;\\(#,##0\\);\\-",XLSX_DATE_FMT="dd\\-mmm\\-yyyy",XLSX_PCT_FMT="0.0%";
+function xlsxBorder(){const side={style:"thin",color:{argb:XLSX_BORDERCLR}};return {top:side,bottom:side,left:side,right:side};}
+function xlsxTitleRow(ws,rowNum,text,lastCol){
+  ws.mergeCells(rowNum,1,rowNum,lastCol);
+  const c=ws.getCell(rowNum,1);
+  c.value=text;c.font={name:"Arial",bold:true,size:14,color:{argb:XLSX_WHITE}};
+  c.fill={type:"pattern",pattern:"solid",fgColor:{argb:XLSX_NAVY}};
+  c.alignment={horizontal:"center",vertical:"center"};
+  ws.getRow(rowNum).height=22;
+}
+function xlsxDocNoRow(ws,rowNum,text,lastCol){
+  ws.mergeCells(rowNum,1,rowNum,lastCol);
+  const c=ws.getCell(rowNum,1);c.value=text;c.font={name:"Arial",size:9,color:{argb:"FF666666"}};
+}
+function xlsxSectionLabel(ws,addr,text){
+  const c=ws.getCell(addr);c.value=text;c.font={name:"Arial",bold:true,size:11,color:{argb:XLSX_NAVY}};
+}
+function xlsxFieldLabel(ws,addr,text){
+  const c=ws.getCell(addr);c.value=text;c.font={name:"Arial",size:10,color:{argb:XLSX_BLACK}};c.alignment={vertical:"center"};
+}
+function xlsxInputCell(ws,addr,value,numFmt){
+  const c=ws.getCell(addr);c.value=value;
+  c.font={name:"Arial",bold:true,size:10,color:{argb:XLSX_BLACK}};
+  c.fill={type:"pattern",pattern:"solid",fgColor:{argb:XLSX_YELLOW}};
+  c.alignment={horizontal:"center",vertical:"center"};c.border=xlsxBorder();
+  if(numFmt)c.numFmt=numFmt;
+}
+function xlsxFormulaCell(ws,addr,formula,numFmt,align){
+  const c=ws.getCell(addr);c.value={formula:formula};
+  c.font={name:"Arial",bold:true,size:10,color:{argb:XLSX_BLACK}};
+  c.alignment={horizontal:align||"right",vertical:"center"};c.border=xlsxBorder();
+  if(numFmt)c.numFmt=numFmt;
+}
+function xlsxHeaderRow(ws,rowNum,headers){
+  headers.forEach((h,i)=>{
+    const c=ws.getCell(rowNum,i+1);c.value=h;
+    c.font={name:"Arial",bold:true,size:10,color:{argb:XLSX_WHITE}};
+    c.fill={type:"pattern",pattern:"solid",fgColor:{argb:XLSX_NAVY}};
+    c.alignment={horizontal:"center",vertical:"center",wrapText:true};
+    c.border=xlsxBorder();
+  });
+  ws.getRow(rowNum).height=30;
+}
+function xlsxNoteRow(ws,rowNum,text,lastCol){
+  ws.mergeCells(rowNum,1,rowNum,lastCol);
+  const c=ws.getCell(rowNum,1);c.value=text;c.font={name:"Arial",italic:true,size:9,color:{argb:"FF888888"}};
+}
+// forSilica: typed entries + auto batch rows, same eligibility/dedup as the Sales tab
+// (commissionRowsFromBatches/isCommissionEligibleBatch). Flip-Off has no typed entries
+// — every row there is auto, same as FlipOffCommissionTracker.
+function commissionTrackerRows(forSilica,batches,data,laborRates,silicaEntries){
+  const batchRow=b=>{
+    const fin=buildBatchCost(b,batches,data,laborRates);
+    return {date:b.dateShipped||null,client:b.client||"",product:b.product||"",size:"",qty:b.totalPcs||0,
+      totalSalesEGP:fin.revenueEGP,grossProfitEGP:fin.profitEGP,moneyReceived:!!b.moneyReceived,
+      commissionPaid:!!b.commissionPaid,datePaid:b.datePaidCommission||null};
+  };
+  let rows;
+  if(forSilica){
+    const linkedBatchIds={};(silicaEntries||[]).forEach(en=>{(en.batchIds||(en.batchId?[en.batchId]:[])).forEach(id=>{linkedBatchIds[id]=1;});});
+    const typed=(silicaEntries||[]).map(e=>({date:e.date||null,client:e.client||"",product:e.product||"",size:e.size||"",qty:e.qty||0,
+      totalSalesEGP:e.totalSalesEGP,grossProfitEGP:e.grossProfitEGP,moneyReceived:!!e.moneyReceived,commissionPaid:!!e.commissionPaid,datePaid:e.datePaid||null}));
+    rows=typed.concat((batches||[]).filter(b=>isCommissionEligibleBatch(b,true,linkedBatchIds)).map(batchRow));
+  }else{
+    rows=(batches||[]).filter(b=>isCommissionEligibleBatch(b,false)).map(batchRow);
+  }
+  return rows.sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+}
+function buildTrackerSheet(wb,sheetName,titleText,docNo,ownerSheetTitle,settings,rows){
+  const ws=wb.addWorksheet(sheetName,{views:[{state:"frozen",ySplit:20,zoomScale:82}]});
+  ws.columns=[{width:6.33},{width:31.83},{width:23.33},{width:14},{width:10},{width:13.33},
+    {width:25.83},{width:18.33},{width:17.5},{width:19.66},{width:18.33},{width:17.33},
+    {width:20},{width:18.33},{width:17.5},{width:15.33},{width:1.33}];
+  xlsxTitleRow(ws,1,titleText,17);
+  xlsxDocNoRow(ws,2,docNo,17);
+  xlsxSectionLabel(ws,"A4","SETTINGS");
+  xlsxFieldLabel(ws,"A5","Income Tax Rate (% of Gross Profit)");xlsxInputCell(ws,"C5",Number(settings.incomeTaxRate)||0,XLSX_PCT_FMT);
+  xlsxFieldLabel(ws,"A6","Commission Rate (% of Profit after Tax)");xlsxInputCell(ws,"C6",Number(settings.commissionRate)||0,XLSX_PCT_FMT);
+  xlsxFieldLabel(ws,"A7","Payment Terms (days after shipping)");xlsxInputCell(ws,"C7",Number(settings.paymentTermsDays)||0,"0");
+  xlsxSectionLabel(ws,"A8","SUMMARY (updates automatically)");
+  xlsxSectionLabel(ws,"F8",'OWNER PROFIT SHARES  →  see the "'+ownerSheetTitle+'" sheet');
+  xlsxFieldLabel(ws,"A9","Total Sales — all orders (EGP)");xlsxFormulaCell(ws,"C9","SUM(G21:G220)",XLSX_MONEY_FMT0);
+  xlsxFieldLabel(ws,"A10","Total Gross Profit — all orders (EGP)");xlsxFormulaCell(ws,"C10","SUM(H21:H220)",XLSX_MONEY_FMT0);
+  xlsxFieldLabel(ws,"A11","Overall Margin %");xlsxFormulaCell(ws,"C11","IFERROR(C10/C9,0)",XLSX_PCT_FMT);
+  xlsxSectionLabel(ws,"F11","MONEY RECEIVED & ACCOUNTS RECEIVABLE (updates automatically)");
+  xlsxFieldLabel(ws,"A12","Less: Income Tax on RECEIVED profit (EGP)");xlsxFormulaCell(ws,"C12",'SUMIF($J$21:$J$220,"Yes",$M$21:$M$220)',XLSX_MONEY_FMT0);
+  xlsxFieldLabel(ws,"F12","TOTAL MONEY RECEIVED (EGP)");xlsxFormulaCell(ws,"H12",'SUMIF($J$21:$J$220,"Yes",$G$21:$G$220)',XLSX_MONEY_FMT0);
+  xlsxFieldLabel(ws,"A13","NET PROFIT AFTER TAX — money received (EGP)");xlsxFormulaCell(ws,"C13",'SUMIF($J$21:$J$220,"Yes",$N$21:$N$220)',XLSX_MONEY_FMT0);
+  xlsxFieldLabel(ws,"F13","STILL OWED BY CLIENTS — RECEIVABLES (EGP)");xlsxFormulaCell(ws,"H13","SUM($L$21:$L$220)",XLSX_MONEY_FMT0);
+  xlsxFieldLabel(ws,"A14","COMMISSION DUE — on money received (EGP)");xlsxFormulaCell(ws,"C14","SUM(O21:O220)",XLSX_MONEY_FMT0);
+  xlsxFieldLabel(ws,"F14","of which OVERDUE (past "+(Number(settings.paymentTermsDays)||60)+" days)");xlsxFormulaCell(ws,"H14",'SUMIF($K$21:$K$220,"OVERDUE",$L$21:$L$220)',XLSX_MONEY_FMT0);
+  xlsxFieldLabel(ws,"A15","Commission Already Paid (EGP)");xlsxFormulaCell(ws,"C15",'SUMIF($P$21:$P$220,"Yes",$O$21:$O$220)',XLSX_MONEY_FMT0);
+  xlsxFieldLabel(ws,"F15","of which NOT YET DUE");xlsxFormulaCell(ws,"H15",'SUMIF($K$21:$K$220,"DUE LATER",$L$21:$L$220)',XLSX_MONEY_FMT0);
+  xlsxFieldLabel(ws,"A16","COMMISSION OUTSTANDING (EGP)");xlsxFormulaCell(ws,"C16","C14-C15",XLSX_MONEY_FMT0);
+  xlsxFieldLabel(ws,"F16","% of Sales Collected");xlsxFormulaCell(ws,"H16","IFERROR(H12/$C$9,0)",XLSX_PCT_FMT);
+  xlsxFieldLabel(ws,"F17","GROSS PROFIT ACTUALLY COLLECTED (EGP)");xlsxFormulaCell(ws,"H17",'SUMIF($J$21:$J$220,"Yes",$H$21:$H$220)',XLSX_MONEY_FMT0);
+  xlsxSectionLabel(ws,"A18","HOW TO USE");
+  xlsxNoteRow(ws,19,"White columns = you type. Grey = automatic. Money Expected On = Date Shipped + terms in C7.",17);
+  xlsxHeaderRow(ws,20,["No.","Date Shipped","Client","Product","Size","Qty (pcs)","Total Sales (EGP)","Gross Profit (EGP)",
+    "Money Expected On","Money Received?","Payment Status","Balance Owed (EGP)","Income Tax (EGP)",
+    "Net Profit after Tax (EGP)","Commission Due (EGP)","Commission Paid?","Date Paid"]);
+  const blueFont={name:"Arial",size:10,color:{argb:XLSX_BLUE}},blackFont={name:"Arial",size:10,color:{argb:XLSX_BLACK}},blackFontBold={name:"Arial",bold:true,size:10,color:{argb:XLSX_BLACK}};
+  for(let i=0;i<(XLSX_LAST_ROW-XLSX_FIRST_ROW+1);i++){
+    const r=XLSX_FIRST_ROW+i,row=rows[i]||null;
+    const put=(col,value,font,fill,numFmt,align)=>{
+      const c=ws.getCell(r,col);
+      if(value!==undefined)c.value=value;
+      c.font=font;c.fill={type:"pattern",pattern:"solid",fgColor:{argb:fill}};
+      c.border=xlsxBorder();if(numFmt)c.numFmt=numFmt;if(align)c.alignment=align;
+    };
+    put(2,row&&row.date?new Date(row.date+"T00:00:00"):undefined,blueFont,XLSX_WHITE,XLSX_DATE_FMT,{horizontal:"center"});
+    put(3,row?row.client:undefined,blueFont,XLSX_WHITE,null,{horizontal:"left"});
+    put(4,row?row.product:undefined,blueFont,XLSX_WHITE,null,{horizontal:"left"});
+    put(5,row?row.size:undefined,blueFont,XLSX_WHITE,null,{horizontal:"center"});
+    put(6,row?row.qty:undefined,blueFont,XLSX_WHITE,"#,##0",{horizontal:"center"});
+    put(7,row?row.totalSalesEGP:undefined,blueFont,XLSX_WHITE,XLSX_MONEY_FMT,{horizontal:"right"});
+    put(8,row?row.grossProfitEGP:undefined,blueFont,XLSX_WHITE,XLSX_MONEY_FMT,{horizontal:"right"});
+    put(10,row?(row.moneyReceived?"Yes":"No"):undefined,blueFont,XLSX_WHITE,null,{horizontal:"center"});
+    put(16,row?(row.commissionPaid?"Yes":"No"):undefined,blueFont,XLSX_WHITE,null,{horizontal:"center"});
+    put(17,row&&row.datePaid?new Date(row.datePaid+"T00:00:00"):undefined,blueFont,XLSX_WHITE,XLSX_DATE_FMT,{horizontal:"center"});
+    put(1,{formula:'IF(C'+r+'="","",ROW()-20)'},blackFontBold,XLSX_GREY,null,{horizontal:"center"});
+    put(9,{formula:'IF(OR(C'+r+'="",B'+r+'=""),"",B'+r+'+$C$7)'},blackFont,XLSX_GREY,XLSX_DATE_FMT,{horizontal:"center"});
+    put(11,{formula:'IF(C'+r+'="","",IF(J'+r+'="Yes","RECEIVED",IF(B'+r+'="","NEED SHIP DATE",IF(TODAY()>I'+r+',"OVERDUE","DUE LATER"))))'},blackFontBold,XLSX_GREY,null,{horizontal:"center"});
+    put(12,{formula:'IF(C'+r+'="","",IF(J'+r+'="Yes",0,G'+r+'))'},blackFont,XLSX_GREY,XLSX_MONEY_FMT,{horizontal:"right"});
+    put(13,{formula:'IF(H'+r+'="","",H'+r+'*$C$5)'},blackFont,XLSX_GREY,XLSX_MONEY_FMT,{horizontal:"right"});
+    put(14,{formula:'IF(H'+r+'="","",H'+r+'-M'+r+')'},blackFont,XLSX_GREY,XLSX_MONEY_FMT,{horizontal:"right"});
+    put(15,{formula:'IF(C'+r+'="","",IF(J'+r+'="Yes",N'+r+'*$C$6,0))'},blackFont,XLSX_GREY,XLSX_MONEY_FMT,{horizontal:"right"});
+  }
+  return ws;
+}
+function xlsxShareFormula(share){
+  if(Math.abs(share-0.5)<1e-9)return "0.5";
+  if(Math.abs(share-1/3)<1e-9)return "1/3";
+  return String(share);
+}
+function buildOwnerSharesSheet(wb,sheetName,titleText,docNo,trackerSheetName,owners,withdrawals){
+  const ws=wb.addWorksheet(sheetName,{views:[{state:"frozen",ySplit:20,zoomScale:82}]});
+  ws.columns=[{width:6.33},{width:14},{width:18},{width:20},{width:16},{width:28},{width:28},{width:30}];
+  xlsxTitleRow(ws,1,titleText,8);
+  xlsxDocNoRow(ws,2,docNo,8);
+  xlsxSectionLabel(ws,"A4","PROFIT POOL — ONLY MONEY ACTUALLY RECEIVED");
+  xlsxFieldLabel(ws,"A5","Net Profit after Tax — received (EGP)");xlsxFormulaCell(ws,"C5","'"+trackerSheetName+"'!C13",XLSX_MONEY_FMT0);
+  xlsxFieldLabel(ws,"A6","Less: Commission Due — received (EGP)");xlsxFormulaCell(ws,"C6","-'"+trackerSheetName+"'!C14",XLSX_MONEY_FMT0);
+  xlsxFieldLabel(ws,"A7","DISTRIBUTABLE PROFIT (EGP)");xlsxFormulaCell(ws,"C7","C5+C6",XLSX_MONEY_FMT0);
+  xlsxSectionLabel(ws,"A9","OWNER SHARES (updates automatically from the log below)");
+  xlsxHeaderRow(ws,10,["Owner","Share %","Share of Profit (EGP)","Total Withdrawn (EGP)","Balance Due (EGP)","Fully Paid?"]);
+  const blackFont={name:"Arial",size:10,color:{argb:XLSX_BLACK}},blackFontBold={name:"Arial",bold:true,size:10,color:{argb:XLSX_BLACK}};
+  const firstOwnerRow=11,lastOwnerRow=10+owners.length;
+  owners.forEach((o,idx)=>{
+    const r=firstOwnerRow+idx;
+    const put=(col,value,numFmt,align,bold)=>{
+      const c=ws.getCell(r,col);c.value=value;c.font=bold?blackFontBold:blackFont;c.border=xlsxBorder();
+      if(numFmt)c.numFmt=numFmt;c.alignment={horizontal:align};
+    };
+    put(1,o.name,null,"left");
+    put(2,{formula:xlsxShareFormula(o.share)},XLSX_PCT_FMT,"center");
+    put(3,{formula:"$C$7*B"+r},XLSX_MONEY_FMT0,"right");
+    put(4,{formula:"SUMIF($C$21:$C$220,$A"+r+",$D$21:$D$220)"},XLSX_MONEY_FMT0,"right");
+    put(5,{formula:"C"+r+"-D"+r},XLSX_MONEY_FMT0,"right");
+    put(6,{formula:'IF(E'+r+'<=0,"Yes","No")'},null,"center",true);
+  });
+  const totalRow=lastOwnerRow+1;
+  const totalLabel=ws.getCell(totalRow,1);totalLabel.value="TOTAL";totalLabel.font=blackFontBold;totalLabel.border=xlsxBorder();
+  ["B","C","D","E"].forEach(col=>{
+    const c=ws.getCell(col+totalRow);
+    c.value={formula:"SUM("+col+firstOwnerRow+":"+col+lastOwnerRow+")"};
+    c.font=blackFontBold;c.border=xlsxBorder();c.numFmt=col==="B"?XLSX_PCT_FMT:XLSX_MONEY_FMT0;c.alignment={horizontal:"right"};
+  });
+  xlsxSectionLabel(ws,"A16","WITHDRAWALS / PAYMENTS LOG");
+  xlsxNoteRow(ws,17,"Type one line every time an owner takes money. Only the WHITE columns are typed in: Date, Owner, Amount, Method, Notes. Rows are pre-formatted down to row 220 — just keep adding underneath; the table above updates itself.",8);
+  xlsxHeaderRow(ws,20,["No.","Date","Owner","Amount Taken (EGP)","Method","Running Total for Owner (EGP)","Balance Left for Owner (EGP)","Notes"]);
+  const blueFont={name:"Arial",size:10,color:{argb:XLSX_BLUE}};
+  for(let i=0;i<(XLSX_LAST_ROW-XLSX_FIRST_ROW+1);i++){
+    const r=XLSX_FIRST_ROW+i,w=(withdrawals||[])[i]||null;
+    const put=(col,value,font,fill,numFmt,align)=>{
+      const c=ws.getCell(r,col);
+      if(value!==undefined)c.value=value;
+      c.font=font;c.fill={type:"pattern",pattern:"solid",fgColor:{argb:fill}};
+      c.border=xlsxBorder();if(numFmt)c.numFmt=numFmt;if(align)c.alignment=align;
+    };
+    put(2,w&&w.date?new Date(w.date+"T00:00:00"):undefined,blueFont,XLSX_WHITE,XLSX_DATE_FMT,{horizontal:"center"});
+    put(3,w?w.owner:undefined,blueFont,XLSX_WHITE,null,{horizontal:"left"});
+    put(4,w?w.amountEGP:undefined,blueFont,XLSX_WHITE,XLSX_MONEY_FMT0,{horizontal:"right"});
+    put(5,w?w.method:undefined,blueFont,XLSX_WHITE,null,{horizontal:"left"});
+    put(8,w?w.notes:undefined,blueFont,XLSX_WHITE,null,{horizontal:"left"});
+    put(1,{formula:'IF(C'+r+'="","",COUNTA($C$21:C'+r+'))'},blackFont,XLSX_GREY,null,{horizontal:"center"});
+    put(6,{formula:'IF(C'+r+'="","",SUMIF($C$21:$C'+r+',C'+r+',$D$21:$D'+r+'))'},blackFont,XLSX_GREY,XLSX_MONEY_FMT0,{horizontal:"right"});
+    put(7,{formula:'IF(C'+r+'="","",IFERROR(VLOOKUP(C'+r+',$A$'+firstOwnerRow+':$C$'+lastOwnerRow+',3,FALSE)-F'+r+',"?"))'},blackFont,XLSX_GREY,XLSX_MONEY_FMT0,{horizontal:"right"});
+  }
+  return ws;
+}
+async function generateCommissionExcel(ctx){
+  const ExcelJS=(await import("exceljs")).default;
+  const wb=new ExcelJS.Workbook();
+  wb.creator="East Pharmaceutical Services";wb.created=new Date();
+  const silicaRows=commissionTrackerRows(true,ctx.batches,ctx.data,ctx.laborRates,ctx.silicaEntries);
+  const flipRows=commissionTrackerRows(false,ctx.batches,ctx.data,ctx.laborRates,null);
+  buildTrackerSheet(wb,"Silica Gel Tracker","EAST PHARMACEUTICAL SERVICES  —  SALES COMMISSION TRACKER",
+    "Doc No.: EPS-FIN-COM-001  |  Version: 04","Silica Gel Owner Shares",ctx.silicaSettings,silicaRows);
+  buildOwnerSharesSheet(wb,"Silica Gel Owner Shares","EAST PHARMACEUTICAL SERVICES  —  OWNER PROFIT SHARES & WITHDRAWALS",
+    "Doc No.: EPS-FIN-OWN-001    |    Version: 01    |    Linked to the Commission Tracker sheet","Silica Gel Tracker",
+    COMMISSION_OWNERS_SILICA,ctx.silicaWithdrawals);
+  buildTrackerSheet(wb,"Flip-Off Tracker","EAST PHARMACEUTICAL SERVICES  —  FLIP-OFF SALES COMMISSION TRACKER",
+    "Doc No.: EPS-FIN-COM-002  |  Version: 01  |  Product line: Flip-Off","Flip-Off Owner Shares",ctx.flipOffSettings,flipRows);
+  buildOwnerSharesSheet(wb,"Flip-Off Owner Shares","EAST PHARMACEUTICAL SERVICES  —  FLIP-OFF OWNER PROFIT SHARES & WITHDRAWALS",
+    "Doc No.: EPS-FIN-OWN-002  |  Version: 01  |  Linked to the Flip-Off Tracker sheet","Flip-Off Tracker",
+    COMMISSION_OWNERS_FLIPOFF,ctx.flipOffWithdrawals);
+  const buf=await wb.xlsx.writeBuffer();
+  const blob=new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;a.download="EPS-Sales-Commission-Report-"+new Date().toISOString().slice(0,10)+".xlsx";
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function GenerateExcelButton({batches,data,laborRates,silicaEntries,silicaSettings,silicaWithdrawals,flipOffSettings,flipOffWithdrawals,onToast,lang}){
+  const [busy,setBusy]=useState(false);
+  const click=async()=>{
+    setBusy(true);
+    try{
+      await generateCommissionExcel({batches,data,laborRates,silicaEntries,silicaSettings,silicaWithdrawals,flipOffSettings,flipOffWithdrawals});
+      if(onToast)onToast(ft(lang,"excelGeneratedToast"));
+    }catch(e){console.error("Excel export failed",e);if(onToast)onToast("⚠️ "+(e&&e.message?e.message:"Excel export failed"),"error");}
+    setBusy(false);
+  };
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
+    <button type="button" onClick={click} disabled={busy} style={{width:"100%",padding:13,background:busy?"#999":"#1A7A45",color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:14,cursor:busy?"default":"pointer"}}>
+      {busy?ft(lang,"generatingExcelBtn"):ft(lang,"generateExcelBtn")}</button>
+    <div style={{fontSize:11,color:"#888",marginTop:8}}>{ft(lang,"generateExcelDesc")}</div>
+  </div>);
+}
 function CommissionsView({batches,data,laborRates,silicaEntries,silicaSettings,silicaWithdrawals,flipOffSettings,flipOffWithdrawals,
   onSaveSilicaEntry,onDeleteSilicaEntry,onSaveSilicaSettings,onAddSilicaWithdrawal,onDeleteSilicaWithdrawal,
-  onSaveBatch,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal,onSaveCashEntry,onDeleteCashEntry,lang}){
+  onSaveBatch,onSaveFlipOffSettings,onAddFlipOffWithdrawal,onDeleteFlipOffWithdrawal,onSaveCashEntry,onDeleteCashEntry,onToast,lang}){
   const [line,setLine]=useState("silica");
   return(<div>
+    <GenerateExcelButton batches={batches} data={data} laborRates={laborRates} silicaEntries={silicaEntries} silicaSettings={silicaSettings}
+      silicaWithdrawals={silicaWithdrawals} flipOffSettings={flipOffSettings} flipOffWithdrawals={flipOffWithdrawals} onToast={onToast} lang={lang}/>
     <div style={{display:"flex",gap:8,marginBottom:14}}>
       {[["silica","🟡","Silica Gel"],["flipoff","🔘","Flip-Off"]].map(x=>(
         <button type="button" key={x[0]} onClick={()=>setLine(x[0])}
@@ -5668,7 +5918,7 @@ export default function EpsInventoryApp(){
     onAddSilicaWithdrawal={addSilicaOwnerWithdrawal} onDeleteSilicaWithdrawal={deleteSilicaOwnerWithdrawal}
     onSaveBatch={updateBatch} onSaveFlipOffSettings={saveFlipOffCommissionSettings}
     onAddFlipOffWithdrawal={addFlipOffOwnerWithdrawal} onDeleteFlipOffWithdrawal={deleteFlipOffOwnerWithdrawal}
-    onClose={()=>setSection("inventory")}/>;
+    onToast={showToast} onClose={()=>setSection("inventory")}/>;
   else if(section==="production")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
     <ProductionSection data={data} batches={batches} orders={orders} employees={employees} onCreateBatch={createBatch} onUpdateBatch={updateBatch} onDeleteBatch={deleteBatch} onApplyAluminum={applyAluminum} onApplyPlastic={applyPlastic} onApplyMaterial={applyMaterialQty} onDeleteSub={deleteSub} onSaveLeftover={lot=>addLot("WIP Inventory",lot)} onMarkUnpricedSamples={markUnpricedAsSamples}/></div>;
   else if(section==="orders")content=<div style={{maxWidth:700,margin:"0 auto",padding:16,fontFamily:"'Inter',sans-serif"}}>
