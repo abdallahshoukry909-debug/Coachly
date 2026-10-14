@@ -2042,6 +2042,120 @@ function computeShiftMaterials(shifts){
   });
   return {virginBags:virginBags,regrindKg:regrindKg,totalPlasticKg:totalPlasticKg,alPcs:alPcs,alLots:alLots};
 }
+function batchNoMap(batches){const m={};(batches||[]).forEach(b=>{if(!b.isSubBatch)m[b.batchNo]=b;});return m;}
+// Plastic material efficiency: bags of plastic IN (→ KG) vs pieces OUT, checked two different
+// ways — the mold's own math (cavities × injections, already saved per shift as
+// theoreticalPcs) and the harder ceiling material itself sets (bag weight, minus the sprue/
+// runner waste every shot throws away, ÷ cap weight — no mold setting can beat this one).
+// "Pieces out" is acceptedPcs+rejectedPcs from Plastic Sorting (everything that actually came
+// off the line, before rejects are thrown out), so a shift burning plastic shows up whether the
+// cause is loose mold settings or real waste on the sorting table.
+function computePlasticEfficiency(shifts){
+  let bags=0,injections=0,cavityPcsTotal=0,sprueG=0,capWtSum=0,capWtCount=0,acceptedPcs=0,rejectedPcs=0;
+  shifts.forEach(s=>{
+    if(!s.injections)return;
+    const capWt=Number(s.capWt)||CAP_WT,wastePerInj=s.wastePerInj!=null?Number(s.wastePerInj):WASTE_PER_INJ;
+    bags+=(Number(s.virginBags)||0)+(Number(s.virginBags2)||0);
+    injections+=Number(s.injections)||0;
+    cavityPcsTotal+=Number(s.theoreticalPcs)||(Number(s.injections)||0)*(Number(s.cavities)||PCS_INJ);
+    sprueG+=(Number(s.injections)||0)*wastePerInj;
+    capWtSum+=capWt;capWtCount+=1;
+  });
+  shifts.forEach(s=>{
+    if(s.acceptedPcs!=null)acceptedPcs+=Number(s.acceptedPcs)||0;
+    if(s.rejectedPcs!=null)rejectedPcs+=Number(s.rejectedPcs)||0;
+  });
+  const avgCapWt=capWtCount>0?capWtSum/capWtCount:CAP_WT;
+  const kgIn=bags*PLASTIC_BAG_KG;
+  const maxPcsFromWeight=avgCapWt>0?Math.max(0,Math.round((kgIn*1000-sprueG)/avgCapWt)):0;
+  const totalProducedPcs=acceptedPcs+rejectedPcs;
+  return {bags:bags,kgIn:kgIn,injections:injections,cavityPcsTotal:cavityPcsTotal,maxPcsFromWeight:maxPcsFromWeight,
+    acceptedPcs:acceptedPcs,rejectedPcs:rejectedPcs,totalProducedPcs:totalProducedPcs,
+    pcsPerBag:bags>0?Math.round(totalProducedPcs/bags):null,
+    effVsWeight:maxPcsFromWeight>0?totalProducedPcs/maxPcsFromWeight*100:null,
+    effVsCavities:cavityPcsTotal>0?totalProducedPcs/cavityPcsTotal*100:null,
+    rejectRate:totalProducedPcs>0?rejectedPcs/totalProducedPcs*100:null};
+}
+// The one aluminum number that DOES tie to a specific batch/order: caps fed into Assembly
+// (aluminumPcsIn) vs pieces assembled (assembledPcs). delta>0 is loss (caps went in, fewer good
+// pieces came out — damage/drops during assembly); delta<0 is a "gained" anomaly — more pieces
+// out than caps in is impossible under normal 1-cap-per-piece assembly, so it's flagged as a
+// likely data-entry or weighing error rather than hidden.
+function computeAssemblyAluminum(shifts){
+  let pcsIn=0,pcsOut=0;
+  shifts.forEach(s=>{if(s.aluminumPcsIn!=null||s.assembledPcs!=null){pcsIn+=Number(s.aluminumPcsIn)||0;pcsOut+=Number(s.assembledPcs)||0;}});
+  const delta=pcsIn-pcsOut;
+  return {pcsIn:pcsIn,pcsOut:pcsOut,delta:delta,lossPct:pcsIn>0?delta/pcsIn*100:null};
+}
+// Raw coil → caps "stamping" is an inventory action tied to a coil, not to any order (one coil
+// routinely feeds many orders), so it's only reported by month, straight off the Aluminum Caps
+// lots created that month — not from any batch's shifts. weightTaken isn't stored on the caps
+// lot itself; it's recovered from the "Stamped into <lotNumber>" usageLog entry createAlBatch
+// writes on the source coil (same lookup deriveCapsCost already relies on as its cost fallback).
+// A lot from before this report existed has no such usageLog match if its coil was later
+// deleted — estimated back from scrapKg at the default 27.4% rate in that case, flagged as such.
+function stampingWeightTakenKg(lot,coilLots){
+  for(let i=0;i<(coilLots||[]).length;i++){
+    const entry=(coilLots[i].usageLog||[]).filter(e=>(e.reason||"").indexOf("Stamped into "+lot.lotNumber)===0)[0];
+    if(entry)return {kg:Math.abs(Number(entry.qtyUsed))||0,isEstimate:false};
+  }
+  return {kg:lot.scrapKg?Number(lot.scrapKg)/0.274:0,isEstimate:true};
+}
+function computeAluminumStampingInMonth(data,monthKey){
+  const capsLots=(data["Aluminum Caps"]&&data["Aluminum Caps"].lots)||[];
+  const coilLots=(data["Aluminum Coils"]&&data["Aluminum Coils"].lots)||[];
+  const events=capsLots.filter(l=>monthKeyOf(l.dateISO||l.date)===monthKey).map(l=>{
+    const wt=stampingWeightTakenKg(l,coilLots);
+    const capsReceivedPcs=capsLotTotalPcs(l),scrapKg=Number(l.scrapKg)||0;
+    return {lotNumber:l.lotNumber,date:l.date,sourceCoilLotNo:l.sourceCoilLotNo,weightTakenKg:wt.kg,isEstimate:wt.isEstimate,
+      capsReceivedPcs:capsReceivedPcs,scrapKg:scrapKg,scrapRatePct:wt.kg>0?scrapKg/wt.kg*100:null};
+  });
+  const totals=events.reduce((a,e)=>({weightTakenKg:a.weightTakenKg+e.weightTakenKg,capsReceivedPcs:a.capsReceivedPcs+e.capsReceivedPcs,scrapKg:a.scrapKg+e.scrapKg}),
+    {weightTakenKg:0,capsReceivedPcs:0,scrapKg:0});
+  return {events:events,totals:totals};
+}
+// Silica Gel waste = the theoretical sachets that silica KG used could have made at this order's
+// sachet size (batch.color, e.g. "10g") minus what the shift's machine counter actually read
+// (goodPcs) — the same math the owner already does by hand, now run for him. Grouped by machine
+// too (Machine 1/2 already live on every shift) since that's a free breakdown, not a new field.
+function sachetWeightG(batchColor){const n=parseFloat(batchColor);return n>0?n:null;}
+function computeSilicaEfficiency(shifts,batchByNo){
+  const perMachine={};
+  let silicaKgTotal=0,theoreticalPcsTotal=0,actualPcsTotal=0,rollsTotal=0,hasTheoretical=false;
+  shifts.forEach(s=>{
+    const parent=batchByNo?batchByNo[s.parentBatchNo]:null;
+    const wtG=parent?sachetWeightG(parent.color):null;
+    const kg=Number(s.silicaKg)||0,actual=Number(s.goodPcs)||0;
+    const theo=wtG?Math.round(kg*1000/wtG):null;
+    silicaKgTotal+=kg;actualPcsTotal+=actual;rollsTotal+=Number(s.rollsUsed)||0;
+    if(theo!=null){theoreticalPcsTotal+=theo;hasTheoretical=true;}
+    const m=s.machine||"Unspecified";
+    if(!perMachine[m])perMachine[m]={machine:m,shifts:0,silicaKg:0,theoreticalPcs:0,actualPcs:0,hasTheoretical:false};
+    perMachine[m].shifts+=1;perMachine[m].silicaKg+=kg;perMachine[m].actualPcs+=actual;
+    if(theo!=null){perMachine[m].theoreticalPcs+=theo;perMachine[m].hasTheoretical=true;}
+  });
+  return {silicaKgTotal:silicaKgTotal,rollsTotal:rollsTotal,theoreticalPcsTotal:hasTheoretical?theoreticalPcsTotal:null,actualPcsTotal:actualPcsTotal,
+    wastedPcs:hasTheoretical?theoreticalPcsTotal-actualPcsTotal:null,
+    efficiencyPct:hasTheoretical&&theoreticalPcsTotal>0?actualPcsTotal/theoreticalPcsTotal*100:null,
+    byMachine:Object.values(perMachine).map(m=>Object.assign({},m,{theoreticalPcs:m.hasTheoretical?m.theoreticalPcs:null,
+      efficiencyPct:m.hasTheoretical&&m.theoreticalPcs>0?m.actualPcs/m.theoreticalPcs*100:null}))};
+}
+// Same aggregation as sorterStats (the Employees tab's lifetime leaderboard), but scoped to
+// whichever shift list a report already narrowed to (one batch, one order, one month) — "was
+// this operator's reject rate good on THIS report," not "ever."
+function scopedSorterStats(field,shifts){
+  const map={};
+  (shifts||[]).forEach(b=>{
+    (b[field]||[]).forEach(s=>{
+      if(!s.employeeId)return;
+      if(!map[s.employeeId])map[s.employeeId]={employeeId:s.employeeId,name:s.name,acceptedPcs:0,rejectedPcs:0,shifts:0};
+      map[s.employeeId].acceptedPcs+=Number(s.acceptedPcs)||0;map[s.employeeId].rejectedPcs+=Number(s.rejectedPcs)||0;
+      map[s.employeeId].shifts+=1;map[s.employeeId].name=s.name||map[s.employeeId].name;
+    });
+  });
+  return Object.values(map).map(r=>Object.assign({},r,{rejectRate:(r.acceptedPcs+r.rejectedPcs)>0?r.rejectedPcs/(r.acceptedPcs+r.rejectedPcs)*100:null}))
+    .sort((a,b)=>(b.rejectRate||0)-(a.rejectRate||0));
+}
 function computeProduction(topBatch,shifts){
   const goodPcs=shifts.reduce((s,x)=>s+(x.goodPcs||0),0);
   const target=topBatch.totalPcs||0;
@@ -2049,17 +2163,25 @@ function computeProduction(topBatch,shifts){
 }
 function buildBatchReport(topBatch,allBatches){
   const shifts=allBatches.filter(b=>b.isSubBatch&&b.parentBatchNo===topBatch.batchNo);
+  const isSilica=isSilicaProduct(topBatch.product);
   return {batch:topBatch,shifts:shifts,production:computeProduction(topBatch,shifts),materials:computeShiftMaterials(shifts),
-    waste:computeWaste(shifts),workers:computeWorkerStats(shifts),carryovers:shifts.filter(s=>s.isCarryover)};
+    waste:computeWaste(shifts),workers:computeWorkerStats(shifts),carryovers:shifts.filter(s=>s.isCarryover),
+    plastic:isSilica?null:computePlasticEfficiency(shifts),assemblyAluminum:isSilica?null:computeAssemblyAluminum(shifts),
+    silica:isSilica?computeSilicaEfficiency(shifts,{[topBatch.batchNo]:topBatch}):null,
+    plasticSortingStats:isSilica?[]:scopedSorterStats("plasticSorters",shifts),finalSortingStats:scopedSorterStats("finalSorters",shifts)};
 }
 function buildOrderReport(order,allBatches){
   const linked=allBatches.filter(b=>!b.isSubBatch&&b.orderNo===order.orderNo);
   const batchReports=linked.map(b=>buildBatchReport(b,allBatches));
   const allShifts=[].concat(...batchReports.map(r=>r.shifts));
   const goodPcs=batchReports.reduce((s,r)=>s+r.production.goodPcs,0);
+  const isSilica=isSilicaProduct(order.product);
   return {order:order,batches:batchReports,
     production:{goodPcs:goodPcs,target:order.targetQty||0,pct:order.targetQty?Math.min(100,Math.round(goodPcs/order.targetQty*100)):null,batchCount:linked.length},
-    materials:computeShiftMaterials(allShifts),waste:computeWaste(allShifts),workers:computeWorkerStats(allShifts)};
+    materials:computeShiftMaterials(allShifts),waste:computeWaste(allShifts),workers:computeWorkerStats(allShifts),
+    plastic:isSilica?null:computePlasticEfficiency(allShifts),assemblyAluminum:isSilica?null:computeAssemblyAluminum(allShifts),
+    silica:isSilica?computeSilicaEfficiency(allShifts,batchNoMap(linked)):null,
+    plasticSortingStats:isSilica?[]:scopedSorterStats("plasticSorters",allShifts),finalSortingStats:scopedSorterStats("finalSorters",allShifts)};
 }
 function buildMonthlyReport(data,batches,orders,monthKey){
   const inMonth=d=>monthKeyOf(d)===monthKey;
@@ -2067,10 +2189,17 @@ function buildMonthlyReport(data,batches,orders,monthKey){
   const shiftsInMonth=batches.filter(b=>b.isSubBatch&&inMonth(b.mfgDate));
   const byProduct={};
   mainBatches.forEach(b=>{byProduct[b.product]=(byProduct[b.product]||0)+(b.totalPcs||0);});
+  const allBatchByNo=batchNoMap(batches);
+  const flipOffShifts=shiftsInMonth.filter(s=>{const p=allBatchByNo[s.parentBatchNo];return p&&!isSilicaProduct(p.product);});
+  const silicaShifts=shiftsInMonth.filter(s=>{const p=allBatchByNo[s.parentBatchNo];return p&&isSilicaProduct(p.product);});
   return {monthKey:monthKey,batches:mainBatches,byProduct:byProduct,
     goodPcs:shiftsInMonth.reduce((s,x)=>s+(x.goodPcs||0),0),
     materials:materialUsageInMonth(data,monthKey),waste:computeWaste(shiftsInMonth),workers:computeWorkerStats(shiftsInMonth),
-    orders:orders.filter(o=>batches.some(b=>!b.isSubBatch&&b.orderNo===o.orderNo&&inMonth(b.mfgDate)))};
+    orders:orders.filter(o=>batches.some(b=>!b.isSubBatch&&b.orderNo===o.orderNo&&inMonth(b.mfgDate))),
+    plastic:computePlasticEfficiency(flipOffShifts),assemblyAluminum:computeAssemblyAluminum(flipOffShifts),
+    aluminumStamping:computeAluminumStampingInMonth(data,monthKey),
+    silica:computeSilicaEfficiency(silicaShifts,allBatchByNo),
+    plasticSortingStats:scopedSorterStats("plasticSorters",flipOffShifts),finalSortingStats:scopedSorterStats("finalSorters",shiftsInMonth)};
 }
 
 // ══ FINANCE — pure computation helpers ═══════════════════════════════════
@@ -4637,6 +4766,87 @@ function WasteBlock({waste}){
     {wastePct!=null&&<div style={{fontSize:12,color:"#666",marginTop:10}}>Plastic waste: <strong>{wastePct.toFixed(1)}%</strong> of total plastic input ({fmt(waste.totalPlasticInKg)} KG)</div>}
   </div>);
 }
+// Green/amber/red read on an efficiency or (inverted) reject-rate percentage — shared by every
+// block below so "is this good or bad" never needs a separate legend.
+function effColor(pct,goodAt,warnAt){if(pct==null)return "#888";return pct>=goodAt?"#1A6B2A":pct>=warnAt?"#856404":"#DC3545";}
+function PlasticEfficiencyBlock({plastic}){
+  if(!plastic||(plastic.bags===0&&plastic.totalProducedPcs===0))return <div style={{color:"#888",fontSize:12}}>No Injection shifts in this period.</div>;
+  return(<div>
+    <StatRow items={[["Plastic In",fmtN(plastic.bags)+" bags ("+fmt(plastic.kgIn)+" KG)"],
+      ["Produced (before rejects)",fmtN(plastic.totalProducedPcs)+" pcs"],
+      ["Pcs per Bag",plastic.pcsPerBag!=null?fmtN(plastic.pcsPerBag):"—"],
+      ["Rejected",fmtN(plastic.rejectedPcs)+" pcs",plastic.rejectRate>10?"#DC3545":undefined]]}/>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:10}}>
+      <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}>
+        <div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Max Possible from Material</div>
+        <div style={{fontSize:12,color:"#555",marginTop:2}}>{fmtN(plastic.maxPcsFromWeight)} pcs (bag weight ÷ cap weight, after sprue waste)</div>
+        <div style={{fontSize:15,fontWeight:900,marginTop:4,color:effColor(plastic.effVsWeight,90,80)}}>{plastic.effVsWeight!=null?plastic.effVsWeight.toFixed(1)+"% achieved":"—"}</div></div>
+      <div style={{background:"#F7F9FC",borderRadius:8,padding:"10px 12px"}}>
+        <div style={{fontSize:10,color:"#999",fontWeight:700,textTransform:"uppercase"}}>Max Possible from Mold (Cavities × Injections)</div>
+        <div style={{fontSize:12,color:"#555",marginTop:2}}>{fmtN(plastic.cavityPcsTotal)} pcs ({fmtN(plastic.injections)} injections)</div>
+        <div style={{fontSize:15,fontWeight:900,marginTop:4,color:effColor(plastic.effVsCavities,90,80)}}>{plastic.effVsCavities!=null?plastic.effVsCavities.toFixed(1)+"% achieved":"—"}</div></div>
+    </div>
+    {plastic.rejectRate!=null&&<div style={{fontSize:12,color:"#666",marginTop:10}}>Reject rate: <strong style={{color:effColor(100-plastic.rejectRate,90,80)}}>{plastic.rejectRate.toFixed(1)}%</strong> of pieces made this period</div>}
+    {plastic.effVsWeight!=null&&plastic.effVsWeight<80&&<div style={{marginTop:8,background:"#FDF0F0",border:"1px solid #F1948A",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#8B1A1A",fontWeight:600}}>⚠️ Output is more than 20% below what this much plastic should make — check for waste.</div>}
+  </div>);
+}
+function AssemblyAluminumBlock({agg}){
+  if(!agg||(agg.pcsIn===0&&agg.pcsOut===0))return <div style={{color:"#888",fontSize:12}}>No Assembly shifts in this period.</div>;
+  const isGain=agg.delta<0;
+  return(<div>
+    <StatRow items={[["Caps Fed In",fmtN(agg.pcsIn)+" pcs"],["Assembled",fmtN(agg.pcsOut)+" pcs"],
+      [isGain?"Gained (check data)":"Lost in Assembly",fmtN(Math.abs(agg.delta))+" pcs",isGain?"#856404":(agg.lossPct>5?"#DC3545":"#1A6B2A")]]}/>
+    {agg.lossPct!=null&&<div style={{fontSize:12,color:"#666",marginTop:8}}>{isGain?"More assembled than caps fed in — ":""}{Math.abs(agg.lossPct).toFixed(1)}% {isGain?"over":"loss"} vs. caps fed in.</div>}
+  </div>);
+}
+function SilicaEfficiencyBlock({silica}){
+  if(!silica||silica.silicaKgTotal===0)return <div style={{color:"#888",fontSize:12}}>No Silica Gel shifts in this period.</div>;
+  return(<div>
+    <StatRow items={[["Silica Gel Used",fmt(silica.silicaKgTotal)+" KG"],["Rolls Used",fmtN(silica.rollsTotal)],
+      ["Produced (machine reading)",fmtN(silica.actualPcsTotal)+" pcs"],
+      ["Theoretical Max",silica.theoreticalPcsTotal!=null?fmtN(silica.theoreticalPcsTotal)+" pcs":"— (set sachet size on the order)"]]}/>
+    {silica.efficiencyPct!=null&&<div style={{marginTop:10}}>
+      <div style={{fontSize:15,fontWeight:900,color:effColor(silica.efficiencyPct,95,85)}}>{silica.efficiencyPct.toFixed(1)}% of theoretical max</div>
+      <div style={{fontSize:12,color:"#666",marginTop:2}}>{silica.wastedPcs>=0?fmtN(silica.wastedPcs)+" pcs short of theoretical (wasted silica gel)":fmtN(-silica.wastedPcs)+" pcs over theoretical — check sachet size/weight"}</div>
+      {silica.efficiencyPct<85&&<div style={{marginTop:8,background:"#FDF0F0",border:"1px solid #F1948A",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#8B1A1A",fontWeight:600}}>⚠️ More than 15% below theoretical — check for waste.</div>}
+    </div>}
+    {silica.byMachine.length>1&&<table style={{width:"100%",borderCollapse:"collapse",fontSize:12,marginTop:12}}>
+      <thead><tr style={{borderBottom:"2px solid #E2E8F0",textAlign:"left"}}><th style={{padding:"6px 8px"}}>Machine</th><th style={{padding:"6px 8px"}}>Shifts</th><th style={{padding:"6px 8px"}}>Silica Used</th><th style={{padding:"6px 8px"}}>Produced</th><th style={{padding:"6px 8px"}}>Efficiency</th></tr></thead>
+      <tbody>{silica.byMachine.map((m,i)=>(<tr key={i} style={{borderBottom:"1px solid #F0F0F0"}}>
+        <td style={{padding:"6px 8px",fontWeight:700}}>{m.machine}</td><td style={{padding:"6px 8px"}}>{m.shifts}</td>
+        <td style={{padding:"6px 8px"}}>{fmt(m.silicaKg)} KG</td><td style={{padding:"6px 8px"}}>{fmtN(m.actualPcs)} pcs</td>
+        <td style={{padding:"6px 8px",fontWeight:800,color:effColor(m.efficiencyPct,95,85)}}>{m.efficiencyPct!=null?m.efficiencyPct.toFixed(1)+"%":"—"}</td></tr>))}</tbody></table>}
+  </div>);
+}
+function SorterStatsTable({title,stats}){
+  if(!stats||stats.length===0)return null;
+  return(<div style={{marginTop:14}}>
+    <div style={{fontWeight:700,fontSize:12,color:"#555",marginBottom:6}}>{title}</div>
+    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+      <thead><tr style={{borderBottom:"2px solid #E2E8F0",textAlign:"left"}}>
+        <th style={{padding:"6px 8px"}}>Operator</th><th style={{padding:"6px 8px"}}>Shifts</th><th style={{padding:"6px 8px"}}>Accepted</th><th style={{padding:"6px 8px"}}>Rejected</th><th style={{padding:"6px 8px"}}>Reject Rate</th></tr></thead>
+      <tbody>{stats.map((s,i)=>(<tr key={i} style={{borderBottom:"1px solid #F0F0F0"}}>
+        <td style={{padding:"6px 8px",fontWeight:700}}>{s.name}</td><td style={{padding:"6px 8px"}}>{s.shifts}</td>
+        <td style={{padding:"6px 8px"}}>{fmtN(s.acceptedPcs)}</td><td style={{padding:"6px 8px"}}>{fmtN(s.rejectedPcs)}</td>
+        <td style={{padding:"6px 8px",fontWeight:800,color:effColor(100-(s.rejectRate||0),90,80)}}>{s.rejectRate!=null?s.rejectRate.toFixed(1)+"%":"—"}</td></tr>))}</tbody></table>
+  </div>);
+}
+function AluminumStampingTable({stamping}){
+  if(!stamping||stamping.events.length===0)return <div style={{color:"#888",fontSize:12}}>No aluminum stamped (new Aluminum Caps batch) this month.</div>;
+  return(<div>
+    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+      <thead><tr style={{borderBottom:"2px solid #E2E8F0",textAlign:"left"}}>
+        <th style={{padding:"6px 8px"}}>Lot</th><th style={{padding:"6px 8px"}}>Date</th><th style={{padding:"6px 8px"}}>Coil</th>
+        <th style={{padding:"6px 8px"}}>Weight Taken</th><th style={{padding:"6px 8px"}}>Caps Received</th><th style={{padding:"6px 8px"}}>Scrap</th></tr></thead>
+      <tbody>{stamping.events.map((e,i)=>(<tr key={i} style={{borderBottom:"1px solid #F0F0F0"}}>
+        <td style={{padding:"6px 8px",fontFamily:"monospace"}}>{e.lotNumber}</td><td style={{padding:"6px 8px"}}>{e.date}</td>
+        <td style={{padding:"6px 8px"}}>{e.sourceCoilLotNo||"—"}</td>
+        <td style={{padding:"6px 8px"}}>{fmt(e.weightTakenKg)} KG{e.isEstimate?" (est.)":""}</td>
+        <td style={{padding:"6px 8px"}}>{fmtN(e.capsReceivedPcs)} pcs</td>
+        <td style={{padding:"6px 8px",color:"#8B5A2B"}}>{fmt(e.scrapKg)} KG{e.scrapRatePct!=null?" ("+e.scrapRatePct.toFixed(1)+"%)":""}</td></tr>))}</tbody></table>
+    <div style={{fontSize:12,color:"#666",marginTop:10}}>Totals: <strong>{fmt(stamping.totals.weightTakenKg)} KG</strong> taken · <strong>{fmtN(stamping.totals.capsReceivedPcs)} pcs</strong> received · <strong>{fmt(stamping.totals.scrapKg)} KG</strong> scrap</div>
+  </div>);
+}
 function MaterialsUsageTable({rows}){
   if(!rows.length)return <div style={{color:"#888",fontSize:12}}>No material movement recorded this month.</div>;
   return(<table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
@@ -4680,8 +4890,22 @@ function MonthlyReportDoc({report,onBack}){
         ...productRows.map(p=>[p,fmtN(report.byProduct[p])+" pcs (target)"])]}/>
     </ReportSection>
     <ReportSection title="Material Usage"><MaterialsUsageTable rows={report.materials}/></ReportSection>
+    <ReportSection title="Plastic Efficiency (Flip-Off)">
+      <PlasticEfficiencyBlock plastic={report.plastic}/>
+      <SorterStatsTable title="Plastic Sorting — Reject Rate by Operator" stats={report.plasticSortingStats}/>
+    </ReportSection>
+    <ReportSection title="Aluminum">
+      <div style={{fontWeight:700,fontSize:12,color:"#555",marginBottom:6}}>Stamping (Coil → Caps) This Month</div>
+      <AluminumStampingTable stamping={report.aluminumStamping}/>
+      <div style={{fontWeight:700,fontSize:12,color:"#555",margin:"14px 0 6px"}}>Caps Used in Assembly</div>
+      <AssemblyAluminumBlock agg={report.assemblyAluminum}/>
+    </ReportSection>
+    <ReportSection title="Silica Gel Efficiency"><SilicaEfficiencyBlock silica={report.silica}/></ReportSection>
     <ReportSection title="Waste"><WasteBlock waste={report.waste}/></ReportSection>
-    <ReportSection title="Worker Performance"><WorkerTable workers={report.workers}/></ReportSection>
+    <ReportSection title="Worker Performance">
+      <WorkerTable workers={report.workers}/>
+      <SorterStatsTable title="Final Sorting — Reject Rate by Operator" stats={report.finalSortingStats}/>
+    </ReportSection>
     <ReportSection title="Orders Active This Month">
       {report.orders.length===0?<div style={{color:"#888",fontSize:12}}>None.</div>:
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
@@ -4715,8 +4939,17 @@ function BatchOrderReportDoc({type,report,onBack}){
       {report.carryovers.map(c=><div key={c.id} style={{fontSize:12,color:"#555",marginBottom:4}}>↩️ {c.batchNo} — from <strong>{c.carryoverFrom}</strong> ({fmtN(c.goodPcs||c.assembledPcs||c.acceptedPcs||0)} pcs) — {c.notes}</div>)}
     </ReportSection>}
     <ReportSection title="Material Used"><ShiftMaterialsBlock materials={report.materials}/></ReportSection>
+    {report.plastic&&<ReportSection title="Plastic Efficiency">
+      <PlasticEfficiencyBlock plastic={report.plastic}/>
+      <SorterStatsTable title="Plastic Sorting — Reject Rate by Operator" stats={report.plasticSortingStats}/>
+    </ReportSection>}
+    {report.assemblyAluminum&&<ReportSection title="Aluminum in Assembly"><AssemblyAluminumBlock agg={report.assemblyAluminum}/></ReportSection>}
+    {report.silica&&<ReportSection title="Silica Gel Efficiency"><SilicaEfficiencyBlock silica={report.silica}/></ReportSection>}
     <ReportSection title="Waste"><WasteBlock waste={report.waste}/></ReportSection>
-    <ReportSection title="Worker Performance"><WorkerTable workers={report.workers}/></ReportSection>
+    <ReportSection title="Worker Performance">
+      <WorkerTable workers={report.workers}/>
+      <SorterStatsTable title="Final Sorting — Reject Rate by Operator" stats={report.finalSortingStats}/>
+    </ReportSection>
   </div>);
 }
 function ReportsSection({data,batches,orders,onClose}){
