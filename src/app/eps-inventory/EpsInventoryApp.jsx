@@ -4256,10 +4256,11 @@ function BatchQuantityModal({batch,onSave,onClose}){
 // Edit Weights already let you fix quantity/weight mistakes. Product type is deliberately not
 // editable here — switching it would orphan whatever shifts/sub-batches already drew material
 // under the old product, which is a bigger change than a typo fix.
-function BatchDetailsModal({batch,orders,data,onSave,onClose}){
+function BatchDetailsModal({batch,batches,orders,data,onSave,onClose}){
   const meta=PRODUCT_META[batch.product]||{variantLabel:"Variant",sizes:null,lines:null};
   const isSachets=batch.product==="Silica Gel Sachets";
   const isFO=batch.product==="Flip-Off Caps 20mm";
+  const [batchNo,setBatchNo]=useState(batch.batchNo);
   const [client,setClient]=useState(batch.client||"");
   const [variant,setVariant]=useState(batch.color||"");
   const [line,setLine]=useState(batch.line||(meta.lines?meta.lines[0]:""));
@@ -4277,20 +4278,33 @@ function BatchDetailsModal({batch,orders,data,onSave,onClose}){
   const [cartonsLotId,setCartonsLotId]=useState(batch.cartonsLotId||"");
   const selCartonsLot=cartonsLotId?cartonsLots.filter(l=>l.id===cartonsLotId)[0]:null;
   const batchCartons=Number(batch.cartons)||0;
+  // Lets a batch that needs to be split in two for shipping — part going out now, the rest
+  // later — be moved onto its own batch number after the fact (e.g. the real-world case that
+  // prompted this: part of a batch shipping today, the remainder next week, each needing its
+  // own batch number on the paperwork). Renaming cascades to every shift under this batch (see
+  // updateBatch) since they're linked purely by parentBatchNo===batchNo, a plain string match —
+  // without that cascade they'd silently fall off this batch the moment the rename saved.
+  const trimmedBatchNo=batchNo.trim();
+  const batchNoTaken=trimmedBatchNo!==batch.batchNo&&(batches||[]).some(b=>b.id!==batch.id&&!b.isSubBatch&&b.batchNo===trimmedBatchNo);
   const save=()=>{
+    if(!trimmedBatchNo){setErr("Batch No. is required.");return;}
+    if(batchNoTaken){setErr("Another batch already uses "+trimmedBatchNo+".");return;}
     if(!variant.trim()){setErr(meta.variantLabel+" is required.");return;}
     if(cartonsLotId&&cartonsLotId!==batch.cartonsLotId&&selCartonsLot&&batchCartons>Number(selCartonsLot.qtyRemaining)+0.01){setErr("Only "+fmtN(selCartonsLot.qtyRemaining)+" cartons available in that lot.");return;}
-    onSave(Object.assign({},batch,{client:client.trim(),color:variant.trim(),line:meta.lines?line:batch.line,
+    onSave(Object.assign({},batch,{batchNo:trimmedBatchNo,client:client.trim(),color:variant.trim(),line:meta.lines?line:batch.line,
       mfgDate:mfgDate,expiryDate:isSachets?sachetExpiry:expDate,status:status,orderNo:orderNo||null,
       sellPricePerPc:Number(sellPrice)||0,notes:notes.trim(),cartonsLotId:cartonsLotId||null}));
   };
   return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:480,maxHeight:"92vh",overflowY:"auto"}}>
       <div style={{background:NAVY,borderRadius:"16px 16px 0 0",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}>
-        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>✏️ Edit Batch Details</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12,fontFamily:"monospace"}}>{batch.batchNo}</div></div>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>✏️ Edit Batch Details</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12,fontFamily:"monospace"}}>{batchNo||batch.batchNo}</div></div>
         <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
       <div style={{padding:24}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+          <div style={{gridColumn:"1/-1"}}><Field label="Batch No." value={batchNo} onChange={v=>{setBatchNo(v);setErr("");}} ph="e.g. EPS-FO-260019"/>
+            {batchNoTaken&&<div style={{fontSize:11,color:"#DC3545",marginTop:4,fontWeight:600}}>⚠️ Another batch already uses {trimmedBatchNo}.</div>}
+            {!batchNoTaken&&trimmedBatchNo!==batch.batchNo&&trimmedBatchNo&&<div style={{fontSize:11,color:"#B8860B",marginTop:4}}>⚠️ All shifts already logged under {batch.batchNo} move to the new number too — nothing gets orphaned. Splitting a partial shipment? Give the remainder its own new batch instead of reusing this one.</div>}</div>
           <div style={{gridColumn:"1/-1"}}><Field label="Client" value={client} onChange={setClient} ph="e.g. Pharco"/></div>
           {meta.sizes?(<div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{meta.variantLabel} *</label>
             <select value={variant} onChange={e=>{setVariant(e.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
@@ -4322,7 +4336,7 @@ function BatchDetailsModal({batch,orders,data,onSave,onClose}){
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Details</button>
       </div></div></div>);
 }
-function BatchCard({batch,subBatches,orders,data,onStatusChange,onDelete,onManageShifts,onUpdateBatch}){
+function BatchCard({batch,batches,subBatches,orders,data,onStatusChange,onDelete,onManageShifts,onUpdateBatch}){
   const [exp,setExp]=useState(false),[confDel,setConfDel]=useState(false),[showWeights,setShowWeights]=useState(false),[showQty,setShowQty]=useState(false),[showDetails,setShowDetails]=useState(false);
   const cfg=BST[batch.status]||BST.Production;
   const subs=subBatches||[];
@@ -4372,7 +4386,7 @@ function BatchCard({batch,subBatches,orders,data,onStatusChange,onDelete,onManag
     </div>}
     {showWeights&&<BatchWeightsModal batch={batch} onSave={u=>{onUpdateBatch(u);setShowWeights(false);}} onClose={()=>setShowWeights(false)}/>}
     {showQty&&<BatchQuantityModal batch={batch} onSave={u=>{onUpdateBatch(u);setShowQty(false);}} onClose={()=>setShowQty(false)}/>}
-    {showDetails&&<BatchDetailsModal batch={batch} orders={orders} data={data} onSave={u=>{onUpdateBatch(u);setShowDetails(false);}} onClose={()=>setShowDetails(false)}/>}
+    {showDetails&&<BatchDetailsModal batch={batch} batches={batches} orders={orders} data={data} onSave={u=>{onUpdateBatch(u);setShowDetails(false);}} onClose={()=>setShowDetails(false)}/>}
   </div>);
 }
 function ProductionSection({data,batches,orders,employees,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic,onApplyMaterial,onDeleteSub,onSaveLeftover,onMarkUnpricedSamples}){
@@ -4429,7 +4443,7 @@ function ProductionSection({data,batches,orders,employees,onCreateBatch,onUpdate
     {filtered.length===0?(<div style={{textAlign:"center",padding:40,background:"#fff",borderRadius:12,border:"2px dashed #E2E8F0"}}>
       <div style={{fontSize:32,marginBottom:8}}>🏭</div><div style={{fontWeight:700,color:"#333"}}>No batches</div></div>)
     :(<div style={{display:"flex",flexDirection:"column",gap:8}}>
-      {filtered.map(batch=><BatchCard key={batch.id} batch={batch} subBatches={all.filter(b=>b.parentBatchNo===batch.batchNo&&b.isSubBatch)} orders={orders} data={data}
+      {filtered.map(batch=><BatchCard key={batch.id} batch={batch} batches={all} subBatches={all.filter(b=>b.parentBatchNo===batch.batchNo&&b.isSubBatch)} orders={orders} data={data}
         onStatusChange={st=>onUpdateBatch(Object.assign({},batch,{status:st},
           // Marking Shipped sets dateShipped to today automatically — that date drives the Sales
           // tab's payment terms countdown and the P&L/Balance Sheet, so it should reflect the day
@@ -4718,10 +4732,15 @@ function Dashboard({data,batches,onSelect,onLogout,onExport,onImportFile,lastSyn
 }
 
 // ══ REPORTS ═══════════════════════════════════════════════════════════════
-function ReportPrintBar({onBack,backLabel}){
-  return(<div className="eps-no-print" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+// onDownloadPdf is optional — only Labels passes one (a real jsPDF file, picked at label
+// boundaries so none ever splits across a page); every other doc (COA, Reports) still relies
+// on the browser's own "Save as PDF" print option, unchanged.
+function ReportPrintBar({onBack,backLabel,onDownloadPdf}){
+  return(<div className="eps-no-print" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,gap:8}}>
     <button type="button" onClick={onBack} style={{background:"#F5F7FA",border:"none",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontWeight:700,fontSize:13,color:"#444"}}>← {backLabel||"Back"}</button>
-    <button type="button" onClick={()=>window.print()} style={{background:NAVY,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>🖨️ Print / Save as PDF</button></div>);
+    <div style={{display:"flex",gap:8}}>
+      {onDownloadPdf&&<button type="button" onClick={onDownloadPdf} style={{background:"#1A7A45",color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>⬇️ Download PDF</button>}
+      <button type="button" onClick={()=>window.print()} style={{background:NAVY,color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",cursor:"pointer",fontWeight:700,fontSize:13}}>🖨️ Print / Save as PDF</button></div></div>);
 }
 function ReportTitle({title,subtitle}){
   return(<div style={{marginBottom:20,borderBottom:"2px solid "+NAVY,paddingBottom:14}}>
@@ -5078,6 +5097,82 @@ function buildLabels(batch,mode){
   }
   return out;
 }
+// Renders a CODE128 barcode to an offscreen canvas (vs. the on-screen <Barcode>'s SVG) so it
+// can be embedded as a PNG in a jsPDF page — jsPDF has no SVG support. Same fallback as the
+// on-screen version: a serial with characters CODE128 can't encode just skips the barcode
+// rather than throwing and losing the whole label.
+function barcodeDataUri(value){
+  try{
+    const c=document.createElement("canvas");
+    JsBarcode(c,value,{format:"CODE128",displayValue:true,fontSize:16,height:46,margin:6,width:2});
+    return {uri:c.toDataURL("image/png"),w:c.width,h:c.height};
+  }catch{return null;}
+}
+// Draws one label card into a jsPDF page at (x,y), mirroring LabelCard's on-screen layout
+// (black header bar, 4-col identity row, 2/3-col qty+dates row, barcode, footer) — hand-tuned
+// coordinates within the 65mm card height used everywhere else in this file's PDF generation
+// (there's no table/flex layout engine for jsPDF, so every PDF doc here places text by hand).
+function drawLabelCardPdf(doc,l,x,y,w,h){
+  const pad=3;
+  doc.setDrawColor(190,190,190);doc.setLineWidth(0.25);doc.rect(x,y,w,h);
+  // Stacked on two left-aligned lines, not side-by-side like the on-screen flex header — at this
+  // card width "EAST PHARMACEUTICAL SERVICES" and the cert text run into each other if placed on
+  // one line regardless of font size, so stacking is the only layout that's safe at any card size.
+  doc.setFillColor(0,0,0);doc.rect(x,y,w,8.3,"F");
+  doc.setTextColor(255,255,255);doc.setFont("helvetica","bold");doc.setFontSize(7.5);
+  doc.text(COMPANY_NAME,x+pad,y+3.8,{maxWidth:w-2*pad});
+  doc.setFont("helvetica","normal");doc.setFontSize(5);
+  doc.text(COMPANY_CERT,x+pad,y+7,{maxWidth:w-2*pad});
+  doc.setTextColor(17,17,17);doc.setFont("helvetica","bold");doc.setFontSize(10.5);
+  doc.text(String(l.product||""),x+pad,y+13.3,{maxWidth:w-2*pad});
+  const grid4=[[l.unitLabel,l.unitText],["Client",l.client||"—"],[l.variantLabel,l.variantValue||"—"],["Serial No.",l.serial]];
+  const colW4=(w-2*pad)/4,row1Y=y+18.8;
+  grid4.forEach((g,i)=>{
+    const gx=x+pad+i*colW4;
+    doc.setFont("helvetica","normal");doc.setFontSize(6);doc.setTextColor(130,130,130);
+    doc.text(String(g[0]).toUpperCase(),gx,row1Y,{maxWidth:colW4-1.5});
+    doc.setFont(i===3?"courier":"helvetica","bold");doc.setFontSize(i===3?6.8:7.5);doc.setTextColor(30,30,30);
+    doc.text(String(g[1]),gx,row1Y+3.6,{maxWidth:colW4-1.5});
+  });
+  const grid2=[["Net Qty",l.netQtyText],["Mfg. Date",l.mfgDate||"—"]];
+  if(l.expDate!=null)grid2.push(["Exp. Date",l.expDate||"—"]);
+  const colW2=(w-2*pad)/grid2.length,row2Y=row1Y+9.5;
+  grid2.forEach((g,i)=>{
+    const gx=x+pad+i*colW2;
+    doc.setFont("helvetica","normal");doc.setFontSize(6);doc.setTextColor(130,130,130);
+    doc.text(String(g[0]).toUpperCase(),gx,row2Y,{maxWidth:colW2-1.5});
+    doc.setFont("helvetica","bold");doc.setFontSize(7.5);doc.setTextColor(30,30,30);
+    doc.text(String(g[1]),gx,row2Y+3.6,{maxWidth:colW2-1.5});
+  });
+  const bcY=row2Y+8,bc=barcodeDataUri(l.serial);
+  let footerY=bcY+13;
+  if(bc){
+    const maxBw=w-2*pad,maxBh=13;
+    let bw=maxBw,bh=bw*bc.h/bc.w;
+    if(bh>maxBh){bh=maxBh;bw=bh*bc.w/bc.h;}
+    try{doc.addImage(bc.uri,"PNG",x+(w-bw)/2,bcY,bw,bh);}catch{/* embed failed — leave blank */}
+    footerY=bcY+maxBh+2;
+  }
+  doc.setDrawColor(222,222,222);doc.line(x+pad,footerY,x+w-pad,footerY);
+  doc.setFont("helvetica","normal");doc.setFontSize(5.8);doc.setTextColor(70,70,70);
+  let fy=footerY+2.6;
+  [COMPANY_PHONE,COMPANY_EMAIL,COMPANY_ADDRESS].forEach(line=>{doc.text(line,x+pad,fy,{maxWidth:w-2*pad});fy+=2.4;});
+}
+// Same 2-col x 4-row, 8-per-page layout as the print view (LabelsSection), so a printed sheet
+// and the downloaded PDF line up — just drawn with jsPDF instead of the browser's print engine,
+// for people who want a real file (to email, archive, or print later) rather than only "Save as
+// PDF" from the print dialog.
+function generateLabelsPdf(labels,batchNo){
+  const doc=new jsPDF({unit:"mm",format:"a4"});
+  const marginX=10,marginTop=10,colGap=5,rowGap=4,cardW=(210-2*marginX-colGap)/2,cardH=65,perPage=8;
+  labels.forEach((l,i)=>{
+    const onPage=i%perPage;
+    if(i>0&&onPage===0)doc.addPage();
+    const col=onPage%2,row=Math.floor(onPage/2);
+    drawLabelCardPdf(doc,l,marginX+col*(cardW+colGap),marginTop+row*(cardH+rowGap),cardW,cardH);
+  });
+  doc.save("Labels-"+batchNo+".pdf");
+}
 function LabelsSection({batches,onClose}){
   const [pickBatchNo,setPickBatchNo]=useState(""),[mode,setMode]=useState("carton"),[labels,setLabels]=useState(null);
   const mainBatches=batches.filter(b=>!b.isSubBatch).sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
@@ -5085,7 +5180,7 @@ function LabelsSection({batches,onClose}){
   const MODES=[["batch","📦 Full Batch","One label for the whole batch"],["carton","🗃️ Per Carton","One label per carton"],["bag","🛍️ Per Bag","One label per bag inside each carton"]];
   if(labels)return(<div className="eps-print-page" style={{minHeight:"100vh",background:"#F7F9FC"}}>
     <div className="eps-label-wrap" style={{maxWidth:680,margin:"0 auto",padding:"20px 16px"}}>
-      <ReportPrintBar onBack={()=>setLabels(null)} backLabel="Back to Labels"/>
+      <ReportPrintBar onBack={()=>setLabels(null)} backLabel="Back to Labels" onDownloadPdf={()=>generateLabelsPdf(labels,batch.batchNo)}/>
       <div className="eps-no-print" style={{fontSize:12,color:"#888",marginBottom:14}}>{labels.length} label{labels.length===1?"":"s"} — {batch.batchNo}</div>
       {/* 8 labels per printed page — 2 columns × 4 rows — each page is its own grid so a row
           never splits awkwardly across a page break. */}
@@ -6010,11 +6105,23 @@ export default function EpsInventoryApp(){
     setBatches(p=>[b].concat(p));showToast(b.batchNo+" created ✓");
   };
   const updateBatch=u=>{
+    let old=null;
     if(!u.isSubBatch){
-      const old=batches.filter(b=>b.id===u.id)[0];
+      old=batches.filter(b=>b.id===u.id)[0];
       const oldLot=old?old.cartonsLotId||null:null,oldQty=old?(Number(old.cartons)||0):0;
       const newLot=u.cartonsLotId||null,newQty=Number(u.cartons)||0;
       if(oldLot!==newLot||oldQty!==newQty)applyMaterialQty("Cartons",oldLot,oldQty,newLot,newQty,u.batchNo);
+    }
+    // Renaming a top-level batch's own number (e.g. splitting a partial shipment onto its own
+    // batch number) must carry every shift logged under it along — they're linked purely by
+    // parentBatchNo===batchNo, a plain string match, not a stable id, so without this they'd
+    // silently fall off the batch (invisible in Production, excluded from its cost/report) the
+    // moment the rename saved.
+    if(old&&!u.isSubBatch&&u.batchNo!==old.batchNo){
+      const oldBatchNo=old.batchNo;
+      setBatches(p=>p.map(b=>b.id===u.id?u:(b.isSubBatch&&b.parentBatchNo===oldBatchNo?Object.assign({},b,{parentBatchNo:u.batchNo}):b)));
+      showToast("Updated ✓ — renumbered to "+u.batchNo);
+      return;
     }
     setBatches(p=>p.map(b=>b.id===u.id?u:b));showToast("Updated ✓");
   };
