@@ -4256,11 +4256,10 @@ function BatchQuantityModal({batch,onSave,onClose}){
 // Edit Weights already let you fix quantity/weight mistakes. Product type is deliberately not
 // editable here — switching it would orphan whatever shifts/sub-batches already drew material
 // under the old product, which is a bigger change than a typo fix.
-function BatchDetailsModal({batch,batches,orders,data,onSave,onClose}){
+function BatchDetailsModal({batch,orders,data,onSave,onClose}){
   const meta=PRODUCT_META[batch.product]||{variantLabel:"Variant",sizes:null,lines:null};
   const isSachets=batch.product==="Silica Gel Sachets";
   const isFO=batch.product==="Flip-Off Caps 20mm";
-  const [batchNo,setBatchNo]=useState(batch.batchNo);
   const [client,setClient]=useState(batch.client||"");
   const [variant,setVariant]=useState(batch.color||"");
   const [line,setLine]=useState(batch.line||(meta.lines?meta.lines[0]:""));
@@ -4278,33 +4277,20 @@ function BatchDetailsModal({batch,batches,orders,data,onSave,onClose}){
   const [cartonsLotId,setCartonsLotId]=useState(batch.cartonsLotId||"");
   const selCartonsLot=cartonsLotId?cartonsLots.filter(l=>l.id===cartonsLotId)[0]:null;
   const batchCartons=Number(batch.cartons)||0;
-  // Lets a batch that needs to be split in two for shipping — part going out now, the rest
-  // later — be moved onto its own batch number after the fact (e.g. the real-world case that
-  // prompted this: part of a batch shipping today, the remainder next week, each needing its
-  // own batch number on the paperwork). Renaming cascades to every shift under this batch (see
-  // updateBatch) since they're linked purely by parentBatchNo===batchNo, a plain string match —
-  // without that cascade they'd silently fall off this batch the moment the rename saved.
-  const trimmedBatchNo=batchNo.trim();
-  const batchNoTaken=trimmedBatchNo!==batch.batchNo&&(batches||[]).some(b=>b.id!==batch.id&&!b.isSubBatch&&b.batchNo===trimmedBatchNo);
   const save=()=>{
-    if(!trimmedBatchNo){setErr("Batch No. is required.");return;}
-    if(batchNoTaken){setErr("Another batch already uses "+trimmedBatchNo+".");return;}
     if(!variant.trim()){setErr(meta.variantLabel+" is required.");return;}
     if(cartonsLotId&&cartonsLotId!==batch.cartonsLotId&&selCartonsLot&&batchCartons>Number(selCartonsLot.qtyRemaining)+0.01){setErr("Only "+fmtN(selCartonsLot.qtyRemaining)+" cartons available in that lot.");return;}
-    onSave(Object.assign({},batch,{batchNo:trimmedBatchNo,client:client.trim(),color:variant.trim(),line:meta.lines?line:batch.line,
+    onSave(Object.assign({},batch,{client:client.trim(),color:variant.trim(),line:meta.lines?line:batch.line,
       mfgDate:mfgDate,expiryDate:isSachets?sachetExpiry:expDate,status:status,orderNo:orderNo||null,
       sellPricePerPc:Number(sellPrice)||0,notes:notes.trim(),cartonsLotId:cartonsLotId||null}));
   };
   return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:480,maxHeight:"92vh",overflowY:"auto"}}>
       <div style={{background:NAVY,borderRadius:"16px 16px 0 0",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}>
-        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>✏️ Edit Batch Details</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12,fontFamily:"monospace"}}>{batchNo||batch.batchNo}</div></div>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>✏️ Edit Batch Details</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12,fontFamily:"monospace"}}>{batch.batchNo}</div></div>
         <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
       <div style={{padding:24}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
-          <div style={{gridColumn:"1/-1"}}><Field label="Batch No." value={batchNo} onChange={v=>{setBatchNo(v);setErr("");}} ph="e.g. EPS-FO-260019"/>
-            {batchNoTaken&&<div style={{fontSize:11,color:"#DC3545",marginTop:4,fontWeight:600}}>⚠️ Another batch already uses {trimmedBatchNo}.</div>}
-            {!batchNoTaken&&trimmedBatchNo!==batch.batchNo&&trimmedBatchNo&&<div style={{fontSize:11,color:"#B8860B",marginTop:4}}>⚠️ All shifts already logged under {batch.batchNo} move to the new number too — nothing gets orphaned. Splitting a partial shipment? Give the remainder its own new batch instead of reusing this one.</div>}</div>
           <div style={{gridColumn:"1/-1"}}><Field label="Client" value={client} onChange={setClient} ph="e.g. Pharco"/></div>
           {meta.sizes?(<div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{meta.variantLabel} *</label>
             <select value={variant} onChange={e=>{setVariant(e.target.value);setErr("");}} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
@@ -4336,7 +4322,7 @@ function BatchDetailsModal({batch,batches,orders,data,onSave,onClose}){
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Details</button>
       </div></div></div>);
 }
-function BatchCard({batch,batches,subBatches,orders,data,onStatusChange,onDelete,onManageShifts,onUpdateBatch}){
+function BatchCard({batch,subBatches,orders,data,onStatusChange,onDelete,onManageShifts,onUpdateBatch}){
   const [exp,setExp]=useState(false),[confDel,setConfDel]=useState(false),[showWeights,setShowWeights]=useState(false),[showQty,setShowQty]=useState(false),[showDetails,setShowDetails]=useState(false);
   const cfg=BST[batch.status]||BST.Production;
   const subs=subBatches||[];
@@ -4386,7 +4372,7 @@ function BatchCard({batch,batches,subBatches,orders,data,onStatusChange,onDelete
     </div>}
     {showWeights&&<BatchWeightsModal batch={batch} onSave={u=>{onUpdateBatch(u);setShowWeights(false);}} onClose={()=>setShowWeights(false)}/>}
     {showQty&&<BatchQuantityModal batch={batch} onSave={u=>{onUpdateBatch(u);setShowQty(false);}} onClose={()=>setShowQty(false)}/>}
-    {showDetails&&<BatchDetailsModal batch={batch} batches={batches} orders={orders} data={data} onSave={u=>{onUpdateBatch(u);setShowDetails(false);}} onClose={()=>setShowDetails(false)}/>}
+    {showDetails&&<BatchDetailsModal batch={batch} orders={orders} data={data} onSave={u=>{onUpdateBatch(u);setShowDetails(false);}} onClose={()=>setShowDetails(false)}/>}
   </div>);
 }
 function ProductionSection({data,batches,orders,employees,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic,onApplyMaterial,onDeleteSub,onSaveLeftover,onMarkUnpricedSamples}){
@@ -4394,7 +4380,8 @@ function ProductionSection({data,batches,orders,employees,onCreateBatch,onUpdate
   const [confSamples,setConfSamples]=useState(false);
   const all=batches||[];
   const main=all.filter(b=>!b.isSubBatch);
-  const filtered=main.filter(b=>(!filterSt||b.status===filterSt)&&(!search||b.batchNo.toLowerCase().indexOf(search)>=0||((b.color||"")+(b.client||"")).toLowerCase().indexOf(search)>=0));
+  const filtered=main.filter(b=>(!filterSt||b.status===filterSt)&&(!search||b.batchNo.toLowerCase().indexOf(search)>=0||((b.color||"")+(b.client||"")).toLowerCase().indexOf(search)>=0))
+    .sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
   const stats={total:main.length,totalPcs:main.reduce((s,b)=>s+(b.totalPcs||0),0)};
   BSTATUSES.forEach(s=>{stats[s]=main.filter(b=>b.status===s).length;});
   const parent=shiftId?main.filter(b=>b.id===shiftId)[0]:null;
@@ -4443,7 +4430,7 @@ function ProductionSection({data,batches,orders,employees,onCreateBatch,onUpdate
     {filtered.length===0?(<div style={{textAlign:"center",padding:40,background:"#fff",borderRadius:12,border:"2px dashed #E2E8F0"}}>
       <div style={{fontSize:32,marginBottom:8}}>🏭</div><div style={{fontWeight:700,color:"#333"}}>No batches</div></div>)
     :(<div style={{display:"flex",flexDirection:"column",gap:8}}>
-      {filtered.map(batch=><BatchCard key={batch.id} batch={batch} batches={all} subBatches={all.filter(b=>b.parentBatchNo===batch.batchNo&&b.isSubBatch)} orders={orders} data={data}
+      {filtered.map(batch=><BatchCard key={batch.id} batch={batch} subBatches={all.filter(b=>b.parentBatchNo===batch.batchNo&&b.isSubBatch)} orders={orders} data={data}
         onStatusChange={st=>onUpdateBatch(Object.assign({},batch,{status:st},
           // Marking Shipped sets dateShipped to today automatically — that date drives the Sales
           // tab's payment terms countdown and the P&L/Balance Sheet, so it should reflect the day
@@ -6105,23 +6092,11 @@ export default function EpsInventoryApp(){
     setBatches(p=>[b].concat(p));showToast(b.batchNo+" created ✓");
   };
   const updateBatch=u=>{
-    let old=null;
     if(!u.isSubBatch){
-      old=batches.filter(b=>b.id===u.id)[0];
+      const old=batches.filter(b=>b.id===u.id)[0];
       const oldLot=old?old.cartonsLotId||null:null,oldQty=old?(Number(old.cartons)||0):0;
       const newLot=u.cartonsLotId||null,newQty=Number(u.cartons)||0;
       if(oldLot!==newLot||oldQty!==newQty)applyMaterialQty("Cartons",oldLot,oldQty,newLot,newQty,u.batchNo);
-    }
-    // Renaming a top-level batch's own number (e.g. splitting a partial shipment onto its own
-    // batch number) must carry every shift logged under it along — they're linked purely by
-    // parentBatchNo===batchNo, a plain string match, not a stable id, so without this they'd
-    // silently fall off the batch (invisible in Production, excluded from its cost/report) the
-    // moment the rename saved.
-    if(old&&!u.isSubBatch&&u.batchNo!==old.batchNo){
-      const oldBatchNo=old.batchNo;
-      setBatches(p=>p.map(b=>b.id===u.id?u:(b.isSubBatch&&b.parentBatchNo===oldBatchNo?Object.assign({},b,{parentBatchNo:u.batchNo}):b)));
-      showToast("Updated ✓ — renumbered to "+u.batchNo);
-      return;
     }
     setBatches(p=>p.map(b=>b.id===u.id?u:b));showToast("Updated ✓");
   };
