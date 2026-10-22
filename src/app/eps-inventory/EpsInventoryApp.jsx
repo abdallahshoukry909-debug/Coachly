@@ -370,6 +370,7 @@ const FIN_T={
   tabLedger:{en:"Ledger",ar:"دفتر الحسابات"},
   tabPnl:{en:"Profit & Loss",ar:"الأرباح والخسائر"},
   tabBalance:{en:"Balance Sheet",ar:"الميزانية العمومية"},
+  tabExpenses:{en:"Expenses",ar:"المصروفات"},
   tabSales:{en:"Sales",ar:"المبيعات"},
   currentCashBalance:{en:"Current Cash Balance",ar:"الرصيد النقدي الحالي"},
   inLbl:{en:"In",ar:"وارد"},
@@ -557,6 +558,14 @@ const FIN_T={
   generateExcelDesc:{en:"One Excel file, both product lines — same layout as the commission tracker spreadsheet, filled in with your current sales, tax, commission and owner-withdrawal data.",
     ar:"ملف إكسل واحد لكلا الخطين — بنفس تنسيق جدول تتبع العمولة، معبأ ببيانات مبيعاتك والضرائب والعمولات وسحوبات الشركاء الحالية."},
   excelGeneratedToast:{en:"Excel report downloaded ✓",ar:"تم تنزيل تقرير الإكسل ✓"},
+  expenseTypeLbl:{en:"Expense Type",ar:"نوع المصروف"},
+  allCategoriesOpt:{en:"All Types",ar:"كل الأنواع"},
+  selectMonthLbl:{en:"Month",ar:"الشهر"},
+  allMonthsOpt:{en:"All Months",ar:"كل الأشهر"},
+  totalForSelection:{en:"Total For This Selection",ar:"الإجمالي لهذا الاختيار"},
+  transactionsWord:{en:"transactions",ar:"عملية"},
+  expensesExplorerDesc:{en:"Drill into the real transactions behind any expense type — the Profit & Loss tab still shows the category totals as before; this just lets you see what's actually in them.",
+    ar:"تصفّح المعاملات الفعلية وراء أي نوع مصروف — تبويب الأرباح والخسائر لا يزال يعرض إجمالي كل فئة كما هو؛ هذا فقط يتيح لك رؤية ما بداخلها."},
 };
 function ft(lang,key){const e=FIN_T[key];if(!e)return key;return e[lang]||e.en;}
 const LINE_LABEL_AR={"Silica Gel":"السيليكا جل","Flip-Off":"فليب أوف","Split (Both)":"مشترك (كلاهما)"};
@@ -926,6 +935,51 @@ function BalanceSheetView({cashOpening,cashLedger,data,laborRates,batches,silica
       <div>{ft(lang,"whyDontMatchBody")} <strong>{fmtN(bs.unreconciled)} {ft(lang,"egpLbl")}</strong>. {ft(lang,"whyDontMatchBody2")}</div></div>
   </div>);
 }
+// Standalone report, same family as P&L/Balance Sheet — drills into the real transactions behind
+// one expense category (or all of them) for one month (or all time), rather than just the
+// category totals P&L already shows. P&L's own expense breakdown (ExpenseBreakdownChart) is
+// untouched by this — it's a separate tab, not a replacement.
+function ExpensesReportView({cashLedger,lang}){
+  const [lineFilter,setLineFilter]=useState("all");
+  const [category,setCategory]=useState("all");
+  const [month,setMonth]=useState("all");
+  const outEntries=filterEntriesByLine(cashLedger,lineFilter).filter(e=>e.type==="out");
+  const months=Array.from(new Set(outEntries.map(e=>e.date?String(e.date).slice(0,7):null).filter(Boolean))).sort((a,b)=>b.localeCompare(a));
+  const filtered=outEntries.filter(e=>(category==="all"||e.category===category)&&(month==="all"||(e.date||"").slice(0,7)===month))
+    .sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||"").localeCompare(a.createdAt||""));
+  const total=filtered.reduce((s,e)=>s+(Number(e.amount)||0),0);
+  return(<div>
+    <LineFilterTabs lineFilter={lineFilter} setLineFilter={setLineFilter} lang={lang}/>
+    <div style={{fontSize:11,color:"#999",marginBottom:14}}>{ft(lang,"expensesExplorerDesc")}</div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"expenseTypeLbl")}</label>
+        <select value={category} onChange={ev=>setCategory(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+          <option value="all">{ft(lang,"allCategoriesOpt")}</option>
+          {CASH_CATEGORIES_OUT.map(c=><option key={c} value={c}>{categoryLabel(lang,c)}</option>)}</select></div>
+      <div><label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>{ft(lang,"selectMonthLbl")}</label>
+        <select value={month} onChange={ev=>setMonth(ev.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,background:"#fff"}}>
+          <option value="all">{ft(lang,"allMonthsOpt")}</option>
+          {months.map(m=><option key={m} value={m}>{m}</option>)}</select></div>
+    </div>
+    <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #EEF2F7",padding:18,marginBottom:14,textAlign:"center"}}>
+      <div style={{fontSize:11,fontWeight:700,color:"#888",textTransform:"uppercase"}}>{ft(lang,"totalForSelection")}</div>
+      <div style={{fontSize:28,fontWeight:900,color:"#DC3545",marginTop:4}}>{fmtN(total)} {ft(lang,"egpLbl")}</div>
+      <div style={{fontSize:11,color:"#999",marginTop:6}}>{filtered.length} {ft(lang,"transactionsWord")}</div></div>
+    <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",overflow:"hidden"}}>
+      {filtered.length===0&&<div style={{padding:20,textAlign:"center",color:"#999",fontSize:13}}>{ft(lang,"noneThisPeriod")}</div>}
+      {filtered.map(e=>(<div key={e.id} style={{padding:"10px 14px",borderBottom:"1px solid #F5F5F5"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <span style={{fontSize:12,fontWeight:700,color:"#333"}}>{categoryLabel(lang,e.category)}</span>
+              {e.line&&<span style={{fontSize:11,color:"#7B3FB5"}}>{lineLabel(lang,e.line)}</span>}
+              <span style={{fontSize:11,color:"#999"}}>{e.date}</span></div>
+            {e.note&&<div style={{fontSize:12,color:"#888",marginTop:4}}>{e.note}</div>}</div>
+          <div style={{fontWeight:800,fontSize:14,color:"#DC3545",whiteSpace:"nowrap"}}>-{fmtN(e.amount)} {ft(lang,"egpLbl")}</div></div>
+      </div>))}
+    </div>
+  </div>);
+}
 function CashEntryForm({existing,onSave,onCancel,lang}){
   const e=existing||{};
   const [date,setDate]=useState(e.date||new Date().toISOString().split("T")[0]);
@@ -1130,7 +1184,7 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
           <div style={{color:"rgba(255,255,255,0.6)",fontSize:11}}>{ft(lang,"financeSubtitle")}</div></div>
         <FinLangToggle lang={lang} setLang={setLang}/></div>
       <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
-        {[["ledger","📒","tabLedger"],["pnl","📈","tabPnl"],["balance","🧾","tabBalance"],["sales","💰","tabSales"]].map(x=>(
+        {[["ledger","📒","tabLedger"],["pnl","📈","tabPnl"],["balance","🧾","tabBalance"],["expenses","📋","tabExpenses"],["sales","💰","tabSales"]].map(x=>(
           <button type="button" key={x[0]} onClick={()=>setTab(x[0])}
             style={{flex:1,background:"none",border:"none",color:tab===x[0]?"#fff":"rgba(255,255,255,0.45)",padding:"11px 8px",fontSize:12,fontWeight:tab===x[0]?700:400,cursor:"pointer",borderBottom:"2px solid "+(tab===x[0]?"#fff":"transparent"),fontFamily:"inherit"}}>{x[1]} {ft(lang,x[2])}</button>))}
       </div></div>
@@ -1171,6 +1225,7 @@ function CashLedgerSection({cashLedger,cashOpening,data,laborRates,onSaveEntry,o
       </>}
       {tab==="pnl"&&<PnLView cashLedger={cashLedger} lang={lang}/>}
       {tab==="balance"&&<BalanceSheetView cashOpening={cashOpening} cashLedger={cashLedger} data={data} laborRates={laborRates} batches={batches} silicaEntries={silicaEntries} silicaSettings={silicaSettings} flipOffSettings={flipOffSettings} lang={lang}/>}
+      {tab==="expenses"&&<ExpensesReportView cashLedger={cashLedger} lang={lang}/>}
       </>}
     </div></div>);
 }
