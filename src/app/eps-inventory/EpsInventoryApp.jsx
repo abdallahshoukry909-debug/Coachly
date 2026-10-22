@@ -4378,13 +4378,17 @@ function BatchCard({batch,subBatches,orders,data,onStatusChange,onDelete,onManag
 }
 function ProductionSection({data,batches,orders,employees,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic,onApplyMaterial,onDeleteSub,onSaveLeftover,onMarkUnpricedSamples}){
   const [showForm,setShowForm]=useState(false),[filterSt,setFilterSt]=useState(""),[search,setSearch]=useState(""),[shiftId,setShiftId]=useState(null);
-  const [confSamples,setConfSamples]=useState(false);
+  const [confSamples,setConfSamples]=useState(false),[lineFilter,setLineFilter]=useState("all");
   const all=batches||[];
   const main=all.filter(b=>!b.isSubBatch);
-  const filtered=main.filter(b=>(!filterSt||b.status===filterSt)&&(!search||b.batchNo.toLowerCase().indexOf(search)>=0||((b.color||"")+(b.client||"")).toLowerCase().indexOf(search)>=0))
+  // Scopes everything on the page — the stat tiles above the list too, not just the rows below —
+  // so "look at Flip-Off only" means the counts actually read as Flip-Off's counts, not the
+  // combined totals with a filtered list underneath them.
+  const lineMain=main.filter(b=>lineFilter==="all"||isSilicaProduct(b.product)===(lineFilter==="silica"));
+  const filtered=lineMain.filter(b=>(!filterSt||b.status===filterSt)&&(!search||b.batchNo.toLowerCase().indexOf(search)>=0||((b.color||"")+(b.client||"")).toLowerCase().indexOf(search)>=0))
     .sort((a,b)=>b.batchNo.localeCompare(a.batchNo));
-  const stats={total:main.length,totalPcs:main.reduce((s,b)=>s+(b.totalPcs||0),0)};
-  BSTATUSES.forEach(s=>{stats[s]=main.filter(b=>b.status===s).length;});
+  const stats={total:lineMain.length,totalPcs:lineMain.reduce((s,b)=>s+(b.totalPcs||0),0)};
+  BSTATUSES.forEach(s=>{stats[s]=lineMain.filter(b=>b.status===s).length;});
   const parent=shiftId?main.filter(b=>b.id===shiftId)[0]:null;
 
   if(parent&&parent.product==="Silica Gel Sachets")return <SilicaShiftManager parentBatch={parent} batches={all} data={data} employees={employees} onClose={()=>setShiftId(null)}
@@ -4418,6 +4422,11 @@ function ProductionSection({data,batches,orders,employees,onCreateBatch,onUpdate
         <div key={x[0]} style={{background:"#fff",borderRadius:10,padding:"10px 14px",border:"1.5px solid #EEF2F7",flex:1,minWidth:90}}>
           <div style={{fontSize:9,fontWeight:700,color:"#999",textTransform:"uppercase"}}>{x[0]}</div>
           <div style={{fontSize:18,fontWeight:900,color:NAVY,marginTop:3}}>{x[1]}</div></div>))}</div>
+    <div style={{display:"flex",gap:8,marginBottom:12}}>
+      {[["all","All"],["flipoff","🧴 Flip-Off"],["silica","🟡 Silica Gel"]].map(x=>(
+        <button type="button" key={x[0]} onClick={()=>setLineFilter(x[0])}
+          style={{flex:1,padding:9,borderRadius:8,fontWeight:700,fontSize:12,cursor:"pointer",border:"1.5px solid "+(lineFilter===x[0]?NAVY:"#E2E8F0"),background:lineFilter===x[0]?NAVY:"#fff",color:lineFilter===x[0]?"#fff":"#666"}}>{x[1]}</button>))}
+    </div>
     <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
       <input value={search} onChange={e=>setSearch(e.target.value.toLowerCase())} placeholder="Search…" style={{flex:1,minWidth:150,border:"1.5px solid #E2E8F0",borderRadius:8,padding:"8px 12px",fontSize:13,outline:"none"}}/>
       <select value={filterSt} onChange={e=>setFilterSt(e.target.value)} style={{border:"1.5px solid #E2E8F0",borderRadius:8,padding:"8px 12px",fontSize:13,background:"#fff"}}>
