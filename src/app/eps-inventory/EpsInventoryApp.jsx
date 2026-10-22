@@ -3621,6 +3621,24 @@ function MoveShiftModal({shift,parentBatch,batches,onMove,onCancel}){
         </>)}
       </div></div></div>);
 }
+// A shift's own batch number is stamped on at creation time (parentBatchNo+"-"+letter, or
+// +"-CO"+n for a carryover) and never auto-updates afterward. If the parent batch is later
+// renumbered by hand (e.g. splitting a partial shipment onto its own number), the shift stays
+// correctly LINKED (parentBatchNo is a live match, so it's never orphaned), but its own
+// displayed number keeps showing the old prefix. Surfaces a one-click fix instead of leaving
+// it silently stale — the suffix after the last "-" (the letter or "CO"+n) is preserved.
+function mismatchedShiftNo(parentBatch,sub){
+  const expected=parentBatch.batchNo+"-";
+  if(sub.batchNo.indexOf(expected)===0)return null;
+  return parentBatch.batchNo+sub.batchNo.slice(sub.batchNo.lastIndexOf("-"));
+}
+function MismatchedShiftBanner({parentBatch,sub,onUpdateSub}){
+  const fixedNo=mismatchedShiftNo(parentBatch,sub);
+  if(!fixedNo)return null;
+  return(<div style={{background:"#FFF3CD",borderRadius:8,padding:"6px 10px",marginTop:8,fontSize:11,color:"#856404",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+    <span>⚠️ Doesn&apos;t match this batch&apos;s number</span>
+    <button type="button" onClick={()=>onUpdateSub(Object.assign({},sub,{batchNo:fixedNo}),null,sub)} style={{background:"#856404",color:"#fff",border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>🔧 Fix → {fixedNo}</button></div>);
+}
 function ShiftManager({parentBatch,batches,data,employees,onClose,onCreateSub,onUpdateSub,onDeleteSub,onSaveLeftover}){
   const [form,setForm]=useState(null);      // {mode:"new"} | {mode:"carryover"} | {subId, stage, editing:bool}
   const [confDel,setConfDel]=useState(null);
@@ -3745,6 +3763,7 @@ function ShiftManager({parentBatch,batches,data,employees,onClose,onCreateSub,on
                 {sub.isCarryover&&<span style={{background:"#EEF3EC",color:"#4A6741",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700,marginLeft:8}}>↩️ from {sub.carryoverFrom}</span>}
                 {sub.movedFrom&&<span style={{background:"#EBF1F8",color:NAVY,borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700,marginLeft:8}}>↪️ moved from {sub.movedFrom}</span>}</div>
               {sub.stage!=="Complete"&&<button type="button" onClick={()=>setForm({subId:sub.id,stage:sub.stage,editing:false})} style={{background:sc,color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>Enter {sub.stage} →</button>}</div>
+            <MismatchedShiftBanner parentBatch={parentBatch} sub={sub} onUpdateSub={onUpdateSub}/>
             <div style={{display:"flex",gap:4,marginTop:8,marginBottom:8}}>
               {STAGES.slice(0,4).map((s,i)=><div key={s} style={{flex:1,height:4,borderRadius:2,background:sub.stage==="Complete"||i<idx?"#22A03A":i===idx?stageColor[s]:"#E2E8F0"}}/>)}</div>
             {done.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
@@ -4008,6 +4027,7 @@ function SilicaShiftManager({parentBatch,batches,data,employees,onClose,onCreate
               <span style={{fontSize:11,color:"#888",marginLeft:8}}>{sub.mfgDate}{sub.machine?" · 🏭 "+sub.machine:""}{sub.operator?" · "+sub.operator:""}</span>
               {sub.isCarryover&&<span style={{background:"#EEF3EC",color:"#4A6741",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700,marginLeft:8}}>↩️ from {sub.carryoverFrom}</span>}</div>
             <button type="button" onClick={()=>setForm({subId:sub.id,editing:true})} style={{background:"#fff",border:"1px solid #0E4A2A",color:"#0E4A2A",borderRadius:20,padding:"3px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>✏️ Edit</button></div>
+          <MismatchedShiftBanner parentBatch={parentBatch} sub={sub} onUpdateSub={onUpdateSub}/>
           <div style={{display:"flex",gap:14,fontSize:11,color:"#666",flexWrap:"wrap",marginTop:8}}>
             <span style={{fontWeight:700,color:"#1A6B2A"}}>✅ {fmtN(sub.goodPcs)} pcs</span>
             {sub.silicaKg?<span>🟡 {fmtN(sub.silicaKg/BAG_KG)} bags silica</span>:null}
