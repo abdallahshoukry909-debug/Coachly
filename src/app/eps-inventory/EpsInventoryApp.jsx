@@ -2010,6 +2010,22 @@ const makeBags=(bn,cnt,dq,qu,ov)=>{ov=ov||{};return Array.from({length:cnt},(_,i
 // Marks the first n bags of a freshly-made bag array as used (recovered historical usage — exact original bag order is unknown, so this is an approximation that keeps quantities exact).
 const markUsed=(bags,n,date)=>bags.map((b,i)=>i<n?Object.assign({},b,{used:true,usedDate:date||null}):b);
 function nextBatchNo(bs,code){const p="EPS-"+code+"-"+pad(getYr(),2);const ns=bs.filter(b=>b.batchNo.indexOf(p)===0&&!b.isSubBatch).map(b=>parseInt(b.batchNo.slice(p.length))||0);return p+pad(ns.length?Math.max.apply(null,ns)+1:1,4);}
+// Reconstructs a cartons/bagsPerCarton/pcsPerBag/partialCartonBags/partialBagPcs breakdown that
+// reproduces an exact target pcs count under the same bags/carton and pcs/bag convention as the
+// batch it's drawn from — used by Split Batch so the two resulting batches' own totalPcs still
+// add up to the original, instead of overwriting a raw totalPcs number the cartons math would
+// then silently disagree with.
+function splitAmountToQty(bpc,ppb,targetPcs){
+  const b=Number(bpc)||0,p=Number(ppb)||0,t=Math.max(0,Number(targetPcs)||0);
+  if(b<=0||p<=0)return{cartons:t,bagsPerCarton:1,pcsPerBag:1,partialCartonBags:0,partialBagPcs:0};
+  const wholeBags=Math.floor(t/p);
+  const remainder=t-wholeBags*p;
+  const totalBags=remainder>0?wholeBags+1:wholeBags;
+  const partialBagPcs=remainder>0?remainder:0;
+  const cartons=Math.floor(totalBags/b);
+  const partialCartonBags=totalBags-cartons*b;
+  return{cartons:cartons,bagsPerCarton:b,pcsPerBag:p,partialCartonBags:partialCartonBags,partialBagPcs:partialBagPcs};
+}
 function nextAlLotNo(lots){const p="EPS-AL-"+pad(getYr(),2);const ns=lots.filter(l=>(l.lotNumber||"").indexOf(p)===0).map(l=>parseInt((l.lotNumber||"").slice(p.length))||0);return p+pad(ns.length?Math.max.apply(null,ns)+1:1,4);}
 // Credits scrapKg into the running Aluminum Scrap pool lot, creating it on first use.
 function creditScrap(scrapLots,scrapKg,reason){
@@ -4398,8 +4414,68 @@ function BatchDetailsModal({batch,orders,data,onSave,onClose}){
         <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>💾 Save Details</button>
       </div></div></div>);
 }
-function BatchCard({batch,subBatches,orders,data,onStatusChange,onDelete,onManageShifts,onUpdateBatch}){
-  const [exp,setExp]=useState(false),[confDel,setConfDel]=useState(false),[showWeights,setShowWeights]=useState(false),[showQty,setShowQty]=useState(false),[showDetails,setShowDetails]=useState(false);
+// Splits part of a batch's quantity off into a brand-new batch — for a large plastic-only run
+// (made while waiting on a material like aluminum) that gets shipped out in separate, smaller
+// orders over time. The split-off piece gets the next sequential batch number (the same
+// numbering nextBatchNo already uses for any fresh batch, so a later brand-new batch naturally
+// skips past it); the original batch keeps its own number and just has its quantity reduced by
+// the same amount. Shifts already logged under the original batch are NOT moved automatically —
+// use "↪️ Move to another batch" on each shift that belongs under the new batch instead, which
+// already renumbers that shift to match (see MoveShiftModal) — this is the "the batch changes
+// within the shift itself too" part.
+function SplitBatchModal({batch,batches,onCreate,onUpdateOriginal,onClose}){
+  const [splitQty,setSplitQty]=useState("");
+  const [client,setClient]=useState(batch.client||"");
+  const [notes,setNotes]=useState("");
+  const [err,setErr]=useState("");
+  const hasMix=!!(batch.bagMix&&batch.bagMix.length);
+  const meta=PRODUCT_META[batch.product]||{code:"XX"};
+  const preview=nextBatchNo(batches,meta.code);
+  const q=Number(splitQty)||0;
+  const remainder=(Number(batch.totalPcs)||0)-q;
+  const save=()=>{
+    if(hasMix){setErr("This batch uses a custom bag mix — split it manually (Edit Amount on each piece) instead.");return;}
+    if(q<=0){setErr("Enter how many pieces to split off.");return;}
+    if(q>=(Number(batch.totalPcs)||0)){setErr("Must be less than this batch's total ("+fmtN(batch.totalPcs)+" pcs).");return;}
+    const newBreak=splitAmountToQty(batch.bagsPerCarton,batch.pcsPerBag,q);
+    const remBreak=splitAmountToQty(batch.bagsPerCarton,batch.pcsPerBag,remainder);
+    const newBatch=Object.assign({},batch,{
+      id:genId(),batchNo:preview,client:client.trim(),orderNo:null,cartonsLotId:null,
+      cartons:newBreak.cartons,bagsPerCarton:newBreak.bagsPerCarton,pcsPerBag:newBreak.pcsPerBag,
+      partialCartonBags:newBreak.partialCartonBags,partialBagPcs:newBreak.partialBagPcs,totalPcs:q,
+      notes:(notes.trim()?notes.trim()+" — ":"")+"Split from "+batch.batchNo,createdAt:today(),bagMix:null,
+    });
+    onCreate(newBatch);
+    onUpdateOriginal(Object.assign({},batch,{
+      cartons:remBreak.cartons,bagsPerCarton:remBreak.bagsPerCarton,pcsPerBag:remBreak.pcsPerBag,
+      partialCartonBags:remBreak.partialCartonBags,partialBagPcs:remBreak.partialBagPcs,totalPcs:remainder,
+      notes:(batch.notes?batch.notes+" — ":"")+"Split off "+fmtN(q)+" pcs into "+preview,
+    }));
+    onClose();
+  };
+  return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:460,overflow:"hidden"}}>
+      <div style={{background:NAVY,padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:16}}>✂️ Split Batch</div><div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>{batch.batchNo} · {fmtN(batch.totalPcs)} pcs total</div></div>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16}}>✕</button></div>
+      <div style={{padding:24}}>
+        {hasMix?(
+          <div style={{fontSize:13,color:"#888",background:"#F7F9FC",borderRadius:8,padding:14}}>This batch uses a custom bag mix, so it can&apos;t be split automatically — use &quot;🔢 Edit Amount&quot; on two batches by hand instead.</div>
+        ):(<>
+          <div style={{marginBottom:14}}><Field label="Pieces to split off into a new batch" value={splitQty} onChange={v=>{setSplitQty(v);setErr("");}} type="number" ph="e.g. 500000"/></div>
+          <div style={{marginBottom:14}}><Field label="Client for the new batch (optional)" value={client} onChange={setClient} ph="e.g. Pharco"/></div>
+          <div style={{marginBottom:14}}><Field label="Notes (optional)" value={notes} onChange={setNotes} ph="e.g. First shipment of this run"/></div>
+          {q>0&&<div style={{background:"#EBF1F8",borderRadius:8,padding:"10px 12px",marginBottom:14,fontSize:12,color:NAVY}}>
+            New batch <strong>{preview}</strong> — {fmtN(q)} pcs.<br/>
+            {batch.batchNo} stays at <strong>{fmtN(Math.max(0,remainder))} pcs</strong>.</div>}
+          {err&&<div style={{color:"#DC3545",fontSize:12,fontWeight:600,marginBottom:10}}>{err}</div>}
+          <button type="button" onClick={save} style={{width:"100%",padding:13,background:NAVY,color:"#fff",border:"none",borderRadius:10,fontWeight:800,fontSize:15,cursor:"pointer"}}>✂️ Split Batch</button>
+          <div style={{fontSize:11,color:"#999",marginTop:10}}>Shifts already logged under {batch.batchNo} stay there — use &quot;↪️ Move to another batch&quot; on the Shifts screen for any that belong under the new batch instead.</div>
+        </>)}
+      </div></div></div>);
+}
+function BatchCard({batch,subBatches,orders,data,batches,onStatusChange,onDelete,onManageShifts,onUpdateBatch,onCreateBatch}){
+  const [exp,setExp]=useState(false),[confDel,setConfDel]=useState(false),[showWeights,setShowWeights]=useState(false),[showQty,setShowQty]=useState(false),[showDetails,setShowDetails]=useState(false),[showSplit,setShowSplit]=useState(false);
   const cfg=BST[batch.status]||BST.Production;
   const subs=subBatches||[];
   const subGood=subs.reduce((s,b)=>s+(b.goodPcs||0),0);
@@ -4441,6 +4517,7 @@ function BatchCard({batch,subBatches,orders,data,onStatusChange,onDelete,onManag
       <button type="button" onClick={()=>setShowQty(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:10,marginRight:8}}>🔢 Edit Amount</button>
       <button type="button" onClick={()=>onUpdateBatch(Object.assign({},batch,{isSample:!batch.isSample}))} style={{padding:"6px 14px",border:"1.5px solid "+(batch.isSample?"#E6C200":"#E2E8F0"),color:batch.isSample?"#8A6D00":"#555",background:batch.isSample?"#FFF3CD":"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:10,marginRight:8}}>🎁 {batch.isSample?"Unmark Sample":"Mark as Sample"}</button>
       {isFO&&<button type="button" onClick={()=>setShowWeights(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:10,marginRight:8}}>⚖️ Edit Weights</button>}
+      {batch.totalPcs>0&&<button type="button" onClick={()=>setShowSplit(true)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",color:"#555",background:"#fff",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,marginBottom:10,marginRight:8}}>✂️ Split Batch</button>}
       {confDel?(<div style={{display:"flex",gap:8}}>
         <button type="button" onClick={()=>{onDelete();setConfDel(false);}} style={{padding:"6px 14px",background:"#DC3545",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700}}>Yes, delete</button>
         <button type="button" onClick={()=>setConfDel(false)} style={{padding:"6px 14px",border:"1.5px solid #E2E8F0",borderRadius:6,background:"#fff",cursor:"pointer",fontSize:12}}>Cancel</button></div>)
@@ -4449,6 +4526,7 @@ function BatchCard({batch,subBatches,orders,data,onStatusChange,onDelete,onManag
     {showWeights&&<BatchWeightsModal batch={batch} onSave={u=>{onUpdateBatch(u);setShowWeights(false);}} onClose={()=>setShowWeights(false)}/>}
     {showQty&&<BatchQuantityModal batch={batch} onSave={u=>{onUpdateBatch(u);setShowQty(false);}} onClose={()=>setShowQty(false)}/>}
     {showDetails&&<BatchDetailsModal batch={batch} orders={orders} data={data} onSave={u=>{onUpdateBatch(u);setShowDetails(false);}} onClose={()=>setShowDetails(false)}/>}
+    {showSplit&&<SplitBatchModal batch={batch} batches={batches} onCreate={onCreateBatch} onUpdateOriginal={onUpdateBatch} onClose={()=>setShowSplit(false)}/>}
   </div>);
 }
 function ProductionSection({data,batches,orders,employees,onCreateBatch,onUpdateBatch,onDeleteBatch,onApplyAluminum,onApplyPlastic,onApplyMaterial,onDeleteSub,onSaveLeftover,onMarkUnpricedSamples}){
@@ -4523,7 +4601,8 @@ function ProductionSection({data,batches,orders,employees,onCreateBatch,onUpdate
           // Never overwrites an existing value (a correction already made, or a backfilled
           // historical batch) — only fills it in the first time a batch goes Shipped.
           st==="Shipped"&&!batch.dateShipped?{dateShipped:new Date().toISOString().split("T")[0]}:null))}
-        onDelete={()=>onDeleteBatch(batch.id)} onManageShifts={()=>setShiftId(batch.id)} onUpdateBatch={onUpdateBatch}/>)}</div>)}
+        onDelete={()=>onDeleteBatch(batch.id)} onManageShifts={()=>setShiftId(batch.id)} onUpdateBatch={onUpdateBatch}
+        batches={all} onCreateBatch={onCreateBatch}/>)}</div>)}
   </div>);
 }
 
