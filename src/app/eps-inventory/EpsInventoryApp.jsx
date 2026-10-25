@@ -447,9 +447,11 @@ const FIN_T={
   totalIncome:{en:"Total Income",ar:"إجمالي الإيرادات"},
   expensesExclOwnerDraw:{en:"🔴 Expenses (excl. Owner Draw)",ar:"🔴 المصروفات (بدون سحب المالك)"},
   totalExpenses:{en:"Total Expenses",ar:"إجمالي المصروفات"},
-  notCountedNote:{en:"Not counted as profit/loss (equity movements, this period):",ar:"لا تُحتسب ضمن الأرباح/الخسائر (حركات حقوق ملكية لهذه الفترة):"},
+  notCountedNote:{en:"Not counted as profit/loss (equity and loan movements, this period):",ar:"لا تُحتسب ضمن الأرباح/الخسائر (حركات حقوق ملكية وحركات قروض لهذه الفترة):"},
   ownerCapitalInLbl:{en:"Owner Capital in:",ar:"رأس مال وارد من المالك:"},
   ownerDrawsWithdrawalsOut:{en:"Owner Draws / Profit Withdrawals out:",ar:"سحوبات المالك / سحوبات الأرباح الصادرة:"},
+  loansReceivedInLbl:{en:"Loans Received in:",ar:"قروض مستلمة واردة:"},
+  loansRepaidOutLbl:{en:"Loan Principal Repaid out:",ar:"سداد أصل القرض الصادر:"},
   monthlyTrend:{en:"📈 Monthly Net Profit Trend",ar:"📈 اتجاه صافي الربح الشهري"},
   noEntriesYetShort:{en:"No entries yet.",ar:"لا توجد قيود بعد."},
   bothLinesTab:{en:"Both Lines",ar:"كلا الخطين"},
@@ -474,17 +476,21 @@ const FIN_T={
   taxReserveLbl:{en:"⚠️ Tax Reserve — do not spend",ar:"⚠️ احتياطي الضريبة — لا تُنفَق"},
   taxReserveNote:{en:"22% (or whatever each line's Sales tab has set) of gross profit on sales already received — owed to taxes the moment that money lands, even though it still sits in Cash above like any other receipt. Treat this amount as already spent.",
     ar:"22% (أو النسبة المحددة في إعدادات تبويب المبيعات لكل خط) من إجمالي الربح على المبيعات المُحصَّلة بالفعل — مستحقة للضرائب بمجرد وصول هذا المبلغ، رغم بقائها ضمن النقدية أعلاه مثل أي مقبوضات أخرى. تعامل مع هذا المبلغ على أنه مُنفَق بالفعل."},
-  liabilitiesNote:{en:"Not tracked yet (no Accounts Payable) — nothing owed to suppliers is logged here, so this shows as zero rather than a guessed number.",
-    ar:"غير مُتتبَّعة بعد (لا توجد ذمم دائنة) — لا يوجد أي مبلغ مستحق للموردين مُسجَّل هنا، لذا تظهر صفرًا بدلًا من رقم تخميني."},
+  loansPayableLbl:{en:"Loans Payable (principal still owed)",ar:"قروض مستحقة الدفع (أصل القرض المتبقي)"},
+  loansPayableNote:{en:"Money someone outside the business fronted for a purchase, not yet paid back — logged via Loan Received/Loan Repayment on the Ledger tab. Doesn't include the premium owed on top (e.g. a 30% markup) — that's a Financing Cost, counted as a real expense only once it's actually paid.",
+    ar:"أموال دفعها طرف خارج الشركة لصالح عملية شراء، لم تُسدَّد بعد — تُسجَّل عبر \"قرض مستلم\"/\"سداد قرض\" في تبويب دفتر الحسابات. لا يشمل العلاوة المستحقة فوق المبلغ (مثل زيادة 30%) — تلك \"تكلفة تمويل\"، تُحتسب كمصروف حقيقي فقط عند دفعها فعليًا."},
+  totalLiabilitiesLbl:{en:"Total Liabilities",ar:"إجمالي الخصوم"},
+  liabilitiesNote:{en:"Ordinary Accounts Payable (routine unpaid supplier bills) isn't tracked yet — only Tax Reserve and Loans Payable above are, so anything else owed to a supplier shows as zero rather than a guessed number.",
+    ar:"الذمم الدائنة العادية (فواتير الموردين غير المسددة الروتينية) غير مُتتبَّعة بعد — فقط احتياطي الضريبة وقروض مستحقة الدفع أعلاه مُتتبَّعان، لذا أي مبلغ آخر مستحق لمورد يظهر صفرًا بدلًا من رقم تخميني."},
   ownerEquity:{en:"👤 Owner Equity",ar:"👤 حقوق الملكية"},
   openingBalanceAsOf:{en:"Opening Balance (as of ",ar:"الرصيد الافتتاحي (بتاريخ "},
   ownerCapitalContributed:{en:"+ Owner Capital Contributed",ar:"+ رأس المال المُساهَم به من الملاك"},
   ownerDrawsLine:{en:"− Owner Draws",ar:"− سحوبات الملاك"},
   retainedEarnings:{en:"+ Retained Earnings (all-time net profit)",ar:"+ الأرباح المحتجزة (صافي الربح الكلي)"},
   totalEquity:{en:"Total Equity",ar:"إجمالي حقوق الملكية"},
-  whyDontMatch:{en:"⚠️ Why Assets and Equity don't match exactly",ar:"⚠️ لماذا لا تتطابق الأصول وحقوق الملكية تمامًا"},
-  whyDontMatchBody:{en:"Material purchases count as an expense the moment they're paid (matching how you log the ledger), but the material itself keeps counting as Inventory until it's used up — and Accounts Receivable is money you've invoiced that hasn't hit Owner Capital yet because it hasn't been collected. So Assets normally run ahead of Equity by roughly unconsumed inventory plus uncollected receivables — right now that gap is",
-    ar:"مشتريات الخامات تُحتسب كمصروف بمجرد دفعها (بما يطابق طريقة تسجيلك في الدفتر)، لكن الخامة نفسها تبقى ضمن المخزون حتى تُستهلك — والذمم المدينة هي أموال فوترتها لكنها لم تصل إلى رأس مال المالك بعد لأنها لم تُحصَّل. لذا فإن الأصول عادةً تسبق حقوق الملكية بقيمة المخزون غير المستهلك تقريبًا زائد الذمم غير المحصَّلة — الفارق الحالي هو"},
+  whyDontMatch:{en:"⚠️ Why Assets and Liabilities+Equity don't match exactly",ar:"⚠️ لماذا لا تتطابق الأصول مع الخصوم + حقوق الملكية تمامًا"},
+  whyDontMatchBody:{en:"Material purchases count as an expense the moment they're paid (matching how you log the ledger), but the material itself keeps counting as Inventory until it's used up — and Accounts Receivable is money you've invoiced that hasn't hit Owner Capital yet because it hasn't been collected. So Assets normally run ahead of Liabilities+Equity by roughly unconsumed inventory plus uncollected receivables — right now that gap is",
+    ar:"مشتريات الخامات تُحتسب كمصروف بمجرد دفعها (بما يطابق طريقة تسجيلك في الدفتر)، لكن الخامة نفسها تبقى ضمن المخزون حتى تُستهلك — والذمم المدينة هي أموال فوترتها لكنها لم تصل إلى رأس مال المالك بعد لأنها لم تُحصَّل. لذا فإن الأصول عادةً تسبق الخصوم + حقوق الملكية بقيمة المخزون غير المستهلك تقريبًا زائد الذمم غير المحصَّلة — الفارق الحالي هو"},
   whyDontMatchBody2:{en:"EGP. That's not an error to fix — it's the tradeoff of a simple cash-basis ledger. A fully reconciled balance sheet would need proper accrual accounting (tracking cost of goods sold as material is actually consumed), which is a bigger step we can take later if you want it.",
     ar:"جنيه. هذا ليس خطأً يجب إصلاحه — إنه أثر طبيعي لبساطة دفتر الأساس النقدي. الميزانية المُسواة بالكامل تتطلب محاسبة استحقاق حقيقية (تتبع تكلفة البضاعة المباعة عند استهلاك الخامة فعليًا)، وهي خطوة أكبر يمكننا اتخاذها لاحقًا إذا أردت."},
   incomeTaxWord:{en:"Income Tax",ar:"ضريبة الدخل"},
@@ -702,31 +708,40 @@ function cashMonthlySummary(ledger){
   });
   return Object.values(map).sort((a,b)=>b.month.localeCompare(a.month));
 }
-// Profit & Loss excludes equity movements (Owner Capital coming in, Owner Draw going out) from
-// income/expenses — those are money moving between the owner and the business, not revenue
-// earned or cost incurred, so counting them as profit/loss would misstate performance.
+// Profit & Loss excludes equity movements (Owner Capital coming in, Owner Draw going out) and
+// loan movements (Loan Received coming in, Loan Repayment going out) from income/expenses — none
+// of these are revenue earned or cost incurred, just money moving between the business and an
+// owner or a lender, so counting them as profit/loss would misstate performance. Loan Received
+// specifically must NOT be treated as income: the material/whatever it funded is still a real
+// expense (counted normally below), so if the loan itself also counted as income the two would
+// cancel out and make a financed purchase look like it never touched profit at all, while also
+// hiding that the money is owed back. Financing Cost (the premium paid on top of the loan) is
+// deliberately NOT excluded here — that one IS a real cost of doing business.
 function cashPnL(entries){
   const incomeByCat={},expenseByCat={};
-  let totalIncome=0,totalExpense=0,ownerCapital=0,ownerDraws=0;
+  let totalIncome=0,totalExpense=0,ownerCapital=0,ownerDraws=0,loansReceived=0,loansRepaid=0;
   (entries||[]).forEach(e=>{
     const amt=Number(e.amount)||0;
     if(e.type==="in"){
       if(e.category==="Owner Capital"){ownerCapital+=amt;return;}
+      if(e.category==="Loan Received"){loansReceived+=amt;return;}
       incomeByCat[e.category]=(incomeByCat[e.category]||0)+amt;totalIncome+=amt;
     }else{
       if(e.category==="Owner Draw"||e.category==="Profit Withdrawal"){ownerDraws+=amt;return;}
+      if(e.category==="Loan Repayment"){loansRepaid+=amt;return;}
       expenseByCat[e.category]=(expenseByCat[e.category]||0)+amt;totalExpense+=amt;
     }
   });
   return {incomeByCat:incomeByCat,expenseByCat:expenseByCat,totalIncome:totalIncome,totalExpense:totalExpense,
-    netProfit:totalIncome-totalExpense,ownerCapital:ownerCapital,ownerDraws:ownerDraws};
+    netProfit:totalIncome-totalExpense,ownerCapital:ownerCapital,ownerDraws:ownerDraws,
+    loansReceived:loansReceived,loansRepaid:loansRepaid};
 }
 // Net profit per month (income/expense only, same exclusions as cashPnL) — feeds the P&L trend
 // chart so the owner can see which months were actually profitable, not just cash-positive.
 function cashMonthlyNetProfit(ledger){
   const map={};
   (ledger||[]).forEach(e=>{
-    if(e.category==="Owner Capital"||e.category==="Owner Draw")return;
+    if(e.category==="Owner Capital"||e.category==="Owner Draw"||e.category==="Loan Received"||e.category==="Loan Repayment")return;
     const mk=e.date?String(e.date).slice(0,7):"—";
     if(!map[mk])map[mk]=0;
     map[mk]+=(e.type==="in"?1:-1)*(Number(e.amount)||0);
@@ -799,29 +814,52 @@ function taxReserveEGP(batches,silicaEntries,data,laborRates,silicaSettings,flip
   }
   return total;
 }
+// Net amount still owed to whoever fronted money for a purchase via Loan Received, minus
+// whatever's already been paid back via Loan Repayment (a running total, same as Tax Reserve —
+// not period-scoped). Does NOT include the Financing Cost premium, since that's only owed once
+// it's actually due/paid, not accrued here the way the principal is from the moment it's
+// received. Floors at 0 so an (unusual) overpayment doesn't show as a negative liability.
+function loansPayableEGP(ledger,lineFilter){
+  const scoped=lineFilter&&lineFilter!=="all";
+  const entries=scoped?filterEntriesByLine(ledger,lineFilter):(ledger||[]);
+  let total=0;
+  entries.forEach(e=>{
+    if(e.category==="Loan Received")total+=Number(e.amount)||0;
+    else if(e.category==="Loan Repayment")total-=Number(e.amount)||0;
+  });
+  return Math.max(0,total);
+}
 // A cash-basis snapshot, not a fully reconciled accrual balance sheet — Material Purchases are
 // expensed the moment they're paid (matching how the ledger is logged), while the material
 // itself keeps counting as an Inventory asset until it's used up, so Assets will generally run
-// ahead of Equity by roughly the value of inventory still on hand plus any money invoiced but not
-// yet collected (Accounts Receivable). That gap is real, not a bug — see the note rendered
-// alongside this in BalanceSheetView.
+// ahead of Liabilities+Equity by roughly the value of inventory still on hand plus any money
+// invoiced but not yet collected (Accounts Receivable). That gap is real, not a bug — see the
+// note rendered alongside this in BalanceSheetView. unreconciled compares Assets against
+// Liabilities+Equity together (not just Equity) — Tax Reserve and Loans Payable are real
+// liabilities, so leaving them out of that comparison would make a financed purchase or a tax
+// reserve look like an unexplained gap instead of what it actually is.
 // lineFilter (optional): "Silica Gel" or "Flip-Off" scopes every figure to that line — Cash via
 // lineCashBalance (Split (Both) counted half, untagged entries left out, same as the Cash by Line
-// card), Inventory/Receivables as above, and P&L off filterEntriesByLine. The opening balance
-// predates line-tagging and is never split retroactively, so it's left out of a per-line view
-// (it only ever appears in the combined one) — flagged to the reader in BalanceSheetView.
+// card), Inventory/Receivables/Loans Payable as above, and P&L off filterEntriesByLine. The
+// opening balance predates line-tagging and is never split retroactively, so it's left out of a
+// per-line view (it only ever appears in the combined one) — flagged to the reader in
+// BalanceSheetView.
 function cashBalanceSheet(opening,ledger,data,laborRates,batches,silicaEntries,silicaSettings,flipOffSettings,lineFilter){
   const scoped=lineFilter&&lineFilter!=="all";
   const cash=scoped?lineCashBalance(ledger,lineFilter):cashRunningBalance(opening,ledger);
   const inventory=inventoryValueEGP(data,laborRates,lineFilter);
   const receivables=accountsReceivableEGP(batches,silicaEntries,data,laborRates,lineFilter);
   const taxReserve=taxReserveEGP(batches,silicaEntries,data,laborRates,silicaSettings,flipOffSettings,lineFilter);
+  const loansPayable=loansPayableEGP(ledger,lineFilter);
+  const totalLiabilities=taxReserve+loansPayable;
   const pnl=cashPnL(scoped?filterEntriesByLine(ledger,lineFilter):ledger);
   const openingBalance=scoped?0:(opening?Number(opening.balance)||0:0);
   const equity=openingBalance+pnl.ownerCapital-pnl.ownerDraws+pnl.netProfit;
-  return {cash:cash,inventory:inventory,receivables:receivables,totalAssets:cash+inventory+receivables,
-    taxReserve:taxReserve,openingBalance:openingBalance,ownerCapital:pnl.ownerCapital,ownerDraws:pnl.ownerDraws,retainedEarnings:pnl.netProfit,
-    totalEquity:equity,unreconciled:(cash+inventory+receivables)-equity};
+  const totalAssets=cash+inventory+receivables;
+  return {cash:cash,inventory:inventory,receivables:receivables,totalAssets:totalAssets,
+    taxReserve:taxReserve,loansPayable:loansPayable,totalLiabilities:totalLiabilities,
+    openingBalance:openingBalance,ownerCapital:pnl.ownerCapital,ownerDraws:pnl.ownerDraws,retainedEarnings:pnl.netProfit,
+    totalEquity:equity,unreconciled:totalAssets-(totalLiabilities+equity)};
 }
 function cashPeriodFilter(ledger,period){
   const now=new Date();
@@ -896,10 +934,12 @@ function PnLView({cashLedger,lang}){
       <div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:800,marginTop:8,paddingTop:8,borderTop:"1.5px solid #E2E8F0"}}>
         <span>{ft(lang,"totalExpenses")}</span><span style={{color:"#DC3545"}}>{fmtN(pnl.totalExpense)}</span></div></div>
     <ExpenseBreakdownChart expenseByCat={pnl.expenseByCat} totalExpense={pnl.totalExpense} lang={lang}/>
-    {(pnl.ownerCapital>0||pnl.ownerDraws>0)&&<div style={{background:"#FFF9E6",borderRadius:12,border:"1px solid #E6A817",padding:14,marginBottom:14,fontSize:12,color:"#856404"}}>
+    {(pnl.ownerCapital>0||pnl.ownerDraws>0||pnl.loansReceived>0||pnl.loansRepaid>0)&&<div style={{background:"#FFF9E6",borderRadius:12,border:"1px solid #E6A817",padding:14,marginBottom:14,fontSize:12,color:"#856404"}}>
       <div style={{fontWeight:700,marginBottom:6}}>{ft(lang,"notCountedNote")}</div>
       {pnl.ownerCapital>0&&<div>{ft(lang,"ownerCapitalInLbl")} <strong>{fmtN(pnl.ownerCapital)} {ft(lang,"egpLbl")}</strong></div>}
-      {pnl.ownerDraws>0&&<div>{ft(lang,"ownerDrawsWithdrawalsOut")} <strong>{fmtN(pnl.ownerDraws)} {ft(lang,"egpLbl")}</strong></div>}</div>}
+      {pnl.ownerDraws>0&&<div>{ft(lang,"ownerDrawsWithdrawalsOut")} <strong>{fmtN(pnl.ownerDraws)} {ft(lang,"egpLbl")}</strong></div>}
+      {pnl.loansReceived>0&&<div>{ft(lang,"loansReceivedInLbl")} <strong>{fmtN(pnl.loansReceived)} {ft(lang,"egpLbl")}</strong></div>}
+      {pnl.loansRepaid>0&&<div>{ft(lang,"loansRepaidOutLbl")} <strong>{fmtN(pnl.loansRepaid)} {ft(lang,"egpLbl")}</strong></div>}</div>}
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14}}>
       <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:12}}>{ft(lang,"monthlyTrend")}</div>
       {monthly.length===0&&<div style={{fontSize:12,color:"#999"}}>{ft(lang,"noEntriesYetShort")}</div>}
@@ -932,7 +972,12 @@ function BalanceSheetView({cashOpening,cashLedger,data,laborRates,batches,silica
       <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>{ft(lang,"liabilities")}</div>
       <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
         <span>{ft(lang,"taxReserveLbl")}</span><strong style={{color:"#B8860B"}}>{fmtN(bs.taxReserve)} {ft(lang,"egpLbl")}</strong></div>
-      <div style={{fontSize:11,color:"#999",marginTop:6}}>{ft(lang,"taxReserveNote")}</div>
+      <div style={{fontSize:11,color:"#999",marginTop:6,marginBottom:10}}>{ft(lang,"taxReserveNote")}</div>
+      {bs.loansPayable>0&&<>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"6px 0",borderBottom:"1px solid #F5F5F5"}}>
+          <span>{ft(lang,"loansPayableLbl")}</span><strong style={{color:"#4A6741"}}>{fmtN(bs.loansPayable)} {ft(lang,"egpLbl")}</strong></div>
+        <div style={{fontSize:11,color:"#999",marginTop:6}}>{ft(lang,"loansPayableNote")}</div></>}
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:800,marginTop:8,paddingTop:8,borderTop:"1.5px solid #E2E8F0"}}><span>{ft(lang,"totalLiabilitiesLbl")}</span><span style={{color:NAVY}}>{fmtN(bs.totalLiabilities)} {ft(lang,"egpLbl")}</span></div>
       <div style={{fontSize:12,color:"#999",marginTop:10,paddingTop:10,borderTop:"1px solid #F5F5F5"}}>{ft(lang,"liabilitiesNote")}</div></div>
     <div style={{background:"#fff",borderRadius:12,border:"1.5px solid #EEF2F7",padding:14,marginBottom:14}}>
       <div style={{fontWeight:800,fontSize:13,color:NAVY,marginBottom:10}}>{ft(lang,"ownerEquity")}</div>
