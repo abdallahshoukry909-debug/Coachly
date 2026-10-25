@@ -331,14 +331,24 @@ function EmployeesSection({employees,batches,onSave,onDelete,onClose}){
 // "Owner Draw" (money the owner takes out personally) is likewise its own expense category,
 // separate from real business expenses — both exist so Profit & Loss can exclude owner
 // capital/draws from income/expenses (they're equity movements, not business performance).
-const CASH_CATEGORIES_IN=["Customer Payment","Owner Capital","Asset Sale","Other Income"];
-const CASH_CATEGORIES_OUT=["Material Purchase","Wages","Maintenance","Utilities","Rent","Transport","Owner Draw","Profit Withdrawal","Commission Expense","Other Expense"];
+// Loan Received/Loan Repayment/Financing Cost are for money fronted by someone outside the
+// business (not an owner) to cover a specific purchase, repaid later with a premium on top —
+// kept separate from Owner Capital (that's an owner's own stake in the business, not a debt) and
+// from Material Purchase (so repaying the loan doesn't look like buying the material a second
+// time). Loan Received should be logged for the same amount, date and line as the purchase it
+// funded, so Cash nets to zero that day (the business never actually had that cash itself) while
+// still counting the purchase as a real expense. On repayment: the principal is Loan Repayment
+// (just returning borrowed money, not a new cost), and only the premium on top is Financing Cost
+// (the real cost of having borrowed it, which belongs in P&L).
+const CASH_CATEGORIES_IN=["Customer Payment","Owner Capital","Asset Sale","Loan Received","Other Income"];
+const CASH_CATEGORIES_OUT=["Material Purchase","Wages","Maintenance","Utilities","Rent","Transport","Owner Draw","Profit Withdrawal","Commission Expense","Loan Repayment","Financing Cost","Other Expense"];
 // Fixed per-category color for the P&L's expense breakdown chart — picked from colors already
 // used elsewhere in the app (material accents, status dots) so a category reads the same way
 // everywhere, and a category always gets the same color rather than one assigned by sort order.
 const EXPENSE_CATEGORY_COLORS={
   "Material Purchase":"#2D6A9F","Wages":"#B8860B","Maintenance":"#B85C1A","Utilities":"#17A2B8",
-  "Rent":"#8B6FC7","Transport":"#607D8B","Commission Expense":"#DC3545","Other Expense":"#999999",
+  "Rent":"#8B6FC7","Transport":"#607D8B","Commission Expense":"#DC3545","Loan Repayment":"#4A6741",
+  "Financing Cost":"#B22222","Other Expense":"#999999",
 };
 // Owner Capital, Owner Draw and Profit Withdrawal are the only categories where money moves
 // between a specific owner and the business, so only they carry an "owner" — the split matches
@@ -573,9 +583,10 @@ function lineLabel(lang,line){if(lang!=="ar")return line;return LINE_LABEL_AR[li
 const OWNER_LABEL_AR={"Youssef":"يوسف","Roger":"روجر","Islam":"إسلام"};
 function ownerLabel(lang,name){if(lang!=="ar")return name;return OWNER_LABEL_AR[name]||name;}
 const CATEGORY_LABEL_AR={
-  "Customer Payment":"دفعة من عميل","Owner Capital":"رأس مال من المالك","Asset Sale":"بيع أصول","Other Income":"إيرادات أخرى",
+  "Customer Payment":"دفعة من عميل","Owner Capital":"رأس مال من المالك","Asset Sale":"بيع أصول","Loan Received":"قرض مستلم","Other Income":"إيرادات أخرى",
   "Material Purchase":"شراء خامات","Wages":"أجور","Maintenance":"صيانة","Utilities":"مرافق","Rent":"إيجار","Transport":"نقل",
-  "Owner Draw":"سحب مالك","Profit Withdrawal":"سحب أرباح","Commission Expense":"مصروف عمولة","Other Expense":"مصروفات أخرى",
+  "Owner Draw":"سحب مالك","Profit Withdrawal":"سحب أرباح","Commission Expense":"مصروف عمولة","Loan Repayment":"سداد قرض",
+  "Financing Cost":"تكلفة تمويل","Other Expense":"مصروفات أخرى",
 };
 function categoryLabel(lang,cat){if(lang!=="ar")return cat;return CATEGORY_LABEL_AR[cat]||cat;}
 const STATUS_LABEL_AR={"RECEIVED":"تم الاستلام","OVERDUE":"متأخر","DUE LATER":"مستحق لاحقًا","NEED SHIP DATE":"بحاجة لتاريخ الشحن"};
