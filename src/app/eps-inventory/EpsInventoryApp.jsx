@@ -2834,6 +2834,8 @@ function UseStockModal({lot,matConfig,onSave,onClose}){
 // scrap leaves as a sale (with a price to remember for finance later), not production usage.
 function SellScrapModal({lot,matConfig,onSave,onClose}){
   const [qty,setQty]=useState(""),[price,setPrice]=useState(""),[buyer,setBuyer]=useState(""),[error,setError]=useState("");
+  const [date,setDate]=useState(new Date().toISOString().split("T")[0]);
+  const dispDate=d=>d?new Date(d+"T00:00:00").toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}).replace(/ /g,"-"):today();
   const remKg=Number(lot.qtyRemaining)||0,qtyNum=Number(qty)||0,priceNum=Number(price)||0;
   // Selling more than the tracked estimate shows (the tracked figure is a %-based estimate, not
   // a measurement — see creditScrap) no longer blocks the sale: it auto-corrects the pool up to
@@ -2848,11 +2850,12 @@ function SellScrapModal({lot,matConfig,onSave,onClose}){
     if(!qty||qtyNum<=0){setError("Enter how much you sold.");return;}
     if(!price||priceNum<=0){setError("Enter the price you sold it for.");return;}
     const ns=newRem<=0?"Out of Stock":lot.status;
-    const correctionLog=needsCorrection?[{id:genId(),date:today(),qtyUsed:-correctionKg,
+    const saleDate=dispDate(date);
+    const correctionLog=needsCorrection?[{id:genId(),date:saleDate,qtyUsed:-correctionKg,
       reason:"Weight correction (auto, via Sell Scrap): estimate was low by "+fmt(correctionKg)+" KG",remainingAfter:baseRem}]:[];
     // saleRevenue/saleCurrency are structured (for finance calcs to sum directly) alongside
     // the human-readable reason text — the two are always kept in sync here.
-    onSave(Object.assign({},lot,{qtyRemaining:Math.max(0,newRem),status:ns,usageLog:(lot.usageLog||[]).concat(correctionLog).concat([{id:genId(),date:today(),qtyUsed:qtyNum,reason:"Sold"+(buyer?" to "+buyer:"")+" — "+fmt(priceNum)+" EGP ("+fmt(rate)+" EGP/KG)",remainingAfter:Math.max(0,newRem),saleRevenue:priceNum,saleCurrency:"EGP",buyer:buyer||null}])}));
+    onSave(Object.assign({},lot,{qtyRemaining:Math.max(0,newRem),status:ns,usageLog:(lot.usageLog||[]).concat(correctionLog).concat([{id:genId(),date:saleDate,qtyUsed:qtyNum,reason:"Sold"+(buyer?" to "+buyer:"")+" — "+fmt(priceNum)+" EGP ("+fmt(rate)+" EGP/KG)",remainingAfter:Math.max(0,newRem),saleRevenue:priceNum,saleCurrency:"EGP",buyer:buyer||null}])}));
   };
   return(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
     <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:420,overflow:"hidden"}}>
@@ -2866,6 +2869,10 @@ function SellScrapModal({lot,matConfig,onSave,onClose}){
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
           <Field label={"Qty Sold ("+lot.unit+")"} value={qty} onChange={v=>{setQty(v);setError("");}} type="number" accent={matConfig.accent}/>
           <Field label="Sale Price (EGP)" value={price} onChange={v=>{setPrice(v);setError("");}} type="number" ph="Total, not per-KG" accent={matConfig.accent}/></div>
+        <div style={{marginBottom:14}}>
+          <label style={{display:"block",fontSize:11,fontWeight:700,color:"#666",marginBottom:4,textTransform:"uppercase"}}>Date Sold</label>
+          <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:8,padding:"9px 12px",fontSize:13,boxSizing:"border-box"}}/>
+          <div style={{fontSize:11,color:"#999",marginTop:4}}>Defaults to today — backdate it if you&apos;re logging a sale that actually happened earlier.</div></div>
         {qtyNum>0&&priceNum>0&&<div style={{fontSize:12,color:matConfig.color,marginBottom:14}}>≈ {fmt(rate)} EGP/KG</div>}
         {needsCorrection&&<div style={{background:"#FFF9E6",border:"1px solid #E6A817",borderRadius:8,padding:"9px 12px",marginBottom:14,fontSize:12,color:"#856404"}}>
           ⚖️ That&apos;s {fmt(correctionKg)} {lot.unit} more than tracked — the estimate was low. Recording this sale will also correct the pool up to {fmt(qtyNum)} {lot.unit} first.</div>}
