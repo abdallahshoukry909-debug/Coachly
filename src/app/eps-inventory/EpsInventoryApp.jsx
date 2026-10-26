@@ -8,7 +8,7 @@ import {jsPDF} from "jspdf";
 const SHARED_KEY="eps-inventory-data-v1";
 const NAVY="#1A3C5E",ACCENT="#2D6A9F";
 const CAP_WT=0.56,ASM_WT=0.96,PCS_INJ=64,BAG_KG=25,PLASTIC_BAG_KG=25,WASTE_PER_INJ=28,DEFAULT_SCRAP_RATE_EGP=160;
-const ALCAP_WT_KG=0.405,COIL_KG_TO_CAPS=1972.4;
+const ALCAP_WT_KG=0.405,COIL_KG_TO_CAPS=1792.4;
 // Starting labor rates, worked back from real figures — all editable in Finance since actual
 // pay varies: Sorting 10 girls x 300 EGP/day, 200,000 pcs sorted/day; Injection 27,000 EGP/26
 // days over 2 x 12h shifts/day; Press 12,000 EGP/16 shifts/month, 1 shift = 240,000 pcs.
