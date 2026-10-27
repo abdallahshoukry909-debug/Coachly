@@ -341,12 +341,16 @@ function EmployeesSection({employees,batches,onSave,onDelete,onClose}){
 // (just returning borrowed money, not a new cost), and only the premium on top is Financing Cost
 // (the real cost of having borrowed it, which belongs in P&L).
 const CASH_CATEGORIES_IN=["Customer Payment","Owner Capital","Asset Sale","Loan Received","Other Income"];
-const CASH_CATEGORIES_OUT=["Material Purchase","Wages","Maintenance","Utilities","Rent","Transport","Owner Draw","Profit Withdrawal","Commission Expense","Loan Repayment","Financing Cost","Other Expense"];
+// Factory Setup is one-off/renovation-type spending (fit-out, installation work, non-routine
+// equipment) — kept separate from Maintenance (which is ongoing repairs/servicing of what's
+// already running) and from Material Purchase (raw materials), matching how the owners' own
+// finance spreadsheet already classifies this spending as its own category.
+const CASH_CATEGORIES_OUT=["Material Purchase","Wages","Maintenance","Factory Setup","Utilities","Rent","Transport","Owner Draw","Profit Withdrawal","Commission Expense","Loan Repayment","Financing Cost","Other Expense"];
 // Fixed per-category color for the P&L's expense breakdown chart — picked from colors already
 // used elsewhere in the app (material accents, status dots) so a category reads the same way
 // everywhere, and a category always gets the same color rather than one assigned by sort order.
 const EXPENSE_CATEGORY_COLORS={
-  "Material Purchase":"#2D6A9F","Wages":"#B8860B","Maintenance":"#B85C1A","Utilities":"#17A2B8",
+  "Material Purchase":"#2D6A9F","Wages":"#B8860B","Maintenance":"#B85C1A","Factory Setup":"#5A7D2A","Utilities":"#17A2B8",
   "Rent":"#8B6FC7","Transport":"#607D8B","Commission Expense":"#DC3545","Loan Repayment":"#4A6741",
   "Financing Cost":"#B22222","Other Expense":"#999999",
 };
@@ -590,7 +594,7 @@ const OWNER_LABEL_AR={"Youssef":"يوسف","Roger":"روجر","Islam":"إسلا�
 function ownerLabel(lang,name){if(lang!=="ar")return name;return OWNER_LABEL_AR[name]||name;}
 const CATEGORY_LABEL_AR={
   "Customer Payment":"دفعة من عميل","Owner Capital":"رأس مال من المالك","Asset Sale":"بيع أصول","Loan Received":"قرض مستلم","Other Income":"إيرادات أخرى",
-  "Material Purchase":"شراء خامات","Wages":"أجور","Maintenance":"صيانة","Utilities":"مرافق","Rent":"إيجار","Transport":"نقل",
+  "Material Purchase":"شراء خامات","Wages":"أجور","Maintenance":"صيانة","Factory Setup":"تجهيز المصنع","Utilities":"مرافق","Rent":"إيجار","Transport":"نقل",
   "Owner Draw":"سحب مالك","Profit Withdrawal":"سحب أرباح","Commission Expense":"مصروف عمولة","Loan Repayment":"سداد قرض",
   "Financing Cost":"تكلفة تمويل","Other Expense":"مصروفات أخرى",
 };
