@@ -5189,6 +5189,112 @@ function BatchOrderReportDoc({type,report,onBack}){
     </ReportSection>
   </div>);
 }
+// Daily KPI snapshot — the handful of numbers worth checking every day to gauge whether the
+// business is healthy, built entirely from data already tracked elsewhere (Cash Ledger,
+// Production, Sales) so there's nothing new to maintain by hand. "This week" is a trailing
+// 7-day window ending today, not the calendar week.
+function computeKPIs(data,batches,orders,cashLedger,cashOpening,laborRates,silicaEntries,silicaSettings,flipOffSettings){
+  const todayIso=new Date().toISOString().split("T")[0];
+  const weekAgoIso=new Date(Date.now()-6*86400000).toISOString().split("T")[0];
+
+  const cashBalance=cashRunningBalance(cashOpening,cashLedger);
+  const taxReserve=taxReserveEGP(batches,silicaEntries,data,laborRates,silicaSettings,flipOffSettings,"all");
+  const monthPnl=cashPnL(cashPeriodFilter(cashLedger,"month"));
+  const weekLedger=(cashLedger||[]).filter(e=>e.date&&e.date>=weekAgoIso&&e.date<=todayIso);
+  const weekCashIn=weekLedger.filter(e=>e.type==="in").reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const weekCashOut=weekLedger.filter(e=>e.type==="out").reduce((s,e)=>s+(Number(e.amount)||0),0);
+
+  const main=(batches||[]).filter(b=>!b.isSubBatch);
+  const byNo=batchNoMap(batches);
+  const shifts=(batches||[]).filter(b=>b.isSubBatch&&!b.isCarryover);
+  const lineOf=s=>{const p=byNo[s.parentBatchNo];return p?(isSilicaProduct(p.product)?"Silica Gel":"Flip-Off"):null;};
+  const todayShifts=shifts.filter(s=>s.mfgDate===todayIso);
+  const weekShifts=shifts.filter(s=>s.mfgDate&&s.mfgDate>=weekAgoIso&&s.mfgDate<=todayIso);
+  const sumGood=arr=>arr.reduce((s,x)=>s+(x.goodPcs||0),0);
+  const sumReject=arr=>arr.reduce((s,x)=>s+(x.rejectedPcs||0)+(x.finalRejectedPcs||0),0);
+  const todayGood=sumGood(todayShifts),weekGood=sumGood(weekShifts),weekReject=sumReject(weekShifts);
+  const todayGoodFO=sumGood(todayShifts.filter(s=>lineOf(s)==="Flip-Off"));
+  const todayGoodSG=sumGood(todayShifts.filter(s=>lineOf(s)==="Silica Gel"));
+  const weekRejectRate=(weekGood+weekReject)>0?weekReject/(weekGood+weekReject):0;
+
+  // Overdue receivables across both lines — same status logic the Sales tab itself uses
+  // (commissionRowCalc), so this always agrees with what that tab shows.
+  const linkedBatchIds={};(silicaEntries||[]).forEach(en=>{(en.batchIds||(en.batchId?[en.batchId]:[])).forEach(id=>{linkedBatchIds[id]=1;});});
+  const silicaRows=(silicaEntries||[]).concat(commissionRowsFromBatches(batches,data,laborRates,true,linkedBatchIds));
+  const flipOffRows=commissionRowsFromBatches(batches,data,laborRates,false);
+  let overdueEGP=0,overdueCount=0;
+  if(silicaSettings)silicaRows.forEach(r=>{const c=commissionRowCalc(r,silicaSettings);if(c.paymentStatus==="OVERDUE"){overdueEGP+=c.balanceOwed;overdueCount++;}});
+  if(flipOffSettings)flipOffRows.forEach(r=>{const c=commissionRowCalc(r,flipOffSettings);if(c.paymentStatus==="OVERDUE"){overdueEGP+=c.balanceOwed;overdueCount++;}});
+
+  // Materials sitting at Low Stock or Out of Stock right now.
+  let lowStockCount=0;const lowStockMats=[];
+  Object.keys(data||{}).forEach(matKey=>{
+    const lots=(data[matKey]&&data[matKey].lots)||[];
+    const bad=lots.filter(l=>l.status==="Low Stock"||l.status==="Out of Stock");
+    if(bad.length){lowStockCount+=bad.length;lowStockMats.push(matKey);}
+  });
+
+  // Batches that have sat in "Production" for more than 14 days — likely stalled rather than
+  // genuinely still being worked, since a normal run finishes well inside that window.
+  const stalled=main.filter(b=>{
+    if(b.status!=="Production"||b.isSample||!b.mfgDate)return false;
+    return (Date.now()-new Date(b.mfgDate+"T00:00:00").getTime())/86400000>14;
+  });
+
+  // Orders with at least one linked batch that hasn't shipped (or been rejected) yet.
+  const ordersPending=(orders||[]).filter(o=>{
+    const linked=main.filter(b=>b.orderNo===o.orderNo);
+    return linked.length>0&&linked.some(b=>b.status!=="Shipped"&&b.status!=="Rejected");
+  });
+
+  return {cashBalance,taxReserve,monthNetProfit:monthPnl.netProfit,weekCashIn,weekCashOut,weekNetCash:weekCashIn-weekCashOut,
+    todayGood,todayGoodFO,todayGoodSG,weekGood,weekReject,weekRejectRate,overdueEGP,overdueCount,
+    lowStockCount,lowStockMats,stalledCount:stalled.length,stalled,ordersPendingCount:ordersPending.length};
+}
+function KPIStat({label,value,sub,color,warn}){
+  return(<div style={{background:"#fff",borderRadius:12,border:"1.5px solid "+(warn?"#F1948A":"#EEF2F7"),padding:14}}>
+    <div style={{fontSize:10,fontWeight:700,color:"#999",textTransform:"uppercase",marginBottom:4}}>{label}</div>
+    <div style={{fontSize:22,fontWeight:900,color:color||NAVY}}>{value}</div>
+    {sub&&<div style={{fontSize:11,color:"#888",marginTop:3}}>{sub}</div>}
+  </div>);
+}
+function KPISection({data,batches,orders,cashLedger,cashOpening,laborRates,silicaEntries,silicaSettings,flipOffSettings,onClose}){
+  const k=computeKPIs(data,batches,orders,cashLedger,cashOpening,laborRates,silicaEntries,silicaSettings,flipOffSettings);
+  const grid={display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16};
+  const sectionLabel={fontSize:11,fontWeight:800,color:"#999",textTransform:"uppercase",marginBottom:8};
+  return(<div style={{minHeight:"100vh",background:"#F7F9FC",fontFamily:"'Inter',sans-serif"}}>
+    <div style={{background:"linear-gradient(135deg,#0D1F3C,"+NAVY+")",position:"sticky",top:0,zIndex:100}}>
+      <div style={{maxWidth:700,margin:"0 auto",padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
+        <button type="button" onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:8,padding:"7px 13px",cursor:"pointer",fontWeight:700,fontSize:13}}>← Back</button>
+        <div><div style={{color:"#fff",fontWeight:800,fontSize:17}}>📈 KPI</div>
+          <div style={{color:"rgba(255,255,255,0.5)",fontSize:11}}>Check this every day — is the business healthy?</div></div></div></div>
+    <div style={{maxWidth:700,margin:"0 auto",padding:16}}>
+      <div style={sectionLabel}>💰 Cash</div>
+      <div style={grid}>
+        <KPIStat label="Cash Balance" value={fmtN(k.cashBalance)+" EGP"} color={k.cashBalance>=0?"#1A6B2A":"#DC3545"} warn={k.cashBalance<0} sub={k.cashBalance<0?"⚠️ Negative":null}/>
+        <KPIStat label="Tax Reserve — Don't Spend" value={fmtN(k.taxReserve)+" EGP"} color="#B8860B"/>
+        <KPIStat label="This Month Net Profit" value={fmtN(k.monthNetProfit)+" EGP"} color={k.monthNetProfit>=0?"#1A6B2A":"#DC3545"}/>
+        <KPIStat label="Last 7 Days Net Cash" value={(k.weekNetCash>=0?"+":"")+fmtN(k.weekNetCash)+" EGP"} color={k.weekNetCash>=0?"#1A6B2A":"#DC3545"} sub={"In "+fmtN(k.weekCashIn)+" · Out "+fmtN(k.weekCashOut)}/>
+      </div>
+      <div style={sectionLabel}>🏭 Production</div>
+      <div style={grid}>
+        <KPIStat label="Packed Today" value={fmtN(k.todayGood)+" pcs"} sub={"🧴 FO "+fmtN(k.todayGoodFO)+" · 🟡 SG "+fmtN(k.todayGoodSG)}/>
+        <KPIStat label="Packed Last 7 Days" value={fmtN(k.weekGood)+" pcs"}/>
+        <KPIStat label="Reject Rate (7 Days)" value={(k.weekRejectRate*100).toFixed(1)+"%"} color={k.weekRejectRate>0.05?"#DC3545":"#1A6B2A"} warn={k.weekRejectRate>0.05} sub={k.weekRejectRate>0.05?"⚠️ Above 5%":"Healthy"}/>
+        <KPIStat label="Stalled Batches" value={k.stalledCount} color={k.stalledCount>0?"#DC3545":"#1A6B2A"} warn={k.stalledCount>0} sub={k.stalledCount>0?"In Production 14+ days":"None"}/>
+      </div>
+      <div style={sectionLabel}>💵 Sales &amp; Inventory</div>
+      <div style={grid}>
+        <KPIStat label="Overdue Payments" value={fmtN(k.overdueEGP)+" EGP"} color={k.overdueEGP>0?"#DC3545":"#1A6B2A"} warn={k.overdueEGP>0} sub={k.overdueCount+" sale"+(k.overdueCount===1?"":"s")+" overdue"}/>
+        <KPIStat label="Orders Awaiting Shipment" value={k.ordersPendingCount}/>
+        <KPIStat label="Low / Out of Stock Lots" value={k.lowStockCount} color={k.lowStockCount>0?"#E6A817":"#1A6B2A"} warn={k.lowStockCount>0} sub={k.lowStockMats.length?k.lowStockMats.join(", "):"All stocked"}/>
+      </div>
+      {k.stalled.length>0&&<div style={{background:"#FFF0F0",border:"1px solid #F1948A",borderRadius:12,padding:14}}>
+        <div style={{fontWeight:800,fontSize:13,color:"#8B1A1A",marginBottom:8}}>⚠️ Batches Stuck In Production 14+ Days</div>
+        {k.stalled.map(b=><div key={b.id} style={{fontSize:12,color:"#8B1A1A",padding:"4px 0"}}>{b.batchNo} — {b.color}{b.client?" · "+b.client:""} ({b.mfgDate})</div>)}
+      </div>}
+    </div></div>);
+}
 function ReportsSection({data,batches,orders,onClose}){
   const [doc,setDoc]=useState(null);
   const [monthKey,setMonthKey]=useState(()=>{const d=new Date();return d.getFullYear()+"-"+pad(d.getMonth()+1,2);});
@@ -6453,6 +6559,8 @@ export default function EpsInventoryApp(){
   let content;
   if(section==="log")content=<ActivityLog data={data} batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="reports")content=<ReportsSection data={data} batches={batches} orders={orders} onClose={()=>setSection("inventory")}/>;
+  else if(section==="kpi")content=<KPISection data={data} batches={batches} orders={orders} cashLedger={cashLedger} cashOpening={cashOpening} laborRates={laborRates}
+    silicaEntries={silicaCommissionEntries} silicaSettings={silicaCommissionSettings} flipOffSettings={flipOffCommissionSettings} onClose={()=>setSection("inventory")}/>;
   else if(section==="finance")content=<FinanceSection data={data} batches={batches} orders={orders} laborRates={laborRates} onSaveLaborRates={setLaborRates} onUpdateBatch={updateBatch} onClose={()=>setSection("inventory")}/>;
   else if(section==="labels")content=<LabelsSection batches={batches} onClose={()=>setSection("inventory")}/>;
   else if(section==="certificates")content=<CertificatesSection batches={batches} onClose={()=>setSection("inventory")}/>;
@@ -6478,11 +6586,11 @@ export default function EpsInventoryApp(){
     onToggleBag={(lid,bid)=>toggleBag(activeMat,lid,bid)} onCreateAlBatch={createAlBatch}/>;
   else content=<Dashboard data={data} batches={batches} orders={orders} onSelect={setActiveMat} onLogout={logout} onExport={exportBackup} onImportFile={importBackup} lastSync={lastSync} onSection={s=>{setSection(s);setActiveMat(null);}}/>;
 
-  const showTabs=section!=="log"&&section!=="reports"&&section!=="finance"&&section!=="labels"&&section!=="certificates"&&section!=="employees"&&section!=="cashledger"&&!activeMat;
+  const showTabs=section!=="log"&&section!=="reports"&&section!=="finance"&&section!=="labels"&&section!=="certificates"&&section!=="employees"&&section!=="cashledger"&&section!=="kpi"&&!activeMat;
   return(<div style={{fontFamily:"'Inter',sans-serif"}}>
     {showTabs&&<div style={{background:"#142540",position:"sticky",top:0,zIndex:200,borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
       <div style={{maxWidth:700,margin:"0 auto",display:"flex"}}>
-        {[["📦 Inventory","inventory"],["🏭 Production","production"],["🧾 Reports","reports"],["💰 Finance","finance"],["🏦 EP Finance","cashledger"],["📊 Log","log"]].map(x=>(
+        {[["📦 Inventory","inventory"],["🏭 Production","production"],["📈 KPI","kpi"],["🧾 Reports","reports"],["💰 Finance","finance"],["🏦 EP Finance","cashledger"],["📊 Log","log"]].map(x=>(
           <button type="button" key={x[1]} onClick={()=>{setSection(x[1]);setActiveMat(null);}}
             style={{flex:1,background:"none",border:"none",color:section===x[1]?"#fff":"rgba(255,255,255,0.45)",padding:"11px 8px",fontSize:12,fontWeight:section===x[1]?700:400,cursor:"pointer",borderBottom:"2px solid "+(section===x[1]?ACCENT:"transparent"),fontFamily:"inherit",whiteSpace:"nowrap"}}>{x[0]}</button>))}
       </div></div>}
